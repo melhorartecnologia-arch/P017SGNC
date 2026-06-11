@@ -655,7 +655,14 @@ export function RncWizard({
               <select
                 className={cn(selectClass)}
                 value={tipoId}
-                onChange={(e) => setTipoId(e.target.value)}
+                onChange={(e) => {
+                  const novoTipoId = e.target.value
+                  setTipoId(novoTipoId)
+                  // Preenche a severidade com a padrão do tipo escolhido
+                  // (cadastro de Tipos de NC). Pode ser alterada na etapa 4.
+                  const tipo = tipos.find((t) => t.id === novoTipoId)
+                  setSeveridadeId(tipo?.severidade?.id ?? '')
+                }}
                 required
               >
                 <option value="" disabled>
@@ -1226,6 +1233,13 @@ export function RncWizard({
                       </option>
                     ))}
                   </select>
+                  {tipoSelecionado?.severidade &&
+                    severidadeId === tipoSelecionado.severidade.id && (
+                      <span className="text-xs text-neutral-500">
+                        Severidade padrão do tipo de não conformidade —
+                        altere se necessário.
+                      </span>
+                    )}
                   {tipoSelecionado?.severidade && !severidadeId && (
                     <span className="text-xs text-neutral-500">
                       Severidade típica do tipo:{' '}
