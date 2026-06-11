@@ -73,6 +73,10 @@ export function RncWizard({
   const filialPadraoId =
     auth.status === 'authenticated' ? auth.user.filialPadraoId : null
   const [step, setStep] = React.useState<Step>(1)
+  // Sub-etapas da etapa 3 (Material & transporte), para o conteúdo caber
+  // no modal sem barra de rolagem: 1 = Material & lote, 2 = Notas
+  // fiscais & datas, 3 = Transporte.
+  const [subStep3, setSubStep3] = React.useState<1 | 2 | 3>(1)
 
   // Step 1 — dados básicos
   const [filiais, setFiliais] = React.useState<Filial[]>([])
@@ -129,6 +133,7 @@ export function RncWizard({
   React.useEffect(() => {
     if (!open) {
       setStep(1)
+      setSubStep3(1)
       setFilialId('')
       setData(todayISO())
       setTipoId('')
@@ -155,6 +160,7 @@ export function RncWizard({
     }
     if (initial) {
       setStep(1)
+      setSubStep3(1)
       setFilialId(initial.filialId)
       setData(initial.dataIdentificacao.slice(0, 10))
       setTipoId(initial.tipoNaoConformidadeId)
@@ -385,14 +391,18 @@ export function RncWizard({
   const dataFutura = !!data && data > todayISO()
   const step1Valid = filialId && data && !dataFutura && tipoId && turnoId
   const step2Valid = !!fornecedor
-  const step3Valid =
+  // Validade por sub-etapa da etapa 3. Transporte é todo opcional.
+  const materialValid =
     !!produto &&
     lotesPreenchidos.length > 0 &&
     !lotesDuplicados &&
     !lotesComQtdInvalida &&
     qtdDefeitoInformada &&
-    !qtdDefeitoInvalida &&
-    !notasInvalidas
+    !qtdDefeitoInvalida
+  const notasValid = !notasInvalidas
+  const step3Valid = materialValid && notasValid
+  const subStep3Valid =
+    subStep3 === 1 ? materialValid : subStep3 === 2 ? notasValid : step3Valid
   const stepFinalValid = step1Valid && step2Valid && step3Valid
 
   const addLoteRow = () => {
@@ -497,12 +507,22 @@ export function RncWizard({
     }
     if (step === 2 && step2Valid) {
       setStep(3)
+      setSubStep3(1)
       return
     }
-    if (step === 3 && step3Valid) {
-      // Produto e ao menos um lote são obrigatórios; demais campos do
-      // step 3 (qts, NF, transporte) permanecem opcionais.
-      setStep(4)
+    if (step === 3) {
+      // Avança pelas sub-etapas; só sai da etapa 3 a partir da última.
+      if (subStep3 === 1 && materialValid) {
+        setSubStep3(2)
+        return
+      }
+      if (subStep3 === 2 && notasValid) {
+        setSubStep3(3)
+        return
+      }
+      if (subStep3 === 3 && step3Valid) {
+        setStep(4)
+      }
       return
     }
     if (step === 4 && stepFinalValid) {
@@ -530,9 +550,13 @@ export function RncWizard({
   const goBack = () => {
     setError(null)
     if (step === 2) setStep(1)
-    else if (step === 3) setStep(2)
-    else if (step === 4) setStep(3)
-    else if (step === 5) setStep(4)
+    else if (step === 3) {
+      if (subStep3 > 1) setSubStep3((subStep3 - 1) as 1 | 2)
+      else setStep(2)
+    } else if (step === 4) {
+      setStep(3)
+      setSubStep3(3)
+    } else if (step === 5) setStep(4)
   }
 
   const handleConcluir = () => {
@@ -753,6 +777,28 @@ export function RncWizard({
 
         {step === 3 && (
           <section className="flex flex-col gap-4">
+            {/* Mini-stepper das sub-etapas da etapa 3 */}
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <SubStepBadge
+                active={subStep3 === 1}
+                done={subStep3 > 1}
+                label="Material & lote"
+              />
+              <ChevronRight className="h-3 w-3 text-neutral-300" />
+              <SubStepBadge
+                active={subStep3 === 2}
+                done={subStep3 > 2}
+                label="Notas fiscais & datas"
+              />
+              <ChevronRight className="h-3 w-3 text-neutral-300" />
+              <SubStepBadge
+                active={subStep3 === 3}
+                done={false}
+                label="Transporte"
+              />
+            </div>
+
+            {subStep3 === 1 && (
             <Section title="Material & lote">
               <Field label="Produto" required>
                 <ProdutoCombobox
@@ -923,7 +969,9 @@ export function RncWizard({
                 </Field>
               </div>
             </Section>
+            )}
 
+            {subStep3 === 2 && (
             <Section title="Notas fiscais & datas">
               <div className="flex flex-col gap-2">
                 <span className="text-xs text-neutral-500">
@@ -1058,7 +1106,9 @@ export function RncWizard({
                 </div>
               </div>
             </Section>
+            )}
 
+            {subStep3 === 3 && (
             <Section title="Transporte">
               <Field label="Transportador">
                 <Input
@@ -1106,6 +1156,7 @@ export function RncWizard({
                 </Field>
               </div>
             </Section>
+            )}
           </section>
         )}
 
@@ -1212,7 +1263,10 @@ export function RncWizard({
         )}
 
         <div className="flex items-center justify-between gap-2 pt-2">
-          <div className="text-xs text-neutral-500">Etapa {step} de 5</div>
+          <div className="text-xs text-neutral-500">
+            Etapa {step} de 5
+            {step === 3 && <> · parte {subStep3} de 3</>}
+          </div>
           <div className="flex gap-2">
             {step > 1 && (
               <Button variant="outline" onClick={goBack} disabled={saving}>
@@ -1234,7 +1288,7 @@ export function RncWizard({
                     : step === 2
                       ? !step2Valid
                       : step === 3
-                        ? !step3Valid
+                        ? !subStep3Valid
                         : false
                 }
               >
@@ -1296,6 +1350,32 @@ function StepBadge({
       >
         {done ? <Check className="h-2.5 w-2.5" /> : index}
       </span>
+      {label}
+    </span>
+  )
+}
+
+function SubStepBadge({
+  active,
+  done,
+  label,
+}: {
+  active: boolean
+  done: boolean
+  label: string
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-medium',
+        active
+          ? 'border-neutral-900 bg-neutral-900 text-white'
+          : done
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            : 'border-neutral-200 bg-white text-neutral-500',
+      )}
+    >
+      {done && <Check className="h-2.5 w-2.5" />}
       {label}
     </span>
   )
