@@ -91,7 +91,14 @@ const rncBaseSchema = z.object({
   lotes: z
     .array(
       z.object({
-        numero: z.string().trim().min(1, 'Lote vazio').max(80),
+        // Normalizado para maiúsculas: "l123" e "L123" são o mesmo lote.
+        // O refine de duplicidade abaixo roda após esta transformação.
+        numero: z
+          .string()
+          .trim()
+          .min(1, 'Lote vazio')
+          .max(80)
+          .transform((v) => v.toUpperCase()),
         quantidade: z
           .union([
             z.coerce.number({ invalid_type_error: 'Quantidade do lote inválida' }),

@@ -321,7 +321,11 @@ export function RncWizard({
     () => lotes.filter((l) => l.numero.trim() !== ''),
     [lotes],
   )
-  const numerosDeLote = lotesPreenchidos.map((l) => l.numero.trim())
+  // Lotes duplicados: comparação sem distinção de maiúsculas/minúsculas
+  // ("L123" e "l123" são o mesmo lote).
+  const numerosDeLote = lotesPreenchidos.map((l) =>
+    l.numero.trim().toUpperCase(),
+  )
   const lotesDuplicados =
     new Set(numerosDeLote).size !== numerosDeLote.length
   const totalLote = lotes.reduce((acc, l) => {
@@ -705,52 +709,63 @@ export function RncWizard({
                 ) : (
                   <div className="flex flex-col gap-1.5">
                     {lotes.map((l, idx) => {
+                      // Repete um lote informado em uma linha anterior?
+                      // Comparação sem distinção de maiúsculas/minúsculas.
+                      const numeroNorm = l.numero.trim().toUpperCase()
                       const numeroDup =
-                        l.numero.trim() !== '' &&
-                        lotes.findIndex(
-                          (x, i) => i !== idx && x.numero.trim() === l.numero.trim(),
-                        ) !== -1
+                        numeroNorm !== '' &&
+                        lotes.some(
+                          (x, i) =>
+                            i < idx &&
+                            x.numero.trim().toUpperCase() === numeroNorm,
+                        )
                       return (
-                        <div
-                          key={idx}
-                          className="grid grid-cols-12 items-center gap-2"
-                        >
-                          <Input
-                            className={`col-span-7 ${numeroDup ? 'border-red-400' : ''}`}
-                            value={l.numero}
-                            onChange={(e) =>
-                              updateLoteRow(idx, { numero: e.target.value })
-                            }
-                            placeholder="Nº do lote (ex.: L2024A123)"
-                            maxLength={80}
-                            disabled={saving}
-                          />
-                          <Input
-                            className="col-span-4"
-                            type="number"
-                            inputMode="decimal"
-                            step="any"
-                            min={0}
-                            value={l.quantidade}
-                            onChange={(e) =>
-                              updateLoteRow(idx, { quantidade: e.target.value })
-                            }
-                            placeholder={
-                              produto
-                                ? `Qtd. (${produto.unidadeMedida})`
-                                : 'Qtd.'
-                            }
-                            disabled={saving}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeLoteRow(idx)}
-                            disabled={saving}
-                            aria-label={`Remover lote ${idx + 1}`}
-                            className="col-span-1 inline-flex h-9 items-center justify-center rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900 disabled:opacity-50"
-                          >
-                            ×
-                          </button>
+                        <div key={idx} className="flex flex-col gap-1">
+                          <div className="grid grid-cols-12 items-center gap-2">
+                            <Input
+                              className={`col-span-7 ${numeroDup ? 'border-red-400' : ''}`}
+                              value={l.numero}
+                              onChange={(e) =>
+                                updateLoteRow(idx, {
+                                  numero: e.target.value.toUpperCase(),
+                                })
+                              }
+                              placeholder="Nº do lote (ex.: L2024A123)"
+                              maxLength={80}
+                              disabled={saving}
+                            />
+                            <Input
+                              className="col-span-4"
+                              type="number"
+                              inputMode="decimal"
+                              step="any"
+                              min={0}
+                              value={l.quantidade}
+                              onChange={(e) =>
+                                updateLoteRow(idx, { quantidade: e.target.value })
+                              }
+                              placeholder={
+                                produto
+                                  ? `Qtd. (${produto.unidadeMedida})`
+                                  : 'Qtd.'
+                              }
+                              disabled={saving}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeLoteRow(idx)}
+                              disabled={saving}
+                              aria-label={`Remover lote ${idx + 1}`}
+                              className="col-span-1 inline-flex h-9 items-center justify-center rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900 disabled:opacity-50"
+                            >
+                              ×
+                            </button>
+                          </div>
+                          {numeroDup && (
+                            <span className="text-xs text-red-600">
+                              Este lote já foi informado nesta RNC.
+                            </span>
+                          )}
                         </div>
                       )
                     })}
