@@ -28,6 +28,7 @@ import { origensApi, type Origem } from '@/lib/api/origens'
 import { severidadesApi, type Severidade } from '@/lib/api/severidades'
 import type { Produto } from '@/lib/api/produtos'
 import { rncApi, type Rnc } from '@/lib/api/rnc'
+import { useAuth } from '@/lib/auth/AuthContext'
 import { FornecedorCombobox } from './FornecedorCombobox'
 import { ProdutoCombobox } from './ProdutoCombobox'
 import { RncFotosSection } from './RncFotosSection'
@@ -68,6 +69,9 @@ export function RncWizard({
   onUpdated,
 }: Props) {
   const editing = !!initial
+  const auth = useAuth()
+  const filialPadraoId =
+    auth.status === 'authenticated' ? auth.user.filialPadraoId : null
   const [step, setStep] = React.useState<Step>(1)
 
   // Step 1 — dados básicos
@@ -236,11 +240,22 @@ export function RncWizard({
         setDisposicoes(d.items)
         setOrigens(o.items)
         setSeveridades(s.items)
+        // Ao criar, pré-seleciona a filial padrão do cadastro do usuário —
+        // somente se ela estiver entre as filiais ativas e nada tiver sido
+        // escolhido ainda. Em edição, a filial do RNC prevalece.
+        if (
+          !initial &&
+          filialPadraoId &&
+          f.items.some((x) => x.id === filialPadraoId)
+        ) {
+          setFilialId((cur) => cur || filialPadraoId)
+        }
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   // Turnos da filial selecionada.
@@ -490,6 +505,11 @@ export function RncWizard({
                   </option>
                 ))}
               </select>
+              {!editing && !!filialId && filialId === filialPadraoId && (
+                <span className="text-xs text-neutral-500">
+                  Filial padrão do seu cadastro — altere se necessário.
+                </span>
+              )}
             </Field>
             <Field label="Data da identificação *" className="sm:col-span-5">
               <Input
