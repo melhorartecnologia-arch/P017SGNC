@@ -40,6 +40,20 @@ function extrairTextoCorrigido(data: unknown): string | null {
   return null
 }
 
+/** Remove um par de aspas que envolva o texto inteiro (ex.: "texto" → texto). */
+function removerAspasEnvolventes(texto: string): string {
+  const pares: Array<[string, string]> = [
+    ['"', '"'],
+    ['“', '”'],
+  ]
+  for (const [abre, fecha] of pares) {
+    if (texto.length >= 2 && texto.startsWith(abre) && texto.endsWith(fecha)) {
+      return texto.slice(1, -1).trim()
+    }
+  }
+  return texto
+}
+
 iaRouter.post('/corrigir-texto', async (req, res, next) => {
   try {
     const { text } = corrigirSchema.parse(req.body)
@@ -98,7 +112,7 @@ iaRouter.post('/corrigir-texto', async (req, res, next) => {
       )
     }
 
-    res.json({ textoCorrigido })
+    res.json({ textoCorrigido: removerAspasEnvolventes(textoCorrigido) })
   } catch (err) {
     next(err)
   }
