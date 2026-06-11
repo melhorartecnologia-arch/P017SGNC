@@ -1,0 +1,419 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UsuarioRole {
+  ADMIN
+  USUARIO
+}
+
+/// Usuário do sistema — autenticação por e-mail + senha.
+model Usuario {
+  id        String      @id @default(uuid()) @db.Uuid
+  email     String      @unique @db.VarChar(160)
+  senhaHash String      @map("senha_hash") @db.VarChar(120)
+  nome      String      @db.VarChar(120)
+  role      UsuarioRole @default(USUARIO)
+  ativo     Boolean     @default(true)
+
+  relatoriosNaoConformidade RelatorioNaoConformidade[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("usuarios")
+}
+
+/// Fornecedor — pessoa jurídica que fornece insumos, produtos ou serviços.
+model Fornecedor {
+  id           String  @id @default(uuid()) @db.Uuid
+  codigo       String  @unique @db.VarChar(20)
+  razaoSocial  String  @map("razao_social") @db.VarChar(160)
+  nomeFantasia String? @map("nome_fantasia") @db.VarChar(160)
+  cnpj         String  @unique @db.VarChar(18)
+  ativo        Boolean @default(true)
+  observacoes  String? @db.Text
+
+  contatos                  ContatoFornecedor[]
+  relatoriosNaoConformidade RelatorioNaoConformidade[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([razaoSocial])
+  @@map("fornecedores")
+}
+
+enum ContatoTipo {
+  TELEFONE_FIXO
+  WHATSAPP
+  EMAIL
+}
+
+/// Contato vinculado a um fornecedor. Cada fornecedor pode ter vários.
+model ContatoFornecedor {
+  id           String      @id @default(uuid()) @db.Uuid
+  fornecedorId String      @map("fornecedor_id") @db.Uuid
+  tipo         ContatoTipo
+  valor        String      @db.VarChar(160)
+  nome         String?     @db.VarChar(120)
+  principal    Boolean     @default(false)
+
+  fornecedor Fornecedor @relation(fields: [fornecedorId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([fornecedorId])
+  @@index([fornecedorId, tipo])
+  @@map("contatos_fornecedor")
+}
+
+/// Severidade — classificação da gravidade de uma não conformidade.
+model Severidade {
+  id        String  @id @default(uuid()) @db.Uuid
+  codigo    String  @unique @db.VarChar(20)
+  nome      String  @db.VarChar(80)
+  nivel     Int     @unique
+  cor       String? @db.VarChar(7) // ex.: "#dc2626"
+  descricao String? @db.Text
+  ativo     Boolean @default(true)
+
+  tiposRelatorio            TipoRelatorio[]
+  tiposNaoConformidade      TipoNaoConformidade[]
+  relatoriosNaoConformidade RelatorioNaoConformidade[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("severidades")
+}
+
+/// Tipo de Relatório — categoria de relatório emitido pelo sistema
+/// (ex.: RNC, RAQ, RHE, RVT).
+model TipoRelatorio {
+  id        String  @id @default(uuid()) @db.Uuid
+  codigo    String  @unique @db.VarChar(20)
+  descricao String  @db.VarChar(160)
+  ativo     Boolean @default(true)
+
+  severidades Severidade[]
+  origens     OrigemNaoConformidade[]
+  disposicoes DisposicaoMaterial[]
+  politica    PoliticaResposta?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([descricao])
+  @@map("tipos_relatorio")
+}
+
+/// Política de Resposta — define a quantidade de horas contínuas em que
+/// um relatório de determinado tipo precisa ser assinado/respondido.
+model PoliticaResposta {
+  id              String  @id @default(uuid()) @db.Uuid
+  tipoRelatorioId String  @unique @map("tipo_relatorio_id") @db.Uuid
+  horasResposta   Int     @map("horas_resposta")
+  descricao       String? @db.Text
+  ativo           Boolean @default(true)
+
+  tipoRelatorio TipoRelatorio @relation(fields: [tipoRelatorioId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("politicas_resposta")
+}
+
+/// Turno de Trabalho — horário das equipes de uma filial
+/// (ex.: Manhã 06:00–14:00). Cada filial mantém seu próprio conjunto
+/// de turnos, então o código só precisa ser único dentro da filial.
+model TurnoTrabalho {
+  id          String  @id @default(uuid()) @db.Uuid
+  filialId    String  @map("filial_id") @db.Uuid
+  codigo      String  @db.VarChar(20)
+  nome        String  @db.VarChar(80)
+  horaInicio  String  @map("hora_inicio") @db.VarChar(5)
+  horaFim     String  @map("hora_fim") @db.VarChar(5)
+  descricao   String? @db.Text
+  ativo       Boolean @default(true)
+
+  filial                    Filial                     @relation(fields: [filialId], references: [id], onDelete: Restrict)
+  aprovadores               Aprovador[]
+  relatoriosNaoConformidade RelatorioNaoConformidade[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([filialId, codigo], name: "turno_unico_por_filial")
+  @@index([filialId])
+  @@index([nome])
+  @@map("turnos_trabalho")
+}
+
+/// Produto — item de catálogo (matéria-prima, insumo, produto acabado, etc.).
+model Produto {
+  id             String  @id @default(uuid()) @db.Uuid
+  codigo         String  @unique @db.VarChar(20)
+  descricao      String  @db.VarChar(160)
+  unidadeMedida  String  @map("unidade_medida") @db.VarChar(10)
+  ativo          Boolean @default(true)
+
+  tiposNaoConformidade      TipoNaoConformidade[]
+  relatoriosNaoConformidade RelatorioNaoConformidade[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([descricao])
+  @@map("produtos")
+}
+
+/// Tipo de Não Conformidade — categoria do desvio identificado
+/// (ex.: dimensional, contaminação, etiqueta, etc.). Pode estar
+/// vinculado a um ou mais produtos.
+model TipoNaoConformidade {
+  id            String  @id @default(uuid()) @db.Uuid
+  codigo        String  @unique @db.VarChar(20)
+  descricao     String  @db.VarChar(160)
+  severidadeId  String? @map("severidade_id") @db.Uuid
+  ativo         Boolean @default(true)
+
+  produtos                  Produto[]
+  severidade                Severidade?                @relation(fields: [severidadeId], references: [id], onDelete: SetNull)
+  relatoriosNaoConformidade RelatorioNaoConformidade[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([descricao])
+  @@index([severidadeId])
+  @@map("tipos_nao_conformidade")
+}
+
+/// Disposição do Material — destino dado ao material objeto da não conformidade
+/// (ex.: Retrabalho, Sucata, Aceitar sob concessão, Devolver ao fornecedor).
+model DisposicaoMaterial {
+  id        String  @id @default(uuid()) @db.Uuid
+  codigo    String  @unique @db.VarChar(20)
+  descricao String  @db.VarChar(160)
+  ativo     Boolean @default(true)
+
+  tiposRelatorio            TipoRelatorio[]
+  relatoriosNaoConformidade RelatorioNaoConformidade[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([descricao])
+  @@map("disposicoes_material")
+}
+
+/// Origem da Não Conformidade — fonte/causa primária do registro
+/// (ex.: Auditoria, Cliente, Inspeção, Processo).
+model OrigemNaoConformidade {
+  id        String  @id @default(uuid()) @db.Uuid
+  codigo    String  @unique @db.VarChar(20)
+  nome      String  @db.VarChar(120)
+  descricao String? @db.Text
+  ativo     Boolean @default(true)
+
+  tiposRelatorio            TipoRelatorio[]
+  relatoriosNaoConformidade RelatorioNaoConformidade[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([nome])
+  @@map("origens_nao_conformidade")
+}
+
+/// Filial — unidade produtora (fábrica) da Cervejaria Cidade Imperial.
+model Filial {
+  id          String  @id @default(uuid()) @db.Uuid
+  codigo      String  @unique @db.VarChar(20)
+  nome        String  @db.VarChar(120)
+  razaoSocial String  @map("razao_social") @db.VarChar(160)
+  cnpj        String  @unique @db.VarChar(18)
+  endereco    String  @db.VarChar(200)
+  numero      String? @db.VarChar(20)
+  complemento String? @db.VarChar(60)
+  bairro      String? @db.VarChar(80)
+  cidade      String  @db.VarChar(80)
+  uf          String  @db.Char(2)
+  cep         String  @db.VarChar(10)
+  ativo       Boolean @default(true)
+  observacoes String? @db.Text
+
+  aprovadores               Aprovador[]
+  turnos                    TurnoTrabalho[]
+  relatoriosNaoConformidade RelatorioNaoConformidade[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([nome])
+  @@index([cidade, uf])
+  @@map("filiais")
+}
+
+/// Área — agrupamento organizacional (Produção, Qualidade, etc.).
+/// Cadastro global; aparece em todas as filiais via Aprovador.
+model Area {
+  id        String  @id @default(uuid()) @db.Uuid
+  codigo    String  @unique @db.VarChar(20)
+  nome      String  @db.VarChar(120)
+  descricao String? @db.Text
+  ativo     Boolean @default(true)
+
+  aprovadores Aprovador[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([nome])
+  @@map("areas")
+}
+
+/// Aprovador de uma (Filial × Área).
+model Aprovador {
+  id          String  @id @default(uuid()) @db.Uuid
+  filialId    String  @map("filial_id") @db.Uuid
+  areaId      String  @map("area_id") @db.Uuid
+  turnoId     String? @map("turno_id") @db.Uuid
+  nivel       Int
+  nome        String  @db.VarChar(120)
+  cargo       String? @db.VarChar(120)
+  email       String  @db.VarChar(160)
+  telefone    String? @db.VarChar(20)
+  whatsapp    String? @db.VarChar(20)
+  ativo       Boolean @default(true)
+  observacoes String? @db.Text
+
+  filial Filial         @relation(fields: [filialId], references: [id], onDelete: Restrict)
+  area   Area           @relation(fields: [areaId], references: [id], onDelete: Restrict)
+  turno  TurnoTrabalho? @relation(fields: [turnoId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([filialId, areaId, nivel], name: "aprovador_unico_por_nivel")
+  @@index([filialId])
+  @@index([areaId])
+  @@index([filialId, areaId])
+  @@map("aprovadores")
+}
+
+enum RncStatus {
+  DRAFT
+  OPEN
+  IN_PROGRESS
+  CLOSED
+  CANCELLED
+}
+
+/// Relatório de Não Conformidade (RNC) — registro principal de
+/// não conformidade detectada com um fornecedor. Construído por
+/// etapas (wizard): inicia em status DRAFT e amadurece a cada
+/// etapa preenchida.
+model RelatorioNaoConformidade {
+  id                    String    @id @default(uuid()) @db.Uuid
+  numero                String    @unique @db.VarChar(40)
+  filialId              String    @map("filial_id") @db.Uuid
+  fornecedorId          String    @map("fornecedor_id") @db.Uuid
+  tipoNaoConformidadeId String    @map("tipo_nao_conformidade_id") @db.Uuid
+  turnoId               String?   @map("turno_id") @db.Uuid
+  disposicaoMaterialId  String?   @map("disposicao_material_id") @db.Uuid
+  origemId              String?   @map("origem_id") @db.Uuid
+  severidadeId          String?   @map("severidade_id") @db.Uuid
+  descricaoDefeito      String?   @map("descricao_defeito") @db.Text
+  dataIdentificacao     DateTime  @map("data_identificacao")
+  status                RncStatus @default(DRAFT)
+  criadoPorId           String    @map("criado_por_id") @db.Uuid
+
+  // Material & lote
+  produtoId          String?   @map("produto_id") @db.Uuid
+  quantidadeDefeito  Float?    @map("quantidade_defeito")
+  tempoParadaMinutos Int?      @map("tempo_parada_minutos")
+
+  // Nota fiscal & datas
+  numeroNf        String?   @map("numero_nf") @db.VarChar(40)
+  dataFabricacao  DateTime? @map("data_fabricacao")
+  dataValidade    DateTime? @map("data_validade")
+  dataRecebimento DateTime? @map("data_recebimento")
+
+  // Transporte
+  transportador  String? @db.VarChar(160)
+  placaCavalo    String? @map("placa_cavalo") @db.VarChar(10)
+  placaCarreta   String? @map("placa_carreta") @db.VarChar(10)
+  nomeMotorista  String? @map("nome_motorista") @db.VarChar(120)
+  cnhMotorista   String? @map("cnh_motorista") @db.VarChar(20)
+
+  filial              Filial                 @relation(fields: [filialId], references: [id], onDelete: Restrict)
+  fornecedor          Fornecedor             @relation(fields: [fornecedorId], references: [id], onDelete: Restrict)
+  tipoNaoConformidade TipoNaoConformidade    @relation(fields: [tipoNaoConformidadeId], references: [id], onDelete: Restrict)
+  turno               TurnoTrabalho?         @relation(fields: [turnoId], references: [id], onDelete: SetNull)
+  disposicaoMaterial  DisposicaoMaterial?    @relation(fields: [disposicaoMaterialId], references: [id], onDelete: SetNull)
+  origem              OrigemNaoConformidade? @relation(fields: [origemId], references: [id], onDelete: SetNull)
+  severidade          Severidade?            @relation(fields: [severidadeId], references: [id], onDelete: SetNull)
+  produto             Produto?               @relation(fields: [produtoId], references: [id], onDelete: SetNull)
+  criadoPor           Usuario                @relation(fields: [criadoPorId], references: [id], onDelete: Restrict)
+  fotos               RncFoto[]
+  lotes               RncLote[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([filialId])
+  @@index([fornecedorId])
+  @@index([tipoNaoConformidadeId])
+  @@index([disposicaoMaterialId])
+  @@index([origemId])
+  @@index([severidadeId])
+  @@index([produtoId])
+  @@index([status])
+  @@map("relatorios_nao_conformidade")
+}
+
+/// Foto anexada a um Relatório de Não Conformidade. O arquivo físico
+/// é armazenado em disco (server/uploads/rnc-fotos/{filename}).
+model RncFoto {
+  id           String  @id @default(uuid()) @db.Uuid
+  rncId        String  @map("rnc_id") @db.Uuid
+  filename     String  @db.VarChar(120)
+  originalName String  @map("original_name") @db.VarChar(255)
+  mimeType     String  @map("mime_type") @db.VarChar(80)
+  size         Int
+  legenda      String? @db.VarChar(200)
+
+  rnc RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([rncId])
+  @@map("rnc_fotos")
+}
+
+/// Lote informado em um Relatório de Não Conformidade. Uma RNC
+/// pode ter múltiplos lotes — o conjunto (rncId, numero) é único
+/// para evitar duplicidade dentro do mesmo registro.
+model RncLote {
+  id         String @id @default(uuid()) @db.Uuid
+  rncId      String @map("rnc_id") @db.Uuid
+  numero     String @db.VarChar(80)
+  quantidade Float?
+
+  rnc RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([rncId, numero])
+  @@index([rncId])
+  @@map("rnc_lotes")
+}

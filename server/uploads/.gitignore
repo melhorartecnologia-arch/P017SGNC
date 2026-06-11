@@ -1,0 +1,4 @@
+# Arquivos enviados pelos usuários (fotos de RNCs, etc.) não
+# vão para o repositório.
+*
+!.gitignore
