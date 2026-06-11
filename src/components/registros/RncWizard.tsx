@@ -356,6 +356,7 @@ export function RncWizard({
     !!produto &&
     lotesPreenchidos.length > 0 &&
     !lotesDuplicados &&
+    qtdDefeitoInformada &&
     !qtdDefeitoInvalida
   const stepFinalValid = step1Valid && step2Valid && step3Valid
 
@@ -811,6 +812,7 @@ export function RncWizard({
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
                 <Field
                   label={`Qtd. com defeito (total)${produto ? ` — ${produto.unidadeMedida}` : ''}`}
+                  required
                   className="sm:col-span-6"
                 >
                   <Input

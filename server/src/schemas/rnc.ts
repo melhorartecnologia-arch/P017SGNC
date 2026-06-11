@@ -149,7 +149,12 @@ const rncBaseSchema = z.object({
       (arr) => new Set(arr.map((l) => l.numero)).size === arr.length,
       { message: 'Não pode haver lotes duplicados' },
     ),
-  quantidadeDefeito: optionalNumber('Quantidade com defeito inválida'),
+  // Obrigatória; o superRefine abaixo garante > 0 e <= total dos lotes.
+  // No update (partial) pode ser omitida, mas não enviada como null.
+  quantidadeDefeito: z.coerce.number({
+    required_error: 'Quantidade com defeito é obrigatória',
+    invalid_type_error: 'Quantidade com defeito inválida',
+  }),
   tempoParadaMinutos: optionalNumber('Tempo de parada inválido'),
 
   // Nota fiscal & datas
