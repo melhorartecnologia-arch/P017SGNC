@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Loader2, Mail, Save } from 'lucide-react'
+import { Loader2, Mail, Save, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,7 @@ import {
   configuracoesApi,
   type SmtpSeguranca,
 } from '@/lib/api/configuracoes'
+import { useAuth } from '@/lib/auth/AuthContext'
 
 const selectClass =
   'flex h-9 w-full rounded-md border border-neutral-200 bg-white px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900 disabled:cursor-not-allowed disabled:opacity-50'
@@ -40,12 +41,36 @@ const empty: FormState = {
 }
 
 export function SmtpConfigPage() {
+  const auth = useAuth()
   const [form, setForm] = React.useState<FormState>(empty)
   const [senhaDefinida, setSenhaDefinida] = React.useState(false)
+  const [configurado, setConfigurado] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string[]>>({})
+  // E-mail de teste — pré-preenchido com o e-mail do admin logado.
+  const [testePara, setTestePara] = React.useState(() =>
+    auth.status === 'authenticated' ? auth.user.email : '',
+  )
+  const [testando, setTestando] = React.useState(false)
+
+  const handleEnviarTeste = async () => {
+    if (!testePara.trim() || testando) return
+    setTestando(true)
+    try {
+      const { para } = await configuracoesApi.testarSmtp(testePara.trim())
+      toast.success('E-mail de teste enviado', {
+        description: `Verifique a caixa de entrada de ${para}.`,
+      })
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao enviar o teste.'
+      toast.error('Teste falhou', { description: message })
+    } finally {
+      setTestando(false)
+    }
+  }
 
   React.useEffect(() => {
     let cancelled = false
@@ -64,6 +89,7 @@ export function SmtpConfigPage() {
           ativo: cfg.ativo,
         })
         setSenhaDefinida(cfg.senhaDefinida)
+        setConfigurado(true)
       })
       .catch((err) => {
         if (cancelled) return
@@ -98,6 +124,7 @@ export function SmtpConfigPage() {
         ativo: form.ativo,
       })
       setSenhaDefinida(salvo.senhaDefinida)
+      setConfigurado(true)
       set('senha', '')
       toast.success('Configuração SMTP salva', {
         description: `${salvo.host}:${salvo.porta}`,
@@ -288,6 +315,43 @@ export function SmtpConfigPage() {
                 )}
                 Salvar configuração
               </Button>
+            </div>
+
+            <div className="flex flex-col gap-2 border-t border-neutral-200 pt-4">
+              <Label>Validar a conta</Label>
+              <span className="text-xs text-neutral-500">
+                Envia um e-mail de teste usando a configuração <b>salva</b>{' '}
+                — salve as alterações antes de testar.
+              </span>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  type="email"
+                  value={testePara}
+                  onChange={(e) => setTestePara(e.target.value)}
+                  placeholder="destinatario@empresa.com.br"
+                  maxLength={160}
+                  className="sm:max-w-sm"
+                  disabled={testando}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleEnviarTeste}
+                  disabled={testando || !configurado || !testePara.trim()}
+                  title={
+                    !configurado
+                      ? 'Salve a configuração antes de testar.'
+                      : undefined
+                  }
+                >
+                  {testando ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4" />
+                  )}
+                  Enviar e-mail de teste
+                </Button>
+              </div>
             </div>
           </form>
         )}

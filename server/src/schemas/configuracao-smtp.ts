@@ -28,4 +28,14 @@ export const configuracaoSmtpSchema = z.object({
   ativo: z.boolean().optional().default(true),
 })
 
+export const smtpTesteSchema = z.object({
+  para: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .email('E-mail de destino inválido')
+    .max(160),
+})
+
 export type ConfiguracaoSmtpInput = z.infer<typeof configuracaoSmtpSchema>
+export type SmtpTesteInput = z.infer<typeof smtpTesteSchema>

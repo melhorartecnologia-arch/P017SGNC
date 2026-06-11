@@ -35,4 +35,11 @@ export const configuracoesApi = {
       method: 'PUT',
       body: input,
     }),
+
+  /** Envia um e-mail de teste usando a configuração salva. */
+  testarSmtp: (para: string) =>
+    apiRequest<{ ok: boolean; para: string }>('/configuracoes/smtp/teste', {
+      method: 'POST',
+      body: { para },
+    }),
 }
