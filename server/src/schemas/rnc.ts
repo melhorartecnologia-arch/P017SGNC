@@ -160,8 +160,8 @@ const rncBaseSchema = z.object({
   }),
   tempoParadaMinutos: optionalNumber('Tempo de parada inválido'),
 
-  // Notas fiscais & datas — uma RNC pode ter várias notas, cada uma com
-  // suas próprias datas. Cada nota exige um número; as datas são opcionais.
+  // Notas fiscais & datas — uma RNC deve ter ao menos uma nota; cada nota
+  // exige um número e as datas são opcionais.
   notasFiscais: z
     .array(
       z.object({
@@ -175,9 +175,8 @@ const rncBaseSchema = z.object({
         dataRecebimento: optionalDate('Data de recebimento inválida'),
       }),
     )
+    .min(1, 'Informe ao menos uma nota fiscal')
     .max(50, 'Máximo de 50 notas fiscais por RNC')
-    .optional()
-    .default([])
     .refine(
       (arr) =>
         new Set(arr.map((n) => n.numero.toUpperCase())).size === arr.length,

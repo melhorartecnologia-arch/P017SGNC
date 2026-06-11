@@ -383,6 +383,8 @@ export function RncWizard({
     .map((n) => n.numero.trim().toUpperCase())
   const notasDuplicadas =
     new Set(numerosNota).size !== numerosNota.length
+  // Ao menos uma nota fiscal (com número) é obrigatória.
+  const semNotaFiscal = numerosNota.length === 0
   const notasInvalidas = notasFiscais.some(notaSemNumero) || notasDuplicadas
 
   // Data de identificação não pode ser futura. Comparação por string
@@ -399,7 +401,7 @@ export function RncWizard({
     !lotesComQtdInvalida &&
     qtdDefeitoInformada &&
     !qtdDefeitoInvalida
-  const notasValid = !notasInvalidas
+  const notasValid = !semNotaFiscal && !notasInvalidas
   const step3Valid = materialValid && notasValid
   const subStep3Valid =
     subStep3 === 1 ? materialValid : subStep3 === 2 ? notasValid : step3Valid
@@ -513,6 +515,18 @@ export function RncWizard({
     if (step === 3) {
       // Avança pelas sub-etapas; só sai da etapa 3 a partir da última.
       if (subStep3 === 1 && materialValid) {
+        // Notas fiscais são obrigatórias: ao entrar na sub-etapa, já abre
+        // uma linha em branco para preencher (evita o estado vazio).
+        if (notasFiscais.length === 0) {
+          setNotasFiscais([
+            {
+              numero: '',
+              dataFabricacao: '',
+              dataValidade: '',
+              dataRecebimento: '',
+            },
+          ])
+        }
         setSubStep3(2)
         return
       }
@@ -972,17 +986,17 @@ export function RncWizard({
             )}
 
             {subStep3 === 2 && (
-            <Section title="Notas fiscais & datas">
+            <Section title="Notas fiscais & datas *">
               <div className="flex flex-col gap-2">
                 <span className="text-xs text-neutral-500">
-                  Informe uma ou mais notas fiscais. Cada nota tem suas
+                  Informe ao menos uma nota fiscal. Cada nota tem suas
                   próprias datas de fabricação, validade e recebimento.
                 </span>
 
                 {notasFiscais.length === 0 ? (
-                  <p className="rounded-md border border-dashed border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-500">
-                    Nenhuma nota fiscal informada. Clique em "Adicionar nota
-                    fiscal" para registrar uma (opcional).
+                  <p className="rounded-md border border-dashed border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    É obrigatório informar ao menos uma nota fiscal. Clique em
+                    "Adicionar nota fiscal".
                   </p>
                 ) : (
                   <div className="flex flex-col gap-2">
