@@ -8,14 +8,6 @@ export const rncStatusEnum = z.enum([
   'CANCELLED',
 ])
 
-const optionalUuid = (msg: string) =>
-  z
-    .string()
-    .uuid(msg)
-    .optional()
-    .nullable()
-    .or(z.literal('').transform(() => null))
-
 const optionalDate = (msg: string) =>
   z
     .union([z.coerce.date({ invalid_type_error: msg }), z.literal('')])
@@ -111,10 +103,20 @@ const rncBaseSchema = z.object({
   fornecedorId: z.string().uuid('Fornecedor inválido'),
   tipoNaoConformidadeId: z.string().uuid('Tipo de não conformidade inválido'),
   turnoId: z.string().uuid('Turno de trabalho é obrigatório'),
-  disposicaoMaterialId: optionalUuid('Disposição inválida'),
-  origemId: optionalUuid('Origem inválida'),
-  severidadeId: optionalUuid('Severidade inválida'),
-  descricaoDefeito: z.string().trim().max(4000).optional().nullable(),
+  disposicaoMaterialId: z
+    .string({ required_error: 'Disposição do material é obrigatória' })
+    .uuid('Disposição inválida'),
+  origemId: z
+    .string({ required_error: 'Origem da não conformidade é obrigatória' })
+    .uuid('Origem inválida'),
+  severidadeId: z
+    .string({ required_error: 'Severidade é obrigatória' })
+    .uuid('Severidade inválida'),
+  descricaoDefeito: z
+    .string({ required_error: 'Descrição do defeito é obrigatória' })
+    .trim()
+    .min(1, 'Descrição do defeito é obrigatória')
+    .max(4000),
   dataIdentificacao: z.coerce.date({
     invalid_type_error: 'Data de identificação inválida',
   }),

@@ -77,10 +77,10 @@ export type RncCreateInput = {
   fornecedorId: string
   tipoNaoConformidadeId: string
   turnoId: string
-  disposicaoMaterialId?: string | null
-  origemId?: string | null
-  severidadeId?: string | null
-  descricaoDefeito?: string | null
+  disposicaoMaterialId: string
+  origemId: string
+  severidadeId: string
+  descricaoDefeito: string
   dataIdentificacao: string
   status?: RncStatus
 

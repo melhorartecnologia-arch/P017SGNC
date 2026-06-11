@@ -405,7 +405,13 @@ export function RncWizard({
   const step3Valid = materialValid && notasValid
   const subStep3Valid =
     subStep3 === 1 ? materialValid : subStep3 === 2 ? notasValid : step3Valid
-  const stepFinalValid = step1Valid && step2Valid && step3Valid
+  // Etapa 4: todos os campos são obrigatórios.
+  const step4Valid =
+    !!disposicaoId &&
+    !!origemId &&
+    !!severidadeId &&
+    descricaoDefeito.trim() !== ''
+  const stepFinalValid = step1Valid && step2Valid && step3Valid && step4Valid
 
   const addLoteRow = () => {
     if (lotes.length >= 50) return
@@ -460,10 +466,10 @@ export function RncWizard({
       fornecedorId: fornecedor!.id,
       tipoNaoConformidadeId: tipoId,
       turnoId,
-      disposicaoMaterialId: disposicaoId || null,
-      origemId: origemId || null,
-      severidadeId: severidadeId || null,
-      descricaoDefeito: descricaoDefeito.trim() || null,
+      disposicaoMaterialId: disposicaoId,
+      origemId,
+      severidadeId,
+      descricaoDefeito: descricaoDefeito.trim(),
       dataIdentificacao: new Date(`${data}T00:00:00`).toISOString(),
 
       produtoId: produto!.id,
@@ -1184,13 +1190,16 @@ export function RncWizard({
         {step === 4 && (
           <section className="flex flex-col gap-4">
             <Section title="Disposição do material">
-              <Field label="Disposição">
+              <Field label="Disposição" required>
                 <select
                   className={cn(selectClass)}
                   value={disposicaoId}
                   onChange={(e) => setDisposicaoId(e.target.value)}
+                  required
                 >
-                  <option value="">(Sem disposição definida)</option>
+                  <option value="" disabled>
+                    Selecione a disposição
+                  </option>
                   {disposicoes.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.codigo} — {d.descricao}
@@ -1206,13 +1215,16 @@ export function RncWizard({
 
             <Section title="Origem, severidade e descrição do defeito">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Origem da não conformidade">
+                <Field label="Origem da não conformidade" required>
                   <select
                     className={cn(selectClass)}
                     value={origemId}
                     onChange={(e) => setOrigemId(e.target.value)}
+                    required
                   >
-                    <option value="">(Sem origem definida)</option>
+                    <option value="" disabled>
+                      Selecione a origem
+                    </option>
                     {origens.map((o) => (
                       <option key={o.id} value={o.id}>
                         {o.codigo} — {o.nome}
@@ -1220,13 +1232,16 @@ export function RncWizard({
                     ))}
                   </select>
                 </Field>
-                <Field label="Severidade">
+                <Field label="Severidade" required>
                   <select
                     className={cn(selectClass)}
                     value={severidadeId}
                     onChange={(e) => setSeveridadeId(e.target.value)}
+                    required
                   >
-                    <option value="">(Sem severidade definida)</option>
+                    <option value="" disabled>
+                      Selecione a severidade
+                    </option>
                     {severidades.map((s) => (
                       <option key={s.id} value={s.id}>
                         Nível {s.nivel} — {s.codigo} — {s.nome}
@@ -1257,10 +1272,14 @@ export function RncWizard({
                   )}
                 </Field>
               </div>
-              <Field label="Descrição do defeito / problema identificado">
+              <Field
+                label="Descrição do defeito / problema identificado"
+                required
+              >
                 <textarea
                   value={descricaoDefeito}
                   onChange={(e) => setDescricaoDefeito(e.target.value)}
+                  required
                   rows={5}
                   maxLength={4000}
                   placeholder="Descreva o que foi identificado, contexto, evidências observadas, etc."
