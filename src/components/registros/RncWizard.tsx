@@ -329,7 +329,11 @@ export function RncWizard({
     return acc + (Number.isFinite(n) ? n : 0)
   }, 0)
 
-  const step1Valid = filialId && data && tipoId && turnoId
+  // Data de identificação não pode ser futura. Comparação por string
+  // YYYY-MM-DD (mesmo formato de todayISO) é suficiente no cliente; a
+  // validação definitiva é feita no servidor com o relógio dele.
+  const dataFutura = !!data && data > todayISO()
+  const step1Valid = filialId && data && !dataFutura && tipoId && turnoId
   const step2Valid = !!fornecedor
   const step3Valid =
     !!produto && lotesPreenchidos.length > 0 && !lotesDuplicados
@@ -515,9 +519,15 @@ export function RncWizard({
               <Input
                 type="date"
                 value={data}
+                max={todayISO()}
                 onChange={(e) => setData(e.target.value)}
                 required
               />
+              {dataFutura && (
+                <span className="text-xs text-red-600">
+                  A data de identificação não pode ser futura.
+                </span>
+              )}
             </Field>
             <Field label="Tipo da não conformidade *" className="sm:col-span-12">
               <select

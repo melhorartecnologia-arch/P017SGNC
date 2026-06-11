@@ -39,7 +39,40 @@ const optionalString = (max: number) =>
     .nullable()
     .or(z.literal('').transform(() => null))
 
-export const rncCreateSchema = z.object({
+/**
+ * Dia de calendário (YYYY-MM-DD) no fuso de operação da cervejaria
+ * (America/Sao_Paulo). Usado para comparar a data de identificação contra
+ * "hoje" sem depender do fuso em que o servidor está hospedado.
+ */
+function diaOperacao(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d)
+}
+
+/**
+ * A data de identificação não pode ser futura. A comparação usa o relógio
+ * do SERVIDOR — não a data enviada pelo cliente — para que adiantar o
+ * relógio da máquina do usuário não permita registrar uma data futura.
+ */
+function dataIdentificacaoNaoFutura(
+  dataIdentificacao: Date | null | undefined,
+  ctx: z.RefinementCtx,
+) {
+  if (!dataIdentificacao) return
+  if (diaOperacao(dataIdentificacao) > diaOperacao(new Date())) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['dataIdentificacao'],
+      message: 'A data de identificação não pode ser futura.',
+    })
+  }
+}
+
+const rncBaseSchema = z.object({
   filialId: z.string().uuid('Filial inválida'),
   fornecedorId: z.string().uuid('Fornecedor inválido'),
   tipoNaoConformidadeId: z.string().uuid('Tipo de não conformidade inválido'),
@@ -92,7 +125,15 @@ export const rncCreateSchema = z.object({
   cnhMotorista: optionalString(20),
 })
 
-export const rncUpdateSchema = rncCreateSchema.partial()
+export const rncCreateSchema = rncBaseSchema.superRefine((val, ctx) =>
+  dataIdentificacaoNaoFutura(val.dataIdentificacao, ctx),
+)
+
+export const rncUpdateSchema = rncBaseSchema
+  .partial()
+  .superRefine((val, ctx) =>
+    dataIdentificacaoNaoFutura(val.dataIdentificacao, ctx),
+  )
 
 export const rncQuerySchema = z.object({
   fornecedorId: z.string().uuid().optional(),
