@@ -38,11 +38,14 @@ export type Rnc = {
   quantidadeDefeito: number | null
   tempoParadaMinutos: number | null
 
-  // Nota fiscal & datas
-  numeroNf: string | null
-  dataFabricacao: string | null
-  dataValidade: string | null
-  dataRecebimento: string | null
+  // Notas fiscais & datas
+  notasFiscais: {
+    id: string
+    numero: string | null
+    dataFabricacao: string | null
+    dataValidade: string | null
+    dataRecebimento: string | null
+  }[]
 
   // Transporte
   transportador: string | null
@@ -86,10 +89,12 @@ export type RncCreateInput = {
   quantidadeDefeito?: number | null
   tempoParadaMinutos?: number | null
 
-  numeroNf?: string | null
-  dataFabricacao?: string | null
-  dataValidade?: string | null
-  dataRecebimento?: string | null
+  notasFiscais?: {
+    numero: string
+    dataFabricacao?: string | null
+    dataValidade?: string | null
+    dataRecebimento?: string | null
+  }[]
 
   transportador?: string | null
   placaCavalo?: string | null

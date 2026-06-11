@@ -346,12 +346,6 @@ model RelatorioNaoConformidade {
   quantidadeDefeito  Float?    @map("quantidade_defeito")
   tempoParadaMinutos Int?      @map("tempo_parada_minutos")
 
-  // Nota fiscal & datas
-  numeroNf        String?   @map("numero_nf") @db.VarChar(40)
-  dataFabricacao  DateTime? @map("data_fabricacao")
-  dataValidade    DateTime? @map("data_validade")
-  dataRecebimento DateTime? @map("data_recebimento")
-
   // Transporte
   transportador  String? @db.VarChar(160)
   placaCavalo    String? @map("placa_cavalo") @db.VarChar(10)
@@ -370,6 +364,7 @@ model RelatorioNaoConformidade {
   criadoPor           Usuario                @relation(fields: [criadoPorId], references: [id], onDelete: Restrict)
   fotos               RncFoto[]
   lotes               RncLote[]
+  notasFiscais        RncNotaFiscal[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -420,4 +415,23 @@ model RncLote {
   @@unique([rncId, numero])
   @@index([rncId])
   @@map("rnc_lotes")
+}
+
+/// Nota fiscal vinculada a um Relatório de Não Conformidade. Uma RNC
+/// pode ter várias notas, cada uma com suas próprias datas de
+/// fabricação, validade e recebimento.
+model RncNotaFiscal {
+  id              String    @id @default(uuid()) @db.Uuid
+  rncId           String    @map("rnc_id") @db.Uuid
+  numero          String?   @db.VarChar(40)
+  dataFabricacao  DateTime? @map("data_fabricacao")
+  dataValidade    DateTime? @map("data_validade")
+  dataRecebimento DateTime? @map("data_recebimento")
+
+  rnc RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([rncId])
+  @@map("rnc_notas_fiscais")
 }

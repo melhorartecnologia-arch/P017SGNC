@@ -160,11 +160,29 @@ const rncBaseSchema = z.object({
   }),
   tempoParadaMinutos: optionalNumber('Tempo de parada inválido'),
 
-  // Nota fiscal & datas
-  numeroNf: optionalString(40),
-  dataFabricacao: optionalDate('Data de fabricação inválida'),
-  dataValidade: optionalDate('Data de validade inválida'),
-  dataRecebimento: optionalDate('Data de recebimento inválida'),
+  // Notas fiscais & datas — uma RNC pode ter várias notas, cada uma com
+  // suas próprias datas. Cada nota exige um número; as datas são opcionais.
+  notasFiscais: z
+    .array(
+      z.object({
+        numero: z
+          .string()
+          .trim()
+          .min(1, 'Nº da nota fiscal é obrigatório')
+          .max(40),
+        dataFabricacao: optionalDate('Data de fabricação inválida'),
+        dataValidade: optionalDate('Data de validade inválida'),
+        dataRecebimento: optionalDate('Data de recebimento inválida'),
+      }),
+    )
+    .max(50, 'Máximo de 50 notas fiscais por RNC')
+    .optional()
+    .default([])
+    .refine(
+      (arr) =>
+        new Set(arr.map((n) => n.numero.toUpperCase())).size === arr.length,
+      { message: 'Não pode haver notas fiscais com o mesmo número' },
+    ),
 
   // Transporte
   transportador: optionalString(160),

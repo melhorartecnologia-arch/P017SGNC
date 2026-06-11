@@ -95,10 +95,14 @@ export function RncWizard({
   >([])
   const [quantidadeDefeito, setQuantidadeDefeito] = React.useState('')
   const [tempoParadaMinutos, setTempoParadaMinutos] = React.useState('')
-  const [numeroNf, setNumeroNf] = React.useState('')
-  const [dataFabricacao, setDataFabricacao] = React.useState('')
-  const [dataValidade, setDataValidade] = React.useState('')
-  const [dataRecebimento, setDataRecebimento] = React.useState('')
+  const [notasFiscais, setNotasFiscais] = React.useState<
+    {
+      numero: string
+      dataFabricacao: string
+      dataValidade: string
+      dataRecebimento: string
+    }[]
+  >([])
   const [transportador, setTransportador] = React.useState('')
   const [placaCavalo, setPlacaCavalo] = React.useState('')
   const [placaCarreta, setPlacaCarreta] = React.useState('')
@@ -139,10 +143,7 @@ export function RncWizard({
       setLotes([])
       setQuantidadeDefeito('')
       setTempoParadaMinutos('')
-      setNumeroNf('')
-      setDataFabricacao('')
-      setDataValidade('')
-      setDataRecebimento('')
+      setNotasFiscais([])
       setTransportador('')
       setPlacaCavalo('')
       setPlacaCarreta('')
@@ -207,10 +208,14 @@ export function RncWizard({
           ? String(initial.tempoParadaMinutos)
           : '',
       )
-      setNumeroNf(initial.numeroNf ?? '')
-      setDataFabricacao(initial.dataFabricacao?.slice(0, 10) ?? '')
-      setDataValidade(initial.dataValidade?.slice(0, 10) ?? '')
-      setDataRecebimento(initial.dataRecebimento?.slice(0, 10) ?? '')
+      setNotasFiscais(
+        initial.notasFiscais?.map((n) => ({
+          numero: n.numero ?? '',
+          dataFabricacao: n.dataFabricacao?.slice(0, 10) ?? '',
+          dataValidade: n.dataValidade?.slice(0, 10) ?? '',
+          dataRecebimento: n.dataRecebimento?.slice(0, 10) ?? '',
+        })) ?? [],
+      )
       setTransportador(initial.transportador ?? '')
       setPlacaCavalo(initial.placaCavalo ?? '')
       setPlacaCarreta(initial.placaCarreta ?? '')
@@ -354,6 +359,26 @@ export function RncWizard({
     qtdDefeitoNum > totalLote
   const qtdDefeitoInvalida = qtdDefeitoZero || qtdDefeitoExcede
 
+  // Notas fiscais: cada nota exige um número (datas são opcionais). Uma
+  // linha que tem datas mas está sem número é inválida; números repetidos
+  // (sem distinção de caixa) também não são permitidos.
+  const notaSemNumero = (n: {
+    numero: string
+    dataFabricacao: string
+    dataValidade: string
+    dataRecebimento: string
+  }) =>
+    n.numero.trim() === '' &&
+    (n.dataFabricacao !== '' ||
+      n.dataValidade !== '' ||
+      n.dataRecebimento !== '')
+  const numerosNota = notasFiscais
+    .filter((n) => n.numero.trim() !== '')
+    .map((n) => n.numero.trim().toUpperCase())
+  const notasDuplicadas =
+    new Set(numerosNota).size !== numerosNota.length
+  const notasInvalidas = notasFiscais.some(notaSemNumero) || notasDuplicadas
+
   // Data de identificação não pode ser futura. Comparação por string
   // YYYY-MM-DD (mesmo formato de todayISO) é suficiente no cliente; a
   // validação definitiva é feita no servidor com o relógio dele.
@@ -366,7 +391,8 @@ export function RncWizard({
     !lotesDuplicados &&
     !lotesComQtdInvalida &&
     qtdDefeitoInformada &&
-    !qtdDefeitoInvalida
+    !qtdDefeitoInvalida &&
+    !notasInvalidas
   const stepFinalValid = step1Valid && step2Valid && step3Valid
 
   const addLoteRow = () => {
@@ -381,6 +407,30 @@ export function RncWizard({
   }
   const removeLoteRow = (idx: number) => {
     setLotes(lotes.filter((_, i) => i !== idx))
+  }
+
+  const addNotaRow = () => {
+    if (notasFiscais.length >= 50) return
+    setNotasFiscais([
+      ...notasFiscais,
+      { numero: '', dataFabricacao: '', dataValidade: '', dataRecebimento: '' },
+    ])
+  }
+  const updateNotaRow = (
+    idx: number,
+    patch: Partial<{
+      numero: string
+      dataFabricacao: string
+      dataValidade: string
+      dataRecebimento: string
+    }>,
+  ) => {
+    setNotasFiscais(
+      notasFiscais.map((n, i) => (i === idx ? { ...n, ...patch } : n)),
+    )
+  }
+  const removeNotaRow = (idx: number) => {
+    setNotasFiscais(notasFiscais.filter((_, i) => i !== idx))
   }
 
   const persistRnc = async () => {
@@ -412,10 +462,14 @@ export function RncWizard({
       quantidadeDefeito: parseOptNum(quantidadeDefeito),
       tempoParadaMinutos: parseOptNum(tempoParadaMinutos),
 
-      numeroNf: numeroNf.trim() || null,
-      dataFabricacao: isoOrNull(dataFabricacao),
-      dataValidade: isoOrNull(dataValidade),
-      dataRecebimento: isoOrNull(dataRecebimento),
+      notasFiscais: notasFiscais
+        .filter((n) => n.numero.trim() !== '')
+        .map((n) => ({
+          numero: n.numero.trim(),
+          dataFabricacao: isoOrNull(n.dataFabricacao),
+          dataValidade: isoOrNull(n.dataValidade),
+          dataRecebimento: isoOrNull(n.dataRecebimento),
+        })),
 
       transportador: transportador.trim() || null,
       placaCavalo: placaCavalo.trim().toUpperCase() || null,
@@ -870,37 +924,138 @@ export function RncWizard({
               </div>
             </Section>
 
-            <Section title="Nota fiscal & datas">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
-                <Field label="Nº da NF" className="sm:col-span-3">
-                  <Input
-                    value={numeroNf}
-                    onChange={(e) => setNumeroNf(e.target.value)}
-                    placeholder="123456"
-                    maxLength={40}
-                  />
-                </Field>
-                <Field label="Data de fabricação" className="sm:col-span-3">
-                  <Input
-                    type="date"
-                    value={dataFabricacao}
-                    onChange={(e) => setDataFabricacao(e.target.value)}
-                  />
-                </Field>
-                <Field label="Data de validade" className="sm:col-span-3">
-                  <Input
-                    type="date"
-                    value={dataValidade}
-                    onChange={(e) => setDataValidade(e.target.value)}
-                  />
-                </Field>
-                <Field label="Data de recebimento" className="sm:col-span-3">
-                  <Input
-                    type="date"
-                    value={dataRecebimento}
-                    onChange={(e) => setDataRecebimento(e.target.value)}
-                  />
-                </Field>
+            <Section title="Notas fiscais & datas">
+              <div className="flex flex-col gap-2">
+                <span className="text-xs text-neutral-500">
+                  Informe uma ou mais notas fiscais. Cada nota tem suas
+                  próprias datas de fabricação, validade e recebimento.
+                </span>
+
+                {notasFiscais.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-500">
+                    Nenhuma nota fiscal informada. Clique em "Adicionar nota
+                    fiscal" para registrar uma (opcional).
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {notasFiscais.map((n, idx) => {
+                      const numeroNorm = n.numero.trim().toUpperCase()
+                      const numeroDup =
+                        numeroNorm !== '' &&
+                        notasFiscais.some(
+                          (x, i) =>
+                            i < idx &&
+                            x.numero.trim().toUpperCase() === numeroNorm,
+                        )
+                      const semNumero = notaSemNumero(n)
+                      return (
+                        <div
+                          key={idx}
+                          className="flex flex-col gap-1.5 rounded-md border border-neutral-200 bg-neutral-50/40 p-2.5"
+                        >
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+                            <Field
+                              label="Nº da NF *"
+                              className="sm:col-span-3"
+                            >
+                              <Input
+                                value={n.numero}
+                                onChange={(e) =>
+                                  updateNotaRow(idx, { numero: e.target.value })
+                                }
+                                placeholder="123456"
+                                maxLength={40}
+                                disabled={saving}
+                                className={
+                                  numeroDup || semNumero ? 'border-red-400' : ''
+                                }
+                              />
+                            </Field>
+                            <Field
+                              label="Data de fabricação"
+                              className="sm:col-span-3"
+                            >
+                              <Input
+                                type="date"
+                                value={n.dataFabricacao}
+                                onChange={(e) =>
+                                  updateNotaRow(idx, {
+                                    dataFabricacao: e.target.value,
+                                  })
+                                }
+                                disabled={saving}
+                              />
+                            </Field>
+                            <Field
+                              label="Data de validade"
+                              className="sm:col-span-3"
+                            >
+                              <Input
+                                type="date"
+                                value={n.dataValidade}
+                                onChange={(e) =>
+                                  updateNotaRow(idx, {
+                                    dataValidade: e.target.value,
+                                  })
+                                }
+                                disabled={saving}
+                              />
+                            </Field>
+                            <div className="flex items-end gap-2 sm:col-span-3">
+                              <Field
+                                label="Data de recebimento"
+                                className="flex-1"
+                              >
+                                <Input
+                                  type="date"
+                                  value={n.dataRecebimento}
+                                  onChange={(e) =>
+                                    updateNotaRow(idx, {
+                                      dataRecebimento: e.target.value,
+                                    })
+                                  }
+                                  disabled={saving}
+                                />
+                              </Field>
+                              <button
+                                type="button"
+                                onClick={() => removeNotaRow(idx)}
+                                disabled={saving}
+                                aria-label={`Remover nota fiscal ${idx + 1}`}
+                                className="mb-px inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900 disabled:opacity-50"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                          {numeroDup && (
+                            <span className="text-xs text-red-600">
+                              Esta nota fiscal já foi informada nesta RNC.
+                            </span>
+                          )}
+                          {semNumero && (
+                            <span className="text-xs text-red-600">
+                              Informe o número da nota fiscal (ou remova a
+                              linha).
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addNotaRow}
+                    disabled={saving || notasFiscais.length >= 50}
+                  >
+                    + Adicionar nota fiscal
+                  </Button>
+                </div>
               </div>
             </Section>
 

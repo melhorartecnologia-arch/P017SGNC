@@ -298,35 +298,59 @@ export function RncDetailPanel({ rnc, onClose, onEdit }: Props) {
                 </Row>
               </Section>
 
-              <Section title="Nota fiscal & datas">
-                <Row label="Nº da NF">
-                  {rnc.numeroNf ? (
-                    <span className="font-mono text-[13px]">{rnc.numeroNf}</span>
-                  ) : (
+              <Section
+                title={
+                  rnc.notasFiscais.length > 1
+                    ? 'Notas fiscais & datas'
+                    : 'Nota fiscal & datas'
+                }
+              >
+                {rnc.notasFiscais.length === 0 ? (
+                  <Row label="Nota fiscal">
                     <em className="text-neutral-400">—</em>
-                  )}
-                </Row>
-                <Row label="Fabricação">
-                  {rnc.dataFabricacao ? (
-                    formatDataBR(rnc.dataFabricacao)
-                  ) : (
-                    <em className="text-neutral-400">—</em>
-                  )}
-                </Row>
-                <Row label="Validade">
-                  {rnc.dataValidade ? (
-                    formatDataBR(rnc.dataValidade)
-                  ) : (
-                    <em className="text-neutral-400">—</em>
-                  )}
-                </Row>
-                <Row label="Recebimento">
-                  {rnc.dataRecebimento ? (
-                    formatDataBR(rnc.dataRecebimento)
-                  ) : (
-                    <em className="text-neutral-400">—</em>
-                  )}
-                </Row>
+                  </Row>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {rnc.notasFiscais.map((nf) => (
+                      <div
+                        key={nf.id}
+                        className="rounded-md border border-neutral-200 bg-neutral-50/50 p-2"
+                      >
+                        <div className="mb-1 text-[13px] font-medium text-neutral-900">
+                          NF{' '}
+                          {nf.numero ? (
+                            <span className="font-mono">{nf.numero}</span>
+                          ) : (
+                            <em className="font-normal text-neutral-400">
+                              sem número
+                            </em>
+                          )}
+                        </div>
+                        <Row label="Fabricação">
+                          {nf.dataFabricacao ? (
+                            formatDataBR(nf.dataFabricacao)
+                          ) : (
+                            <em className="text-neutral-400">—</em>
+                          )}
+                        </Row>
+                        <Row label="Validade">
+                          {nf.dataValidade ? (
+                            formatDataBR(nf.dataValidade)
+                          ) : (
+                            <em className="text-neutral-400">—</em>
+                          )}
+                        </Row>
+                        <Row label="Recebimento">
+                          {nf.dataRecebimento ? (
+                            formatDataBR(nf.dataRecebimento)
+                          ) : (
+                            <em className="text-neutral-400">—</em>
+                          )}
+                        </Row>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Section>
 
               <Section title="Transporte">

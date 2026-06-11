@@ -55,6 +55,16 @@ const includeRefs = {
     select: { id: true, numero: true, quantidade: true },
     orderBy: { createdAt: 'asc' },
   },
+  notasFiscais: {
+    select: {
+      id: true,
+      numero: true,
+      dataFabricacao: true,
+      dataValidade: true,
+      dataRecebimento: true,
+    },
+    orderBy: { createdAt: 'asc' },
+  },
 } as const
 
 rncRouter.get('/', async (req, res, next) => {
@@ -230,7 +240,7 @@ rncRouter.post('/', async (req, res, next) => {
     const yearEnd = new Date(Date.UTC(ano4 + 1, 0, 1))
     const codigoFilial = filial.codigo.trim().toUpperCase()
 
-    const { lotes, ...rncData } = data
+    const { lotes, notasFiscais, ...rncData } = data
     const created = await prisma.$transaction(async (tx) => {
       // Lock advisory por (filial, ano) — liberado ao fim da transação.
       // Evita corrida quando dois POSTs caem na mesma combinação ao mesmo tempo.
@@ -257,6 +267,14 @@ rncRouter.post('/', async (req, res, next) => {
               quantidade: l.quantidade,
             })),
           },
+          notasFiscais: {
+            create: notasFiscais.map((n) => ({
+              numero: n.numero,
+              dataFabricacao: n.dataFabricacao,
+              dataValidade: n.dataValidade,
+              dataRecebimento: n.dataRecebimento,
+            })),
+          },
         },
         include: includeRefs,
       })
@@ -269,7 +287,7 @@ rncRouter.post('/', async (req, res, next) => {
 
 rncRouter.patch('/:id', async (req, res, next) => {
   try {
-    const { lotes, ...rest } = rncUpdateSchema.parse(req.body)
+    const { lotes, notasFiscais, ...rest } = rncUpdateSchema.parse(req.body)
 
     // O schema valida quantidadeDefeito × lotes quando ambos vêm no
     // payload. Quando o PATCH altera só um dos dois, completa com os
@@ -308,6 +326,20 @@ rncRouter.patch('/:id', async (req, res, next) => {
               rncId: req.params.id,
               numero: l.numero,
               quantidade: l.quantidade,
+            })),
+          })
+        }
+      }
+      if (notasFiscais !== undefined) {
+        await tx.rncNotaFiscal.deleteMany({ where: { rncId: req.params.id } })
+        if (notasFiscais.length > 0) {
+          await tx.rncNotaFiscal.createMany({
+            data: notasFiscais.map((n) => ({
+              rncId: req.params.id,
+              numero: n.numero,
+              dataFabricacao: n.dataFabricacao,
+              dataValidade: n.dataValidade,
+              dataRecebimento: n.dataRecebimento,
             })),
           })
         }
