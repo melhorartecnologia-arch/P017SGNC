@@ -140,7 +140,10 @@ const rncBaseSchema = z.object({
           ])
           .optional()
           .nullable()
-          .transform((v) => (v === '' || v === undefined ? null : v)),
+          .transform((v) => (v === '' || v === undefined ? null : v))
+          .refine((v) => v === null || v > 0, {
+            message: 'A quantidade do lote deve ser maior que zero',
+          }),
       }),
     )
     .min(1, 'Informe ao menos um lote')

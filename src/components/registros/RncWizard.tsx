@@ -333,6 +333,14 @@ export function RncWizard({
     return acc + (Number.isFinite(n) ? n : 0)
   }, 0)
 
+  // Quantidade de lote, quando informada, deve ser maior que zero.
+  const loteQtdInvalida = (quantidade: string) => {
+    if (quantidade.trim() === '') return false
+    const n = parseFloat(quantidade)
+    return !Number.isFinite(n) || n <= 0
+  }
+  const lotesComQtdInvalida = lotes.some((l) => loteQtdInvalida(l.quantidade))
+
   // Qtd. com defeito: quando informada, deve ser > 0 e não pode exceder o
   // total dos lotes (quando houver quantidades informadas nos lotes).
   const qtdDefeitoNum = parseFloat(quantidadeDefeito)
@@ -356,6 +364,7 @@ export function RncWizard({
     !!produto &&
     lotesPreenchidos.length > 0 &&
     !lotesDuplicados &&
+    !lotesComQtdInvalida &&
     qtdDefeitoInformada &&
     !qtdDefeitoInvalida
   const stepFinalValid = step1Valid && step2Valid && step3Valid
@@ -736,6 +745,7 @@ export function RncWizard({
                             i < idx &&
                             x.numero.trim().toUpperCase() === numeroNorm,
                         )
+                      const qtdInvalida = loteQtdInvalida(l.quantidade)
                       return (
                         <div key={idx} className="flex flex-col gap-1">
                           <div className="grid grid-cols-12 items-center gap-2">
@@ -752,7 +762,7 @@ export function RncWizard({
                               disabled={saving}
                             />
                             <Input
-                              className="col-span-4"
+                              className={`col-span-4 ${qtdInvalida ? 'border-red-400' : ''}`}
                               type="number"
                               inputMode="decimal"
                               step="any"
@@ -781,6 +791,11 @@ export function RncWizard({
                           {numeroDup && (
                             <span className="text-xs text-red-600">
                               Este lote já foi informado nesta RNC.
+                            </span>
+                          )}
+                          {qtdInvalida && (
+                            <span className="text-xs text-red-600">
+                              A quantidade do lote deve ser maior que zero.
                             </span>
                           )}
                         </div>
