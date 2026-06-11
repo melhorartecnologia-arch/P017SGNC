@@ -1,5 +1,12 @@
 import * as React from 'react'
-import { Loader2, FileWarning, ChevronRight, ChevronLeft, Check } from 'lucide-react'
+import {
+  Loader2,
+  FileWarning,
+  ChevronRight,
+  ChevronLeft,
+  Check,
+  Sparkles,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +35,7 @@ import { origensApi, type Origem } from '@/lib/api/origens'
 import { severidadesApi, type Severidade } from '@/lib/api/severidades'
 import type { Produto } from '@/lib/api/produtos'
 import { rncApi, type Rnc } from '@/lib/api/rnc'
+import { iaApi } from '@/lib/api/ia'
 import { useAuth } from '@/lib/auth/AuthContext'
 import { FornecedorCombobox } from './FornecedorCombobox'
 import { ProdutoCombobox } from './ProdutoCombobox'
@@ -127,6 +135,12 @@ export function RncWizard({
   const [savedRnc, setSavedRnc] = React.useState<Rnc | null>(initial ?? null)
 
   const [saving, setSaving] = React.useState(false)
+  const [corrigindoTexto, setCorrigindoTexto] = React.useState(false)
+  // Texto anterior à última correção por IA — permite desfazer. Limpo
+  // quando o usuário edita manualmente a descrição.
+  const [descricaoAntesCorrecao, setDescricaoAntesCorrecao] = React.useState<
+    string | null
+  >(null)
   const [error, setError] = React.useState<string | null>(null)
 
   // Ao abrir/fechar: reseta ou popula a partir do `initial`.
@@ -144,6 +158,7 @@ export function RncWizard({
       setOrigemId('')
       setSeveridadeId('')
       setDescricaoDefeito('')
+      setDescricaoAntesCorrecao(null)
       setProduto(null)
       setLotes([])
       setQuantidadeDefeito('')
@@ -183,6 +198,7 @@ export function RncWizard({
       setOrigemId(initial.origemId ?? '')
       setSeveridadeId(initial.severidadeId ?? '')
       setDescricaoDefeito(initial.descricaoDefeito ?? '')
+      setDescricaoAntesCorrecao(null)
       // produto vem como ref — produz um Produto "parcial" suficiente para
       // o combobox.
       setProduto(
@@ -449,6 +465,35 @@ export function RncWizard({
   }
   const removeNotaRow = (idx: number) => {
     setNotasFiscais(notasFiscais.filter((_, i) => i !== idx))
+  }
+
+  // Corrige acentuação/concordância da descrição do defeito via IA
+  // (bSynapse, com proxy na API para não expor a chave). A correção
+  // substitui o texto, mas pode ser desfeita pelo toast.
+  const handleCorrigirDescricao = async () => {
+    const original = descricaoDefeito
+    if (!original.trim() || corrigindoTexto) return
+    setCorrigindoTexto(true)
+    try {
+      const { textoCorrigido } = await iaApi.corrigirTexto(original.trim())
+      if (textoCorrigido === original.trim()) {
+        toast.success('Nenhuma correção necessária', {
+          description: 'O texto já está correto.',
+        })
+      } else {
+        setDescricaoDefeito(textoCorrigido)
+        setDescricaoAntesCorrecao(original)
+        toast.success('Texto corrigido pela IA', {
+          description: 'Use "Desfazer correção" para voltar ao original.',
+        })
+      }
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao corrigir o texto.'
+      toast.error('Não foi possível corrigir', { description: message })
+    } finally {
+      setCorrigindoTexto(false)
+    }
   }
 
   const persistRnc = async () => {
@@ -1278,13 +1323,51 @@ export function RncWizard({
               >
                 <textarea
                   value={descricaoDefeito}
-                  onChange={(e) => setDescricaoDefeito(e.target.value)}
+                  onChange={(e) => {
+                    setDescricaoDefeito(e.target.value)
+                    setDescricaoAntesCorrecao(null)
+                  }}
                   required
                   rows={5}
                   maxLength={4000}
+                  disabled={corrigindoTexto}
                   placeholder="Descreva o que foi identificado, contexto, evidências observadas, etc."
-                  className="flex w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+                  className="flex w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900 disabled:cursor-wait disabled:opacity-60"
                 />
+                <div className="flex items-center justify-between gap-2">
+                  {descricaoAntesCorrecao !== null ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDescricaoDefeito(descricaoAntesCorrecao)
+                        setDescricaoAntesCorrecao(null)
+                      }}
+                      className="text-xs text-neutral-700 underline underline-offset-2 hover:text-neutral-900"
+                    >
+                      Desfazer correção
+                    </button>
+                  ) : (
+                    <span className="text-xs text-neutral-500">
+                      Corrige acentuação, concordância e erros de digitação.
+                    </span>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCorrigirDescricao}
+                    disabled={
+                      corrigindoTexto || saving || !descricaoDefeito.trim()
+                    }
+                  >
+                    {corrigindoTexto ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    Corrigir texto com IA
+                  </Button>
+                </div>
               </Field>
             </Section>
           </section>

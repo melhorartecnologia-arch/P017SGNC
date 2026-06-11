@@ -11,6 +11,10 @@ const schema = z.object({
   ADMIN_EMAIL: z.string().email().default('admin@sgnc.local'),
   ADMIN_PASSWORD: z.string().min(6).default('admin123'),
   ADMIN_NOME: z.string().min(2).default('Administrador'),
+  // Integração bSynapse (correção de texto por IA) — opcional. Sem as duas
+  // variáveis, o endpoint /api/ia/corrigir-texto responde 503.
+  BSYNAPSE_API_URL: z.string().url().optional(),
+  BSYNAPSE_API_KEY: z.string().min(1).optional(),
 })
 
 const parsed = schema.safeParse(process.env)
