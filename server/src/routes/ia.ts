@@ -79,6 +79,12 @@ iaRouter.post('/corrigir-texto', async (req, res, next) => {
     }
 
     const data: unknown = await resposta.json().catch(() => null)
+    // Log temporário do formato da resposta para mapear o campo correto
+    // (ative BSYNAPSE_DEBUG=1 no server/.env). Ajuda a identificar onde
+    // vem o texto corrigido vs. a análise.
+    if (process.env.BSYNAPSE_DEBUG === '1') {
+      console.log('bSynapse resposta crua:', JSON.stringify(data))
+    }
     const textoCorrigido = extrairTextoCorrigido(data)
     if (!textoCorrigido) {
       // Loga só as chaves (não o conteúdo) para diagnosticar o formato.
