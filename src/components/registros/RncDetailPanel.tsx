@@ -1,8 +1,10 @@
 import * as React from 'react'
-import { X, Pencil } from 'lucide-react'
+import { X, Pencil, Check, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { Rnc, RncStatus } from '@/lib/api/rnc'
+import { ApiError } from '@/lib/api/client'
+import { rncApi, resumoAssinaturas, type Rnc, type RncStatus } from '@/lib/api/rnc'
 import { RncFotosSection } from './RncFotosSection'
 
 const STATUS_LABELS: Record<RncStatus, string> = {
@@ -43,10 +45,29 @@ type Props = {
   rnc: Rnc | null
   onClose: () => void
   onEdit?: (rnc: Rnc) => void
+  /** Propaga a RNC atualizada (ex.: após registrar assinatura). */
+  onUpdated?: (rnc: Rnc) => void
 }
 
-export function RncDetailPanel({ rnc, onClose, onEdit }: Props) {
+export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
   const open = !!rnc
+  const [assinandoId, setAssinandoId] = React.useState<string | null>(null)
+
+  const toggleAssinatura = async (aprovadorId: string, assinado: boolean) => {
+    if (!rnc) return
+    setAssinandoId(aprovadorId)
+    try {
+      const atualizado = await rncApi.setAssinatura(rnc.id, aprovadorId, assinado)
+      onUpdated?.(atualizado)
+      toast.success(assinado ? 'Assinatura registrada' : 'Assinatura cancelada')
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao atualizar a assinatura.'
+      toast.error('Não foi possível atualizar', { description: message })
+    } finally {
+      setAssinandoId(null)
+    }
+  }
 
   React.useEffect(() => {
     if (!open) return
@@ -406,7 +427,9 @@ export function RncDetailPanel({ rnc, onClose, onEdit }: Props) {
                 )}
               </Section>
 
-              <Section title="Matriz de aprovação (assinaturas)">
+              <Section
+                title={`Matriz de aprovação · ${resumoAssinaturas(rnc).label}`}
+              >
                 {rnc.aprovadores.length === 0 ? (
                   <Row label="Aprovadores">
                     <em className="text-neutral-400">
@@ -415,16 +438,52 @@ export function RncDetailPanel({ rnc, onClose, onEdit }: Props) {
                     </em>
                   </Row>
                 ) : (
-                  rnc.aprovadores.map((a) => (
-                    <Row key={a.id} label={a.areaNome}>
-                      <span className="font-medium text-neutral-900">
-                        {a.nome}
-                      </span>
-                      {a.cargo && (
-                        <span className="text-neutral-500"> · {a.cargo}</span>
-                      )}
-                    </Row>
-                  ))
+                  <div className="flex flex-col gap-1.5">
+                    {rnc.aprovadores.map((a) => {
+                      const assinado = !!a.assinadoEm
+                      const ocupado = assinandoId === a.id
+                      return (
+                        <div
+                          key={a.id}
+                          className="flex items-center justify-between gap-2 rounded-md border border-neutral-200 px-2.5 py-1.5"
+                        >
+                          <div className="flex min-w-0 flex-col">
+                            <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+                              {a.areaNome}
+                            </span>
+                            <span className="truncate text-sm text-neutral-900">
+                              <span className="font-medium">{a.nome}</span>
+                              {a.cargo && (
+                                <span className="text-neutral-500">
+                                  {' '}
+                                  · {a.cargo}
+                                </span>
+                              )}
+                            </span>
+                            {assinado && (
+                              <span className="text-[11px] text-emerald-700">
+                                Assinado em {formatDataHoraBR(a.assinadoEm)}
+                              </span>
+                            )}
+                          </div>
+                          <Button
+                            variant={assinado ? 'outline' : 'default'}
+                            size="sm"
+                            className="shrink-0"
+                            disabled={ocupado}
+                            onClick={() => toggleAssinatura(a.id, !assinado)}
+                          >
+                            {ocupado ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : assinado ? (
+                              <Check className="h-3.5 w-3.5 text-emerald-600" />
+                            ) : null}
+                            {assinado ? 'Assinado' : 'Registrar assinatura'}
+                          </Button>
+                        </div>
+                      )
+                    })}
+                  </div>
                 )}
               </Section>
 

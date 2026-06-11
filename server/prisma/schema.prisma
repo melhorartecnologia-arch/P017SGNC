@@ -481,6 +481,7 @@ model RncAprovador {
   cargo       String? @db.VarChar(120)
   email       String? @db.VarChar(160)
   nivel       Int?
+  assinadoEm  DateTime? @map("assinado_em")
 
   rnc       RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
   aprovador Aprovador?               @relation(fields: [aprovadorId], references: [id], onDelete: SetNull)

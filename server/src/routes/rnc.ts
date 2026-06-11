@@ -79,6 +79,7 @@ const includeRefs = {
       cargo: true,
       email: true,
       nivel: true,
+      assinadoEm: true,
     },
     orderBy: { areaNome: 'asc' },
   },
@@ -224,6 +225,31 @@ rncRouter.delete('/fotos/:fotoId', async (req, res, next) => {
   }
 })
 
+// Registra ou cancela a assinatura de um aprovador da matriz da RNC.
+rncRouter.patch('/:rncId/aprovadores/:id', async (req, res, next) => {
+  try {
+    const assinado = req.body?.assinado === true
+    const alvo = await prisma.rncAprovador.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, rncId: true },
+    })
+    if (!alvo || alvo.rncId !== req.params.rncId) {
+      throw new HttpError(404, 'Aprovador não encontrado nesta RNC')
+    }
+    await prisma.rncAprovador.update({
+      where: { id: alvo.id },
+      data: { assinadoEm: assinado ? new Date() : null },
+    })
+    const rnc = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
+      where: { id: req.params.rncId },
+      include: includeRefs,
+    })
+    res.json(rnc)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // ===== Operações principais do RNC ============================
 
 // Download do RNC em PDF (layout do formulário FOR.IND.CQA.012).
@@ -261,6 +287,7 @@ rncRouter.get('/:id/pdf', async (req, res, next) => {
         cargo: a.cargo,
         email: a.email,
         nivel: a.nivel,
+        assinadoEm: null,
       }))
     }
 

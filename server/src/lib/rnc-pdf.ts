@@ -21,7 +21,12 @@ export type RncPdfData = {
   origem: { codigo: string; nome: string } | null
   severidade: { nivel: number; nome: string } | null
   criadoPor: { nome: string; email: string } | null
-  aprovadores: { areaNome: string; nome: string; cargo: string | null }[]
+  aprovadores: {
+    areaNome: string
+    nome: string
+    cargo: string | null
+    assinadoEm: Date | null
+  }[]
   lotes: { numero: string; quantidade: number | null }[]
   notasFiscais: {
     numero: string | null
@@ -193,6 +198,7 @@ function caixaAssinatura(
   w: number,
   papel: string,
   nome?: string,
+  data?: string,
 ) {
   const h = 44
   doc.rect(x, y, w, h).strokeColor(COR_BORDA).lineWidth(0.6).stroke()
@@ -213,6 +219,13 @@ function caixaAssinatura(
       .font('Helvetica-Bold')
       .fontSize(7.5)
       .text(nome, x + 32, y + 22, { width: w - 40, ellipsis: true })
+  }
+  if (data) {
+    doc
+      .fillColor(COR_VALOR)
+      .font('Helvetica')
+      .fontSize(7.5)
+      .text(data, x + 32, y + 33, { width: w - 40 })
   }
   doc
     .moveTo(x + 32, y + 29)
@@ -429,10 +442,11 @@ export function montarRncPdf(
     const entradas = rnc.aprovadores.map((a) => ({
       papel: a.areaNome + (a.cargo ? ` — ${a.cargo}` : ''),
       nome: a.nome,
+      data: a.assinadoEm ? fmtData(a.assinadoEm) : undefined,
     }))
     for (let i = 0; i < entradas.length; i += 2) {
       novaPaginaSeNecessario(doc, est, 48)
-      caixaAssinatura(doc, LEFT, est.y, colW, entradas[i].papel, entradas[i].nome)
+      caixaAssinatura(doc, LEFT, est.y, colW, entradas[i].papel, entradas[i].nome, entradas[i].data)
       if (entradas[i + 1]) {
         caixaAssinatura(
           doc,
@@ -441,6 +455,7 @@ export function montarRncPdf(
           colW,
           entradas[i + 1].papel,
           entradas[i + 1].nome,
+          entradas[i + 1].data,
         )
       }
       est.y += 48

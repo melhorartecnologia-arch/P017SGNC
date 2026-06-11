@@ -15,7 +15,13 @@ import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError } from '@/lib/api/client'
-import { rncApi, type Rnc, type RncStatus } from '@/lib/api/rnc'
+import {
+  rncApi,
+  resumoAssinaturas,
+  type AssinaturaStatus,
+  type Rnc,
+  type RncStatus,
+} from '@/lib/api/rnc'
 import { DEFAULT_PAGE_SIZE, Pagination } from '@/components/cadastros/Pagination'
 import { RncWizard } from './RncWizard'
 import { RncDetailPanel } from './RncDetailPanel'
@@ -39,6 +45,37 @@ const STATUS_CLASS: Record<RncStatus, string> = {
 
 const selectClass =
   'flex h-9 w-full rounded-md border border-neutral-200 bg-white px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900'
+
+const ASSINATURA_CLASS: Record<AssinaturaStatus['estado'], string> = {
+  vazio: 'border-neutral-200 bg-neutral-50 text-neutral-500',
+  pendente: 'border-amber-200 bg-amber-50 text-amber-800',
+  parcial: 'border-sky-200 bg-sky-50 text-sky-800',
+  completo: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+}
+
+function AssinaturaBadge({ rnc }: { rnc: Rnc }) {
+  const s = resumoAssinaturas(rnc)
+  const titulo =
+    s.estado === 'vazio'
+      ? 'Nenhum aprovador definido para esta RNC'
+      : rnc.aprovadores
+          .map(
+            (a) =>
+              `${a.assinadoEm ? '✓' : '○'} ${a.areaNome}: ${a.nome}`,
+          )
+          .join('\n')
+  return (
+    <span
+      title={titulo}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium',
+        ASSINATURA_CLASS[s.estado],
+      )}
+    >
+      {s.label}
+    </span>
+  )
+}
 
 function formatDataBR(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -215,6 +252,7 @@ export function RncListPage() {
                 <th className="px-3 py-2.5 text-left font-medium">Tipo NC</th>
                 <th className="px-3 py-2.5 text-left font-medium">Turno</th>
                 <th className="px-3 py-2.5 text-center font-medium">Status</th>
+                <th className="px-3 py-2.5 text-center font-medium">Assinaturas</th>
                 <th className="px-3 py-2.5 text-left font-medium">Criado por</th>
                 <th className="w-24 px-3 py-2.5"></th>
               </tr>
@@ -226,7 +264,7 @@ export function RncListPage() {
                     key={`sk-${i}`}
                     className="border-b border-neutral-200 last:border-b-0"
                   >
-                    {Array.from({ length: 8 }).map((__, j) => (
+                    {Array.from({ length: 9 }).map((__, j) => (
                       <td key={j} className="px-3 py-4">
                         <Skeleton className="h-3.5 w-24" />
                       </td>
@@ -239,7 +277,7 @@ export function RncListPage() {
               {!loading && visible.length === 0 && (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     className="px-3 py-10 text-center text-neutral-500"
                   >
                     {total === 0
@@ -310,6 +348,9 @@ export function RncListPage() {
                       >
                         {STATUS_LABELS[r.status]}
                       </span>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <AssinaturaBadge rnc={r} />
                     </td>
                     <td className="px-3 py-3 text-neutral-700">
                       <div className="line-clamp-1 text-sm">
@@ -395,6 +436,12 @@ export function RncListPage() {
           setViewing(null)
           setEditing(r)
           setWizardOpen(true)
+        }}
+        onUpdated={(updated) => {
+          setViewing((prev) => (prev?.id === updated.id ? updated : prev))
+          setItems((cur) =>
+            cur.map((it) => (it.id === updated.id ? updated : it)),
+          )
         }}
       />
     </div>

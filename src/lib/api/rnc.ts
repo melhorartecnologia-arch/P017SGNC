@@ -62,6 +62,7 @@ export type Rnc = {
     cargo: string | null
     email: string | null
     nivel: number | null
+    assinadoEm: string | null
   }[]
 
   filial: { id: string; codigo: string; nome: string }
@@ -130,6 +131,30 @@ export type RncListResponse = {
   total: number
 }
 
+export type AssinaturaStatus = {
+  total: number
+  assinadas: number
+  /** 'vazio' = sem aprovadores; senão pendente/parcial/completo. */
+  estado: 'vazio' | 'pendente' | 'parcial' | 'completo'
+  label: string
+}
+
+/** Resumo do andamento das assinaturas da matriz de aprovação. */
+export function resumoAssinaturas(rnc: Rnc): AssinaturaStatus {
+  const total = rnc.aprovadores.length
+  const assinadas = rnc.aprovadores.filter((a) => a.assinadoEm).length
+  if (total === 0) {
+    return { total, assinadas, estado: 'vazio', label: 'Sem aprovadores' }
+  }
+  if (assinadas === 0) {
+    return { total, assinadas, estado: 'pendente', label: `Pendente · 0/${total}` }
+  }
+  if (assinadas < total) {
+    return { total, assinadas, estado: 'parcial', label: `Parcial · ${assinadas}/${total}` }
+  }
+  return { total, assinadas, estado: 'completo', label: `Assinado · ${total}/${total}` }
+}
+
 export const rncApi = {
   list: (params: RncListParams = {}) =>
     apiRequest<RncListResponse>('/rnc', {
@@ -151,6 +176,13 @@ export const rncApi = {
 
   update: (id: string, input: Partial<RncCreateInput>) =>
     apiRequest<Rnc>(`/rnc/${id}`, { method: 'PATCH', body: input }),
+
+  /** Registra ou cancela a assinatura de um aprovador da matriz. */
+  setAssinatura: (rncId: string, aprovadorId: string, assinado: boolean) =>
+    apiRequest<Rnc>(`/rnc/${rncId}/aprovadores/${aprovadorId}`, {
+      method: 'PATCH',
+      body: { assinado },
+    }),
 
   /** Baixa o PDF da RNC (layout do formulário) e dispara o download. */
   downloadPdf: async (id: string, numero: string): Promise<void> => {
