@@ -21,9 +21,22 @@ const publicFields = {
   nome: true,
   role: true,
   ativo: true,
+  filialPadraoId: true,
+  filialPadrao: { select: { id: true, codigo: true, nome: true } },
   createdAt: true,
   updatedAt: true,
 } as const
+
+/** Garante que a filial padrão informada existe — erro 400 amigável em vez
+ *  de violação de FK (500). */
+async function ensureFilialExiste(filialPadraoId: string | null | undefined) {
+  if (!filialPadraoId) return
+  const filial = await prisma.filial.findUnique({
+    where: { id: filialPadraoId },
+    select: { id: true },
+  })
+  if (!filial) throw new HttpError(400, 'Filial padrão não encontrada')
+}
 
 usuariosRouter.get('/', async (req, res, next) => {
   try {
@@ -70,6 +83,7 @@ usuariosRouter.get('/:id', async (req, res, next) => {
 usuariosRouter.post('/', async (req, res, next) => {
   try {
     const data = usuarioCreateSchema.parse(req.body)
+    await ensureFilialExiste(data.filialPadraoId)
     const created = await prisma.usuario.create({
       data: {
         email: data.email,
@@ -77,6 +91,7 @@ usuariosRouter.post('/', async (req, res, next) => {
         senhaHash: await bcrypt.hash(data.senha, 10),
         role: data.role,
         ativo: data.ativo ?? true,
+        filialPadraoId: data.filialPadraoId ?? null,
       },
       select: publicFields,
     })
@@ -103,12 +118,16 @@ usuariosRouter.patch('/:id', async (req, res, next) => {
       throw new HttpError(400, 'Você não pode desativar seu próprio usuário.')
     }
 
-    const updateData: Prisma.UsuarioUpdateInput = {}
+    const updateData: Prisma.UsuarioUncheckedUpdateInput = {}
     if (data.email !== undefined) updateData.email = data.email
     if (data.nome !== undefined) updateData.nome = data.nome
     if (data.role !== undefined) updateData.role = data.role
     if (data.ativo !== undefined) updateData.ativo = data.ativo
     if (data.senha !== undefined) updateData.senhaHash = await bcrypt.hash(data.senha, 10)
+    if (data.filialPadraoId !== undefined) {
+      await ensureFilialExiste(data.filialPadraoId)
+      updateData.filialPadraoId = data.filialPadraoId
+    }
 
     const updated = await prisma.usuario.update({
       where: { id: req.params.id },

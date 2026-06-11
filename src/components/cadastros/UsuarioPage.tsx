@@ -22,6 +22,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ApiError } from '@/lib/api/client'
+import { filiaisApi, type Filial } from '@/lib/api/filiais'
 import type { Usuario } from '@/lib/api/usuarios'
 import { usuariosApi } from '@/lib/api/usuarios'
 import { useAuth } from '@/lib/auth/AuthContext'
@@ -38,6 +39,7 @@ export function UsuarioPage() {
   const currentUserId = auth.status === 'authenticated' ? auth.user.id : null
 
   const [items, setItems] = React.useState<Usuario[]>([])
+  const [filiais, setFiliais] = React.useState<Filial[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [q, setQ] = React.useState('')
@@ -72,6 +74,20 @@ export function UsuarioPage() {
   React.useEffect(() => {
     fetchPage('', 1)
   }, [fetchPage])
+
+  // Filiais usadas no import XLSX (resolver código → id).
+  React.useEffect(() => {
+    let cancelled = false
+    filiaisApi
+      .list({ ativo: true, pageSize: 100 })
+      .then((res) => {
+        if (!cancelled) setFiliais(res.items)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const refresh = React.useCallback(() => fetchPage(q, page), [fetchPage, q, page])
 
@@ -177,11 +193,15 @@ export function UsuarioPage() {
                 help: 'Administrador / Usuário (padrão Usuário)',
               },
               { header: 'Situação', help: 'Ativo / Inativo (padrão Ativo)' },
+              {
+                header: 'Filial padrão (código)',
+                help: 'código de filial já cadastrada (opcional)',
+              },
             ]}
             notes={[
               'A senha é obrigatória — exporte um modelo e preencha a coluna Senha.',
             ]}
-            mapRow={(row) => {
+            mapRow={async (row) => {
               const senha = pick(row, 'Senha')
               if (senha.length < 6) {
                 throw new Error('Senha deve ter ao menos 6 caracteres.')
@@ -192,12 +212,26 @@ export function UsuarioPage() {
                 perfilTxt.includes('administrador')
                   ? ('ADMIN' as const)
                   : ('USUARIO' as const)
+              let filialPadraoId: string | null = null
+              const filialCodigo = pick(row, 'Filial padrão (código)').toUpperCase()
+              if (filialCodigo) {
+                let filial = filiais.find((f) => f.codigo === filialCodigo)
+                if (!filial) {
+                  const res = await filiaisApi.list({ q: filialCodigo, pageSize: 5 })
+                  filial = res.items.find((f) => f.codigo === filialCodigo)
+                }
+                if (!filial) {
+                  throw new Error(`Filial não encontrada: ${filialCodigo}`)
+                }
+                filialPadraoId = filial.id
+              }
               return {
                 nome: pick(row, 'Nome'),
                 email: pick(row, 'E-mail'),
                 senha,
                 role,
                 ativo: parseAtivo(pick(row, 'Situação')),
+                filialPadraoId,
               }
             }}
             importOne={(input) => usuariosApi.create(input)}
@@ -216,6 +250,16 @@ export function UsuarioPage() {
                 width: 16,
               },
               { header: 'Situação', value: (u) => (u.ativo ? 'Ativo' : 'Inativo'), width: 10 },
+              {
+                header: 'Filial padrão (código)',
+                value: (u) => u.filialPadrao?.codigo ?? '',
+                width: 20,
+              },
+              {
+                header: 'Filial padrão',
+                value: (u) => u.filialPadrao?.nome ?? '',
+                width: 28,
+              },
             ]}
             total={total}
             fetchAll={() => fetchAllPaged((p) => usuariosApi.list({ q: q.trim() || undefined, ...p }))}
@@ -262,6 +306,7 @@ export function UsuarioPage() {
                 </th>
                 <th className="px-3 py-2.5 text-left font-medium">Nome</th>
                 <th className="px-3 py-2.5 text-left font-medium">E-mail</th>
+                <th className="px-3 py-2.5 text-left font-medium">Filial padrão</th>
                 <th className="px-3 py-2.5 text-center font-medium">Perfil</th>
                 <th className="px-3 py-2.5 text-center font-medium">Situação</th>
                 <th className="w-24 px-3 py-2.5"></th>
@@ -284,6 +329,9 @@ export function UsuarioPage() {
                       <Skeleton className="h-3.5 w-56" />
                     </td>
                     <td className="px-3 py-4">
+                      <Skeleton className="h-3.5 w-32" />
+                    </td>
+                    <td className="px-3 py-4">
                       <Skeleton className="mx-auto h-5 w-20" />
                     </td>
                     <td className="px-3 py-4">
@@ -299,7 +347,7 @@ export function UsuarioPage() {
                 ))}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-10 text-center text-neutral-500">
+                  <td colSpan={7} className="px-3 py-10 text-center text-neutral-500">
                     Nenhum usuário cadastrado.
                   </td>
                 </tr>
@@ -333,6 +381,21 @@ export function UsuarioPage() {
                         )}
                       </td>
                       <td className="px-3 py-3 text-neutral-700">{u.email}</td>
+                      <td className="px-3 py-3 text-neutral-700">
+                        {u.filialPadrao ? (
+                          <>
+                            <span className="font-medium text-neutral-900">
+                              {u.filialPadrao.codigo}
+                            </span>
+                            <span className="text-neutral-500">
+                              {' '}
+                              — {u.filialPadrao.nome}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-neutral-400">—</span>
+                        )}
+                      </td>
                       <td className="px-3 py-3 text-center">
                         <span
                           className={

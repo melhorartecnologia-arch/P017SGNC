@@ -14,18 +14,21 @@ enum UsuarioRole {
 
 /// Usuário do sistema — autenticação por e-mail + senha.
 model Usuario {
-  id        String      @id @default(uuid()) @db.Uuid
-  email     String      @unique @db.VarChar(160)
-  senhaHash String      @map("senha_hash") @db.VarChar(120)
-  nome      String      @db.VarChar(120)
-  role      UsuarioRole @default(USUARIO)
-  ativo     Boolean     @default(true)
+  id             String      @id @default(uuid()) @db.Uuid
+  email          String      @unique @db.VarChar(160)
+  senhaHash      String      @map("senha_hash") @db.VarChar(120)
+  nome           String      @db.VarChar(120)
+  role           UsuarioRole @default(USUARIO)
+  ativo          Boolean     @default(true)
+  filialPadraoId String?     @map("filial_padrao_id") @db.Uuid
 
+  filialPadrao              Filial?                    @relation(fields: [filialPadraoId], references: [id], onDelete: SetNull)
   relatoriosNaoConformidade RelatorioNaoConformidade[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  @@index([filialPadraoId])
   @@map("usuarios")
 }
 
@@ -254,6 +257,7 @@ model Filial {
   aprovadores               Aprovador[]
   turnos                    TurnoTrabalho[]
   relatoriosNaoConformidade RelatorioNaoConformidade[]
+  usuariosFilialPadrao      Usuario[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

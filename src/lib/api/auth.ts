@@ -5,6 +5,8 @@ export type AuthUser = {
   email: string
   nome: string
   role: 'ADMIN' | 'USUARIO'
+  filialPadraoId: string | null
+  filialPadrao: { id: string; codigo: string; nome: string } | null
 }
 
 export type LoginResponse = {
