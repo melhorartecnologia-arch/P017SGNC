@@ -22,6 +22,7 @@ import {
   MapPin,
   LayoutGrid,
   UserCheck,
+  Mail,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -80,6 +81,11 @@ const cadastrosNav: Item[] = [
 // Itens de cadastro visíveis somente para administradores.
 const cadastrosAdminNav: Item[] = [
   { key: 'cad-usuario', label: 'Usuários', icon: Users },
+]
+
+// Configurações técnicas — somente administradores.
+const configuracoesNav: Item[] = [
+  { key: 'cfg-smtp', label: 'Servidor de E-mail (SMTP)', icon: Mail },
 ]
 
 type NavItemProps = {
@@ -222,6 +228,24 @@ export function AppSidebar({ activeKey, onSelect, onCreateRelatorio }: AppSideba
         </nav>
       </div>
 
+      {usuario?.role === 'ADMIN' && (
+        <div className="mt-6 px-2">
+          <div className="px-2.5 pb-1.5 text-xs font-medium text-neutral-500">
+            Configurações Técnicas
+          </div>
+          <nav className="flex flex-col gap-0.5">
+            {configuracoesNav.map((item) => (
+              <NavItem
+                key={item.key}
+                item={item}
+                active={activeKey === item.key}
+                onClick={handleClick}
+              />
+            ))}
+          </nav>
+        </div>
+      )}
+
       <div className="mt-auto flex flex-col">
         <div className="flex items-center gap-2 border-t border-neutral-200 px-3 py-2.5">
           <Avatar className="h-8 w-8">
@@ -265,3 +289,5 @@ export const CADASTRO_KEYS = new Set([
   ...cadastrosNav.map((i) => i.key),
   ...cadastrosAdminNav.map((i) => i.key),
 ])
+
+export const CONFIG_KEYS = new Set(configuracoesNav.map((i) => i.key))

@@ -20,6 +20,7 @@ import { turnosTrabalhoRouter } from './routes/turnos-trabalho.js'
 import { politicasRespostaRouter } from './routes/politicas-resposta.js'
 import { rncRouter } from './routes/rnc.js'
 import { iaRouter } from './routes/ia.js'
+import { configuracoesRouter } from './routes/configuracoes.js'
 
 const app = express()
 
@@ -52,6 +53,7 @@ app.use('/api/turnos-trabalho', requireAuth, turnosTrabalhoRouter)
 app.use('/api/politicas-resposta', requireAuth, politicasRespostaRouter)
 app.use('/api/rnc', requireAuth, rncRouter)
 app.use('/api/ia', requireAuth, iaRouter)
+app.use('/api/configuracoes', requireAuth, configuracoesRouter)
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'NotFoundError', message: 'Rota não encontrada' })

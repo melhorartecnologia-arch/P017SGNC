@@ -17,6 +17,7 @@ import { TipoRelatorioPage } from '@/components/cadastros/TipoRelatorioPage'
 import { TurnoTrabalhoPage } from '@/components/cadastros/TurnoTrabalhoPage'
 import { PoliticaRespostaPage } from '@/components/cadastros/PoliticaRespostaPage'
 import { UsuarioPage } from '@/components/cadastros/UsuarioPage'
+import { SmtpConfigPage } from '@/components/configuracoes/SmtpConfigPage'
 import { LoginPage } from '@/components/auth/LoginPage'
 import { RncWizard } from '@/components/registros/RncWizard'
 import { RncListPage } from '@/components/registros/RncListPage'
@@ -84,6 +85,7 @@ function App() {
   const isTurno = activeKey === 'cad-turno'
   const isPoliticaResposta = activeKey === 'cad-politica-resposta'
   const isUsuario = activeKey === 'cad-usuario' && auth.user.role === 'ADMIN'
+  const isSmtpConfig = activeKey === 'cfg-smtp' && auth.user.role === 'ADMIN'
   const isRncList = activeKey === 'rnc-list'
 
   let pageTitle = activeLabel
@@ -100,6 +102,7 @@ function App() {
   else if (isTurno) pageTitle = 'Cadastro de Turnos de Trabalho'
   else if (isPoliticaResposta) pageTitle = 'Cadastro de Políticas de Resposta'
   else if (isUsuario) pageTitle = 'Cadastro de Usuários'
+  else if (isSmtpConfig) pageTitle = 'Configurações — Servidor de E-mail (SMTP)'
   else if (isRncList) pageTitle = 'Relatórios de Não Conformidade'
   else if (isCadastro) pageTitle = `Cadastro de ${activeLabel}`
   else if (isRegistro) pageTitle = activeLabel
@@ -141,6 +144,8 @@ function App() {
             <PoliticaRespostaPage />
           ) : isUsuario ? (
             <UsuarioPage />
+          ) : isSmtpConfig ? (
+            <SmtpConfigPage />
           ) : isRncList ? (
             <RncListPage />
           ) : (

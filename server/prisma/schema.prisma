@@ -435,3 +435,29 @@ model RncNotaFiscal {
   @@index([rncId])
   @@map("rnc_notas_fiscais")
 }
+
+enum SmtpSeguranca {
+  NONE
+  SSL
+  TLS
+}
+
+/// Configuração técnica do servidor SMTP usado pelo serviço de workflow
+/// (notificações e aprovações por e-mail). Tabela de linha única — a
+/// aplicação sempre lê/grava o registro de id 1.
+model ConfiguracaoSmtp {
+  id             Int           @id @default(1)
+  host           String        @db.VarChar(160)
+  porta          Int           @default(587)
+  seguranca      SmtpSeguranca @default(TLS)
+  usuario        String?       @db.VarChar(160)
+  senha          String?       @db.VarChar(255)
+  remetenteNome  String        @map("remetente_nome") @db.VarChar(120)
+  remetenteEmail String        @map("remetente_email") @db.VarChar(160)
+  ativo          Boolean       @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("configuracoes_smtp")
+}
