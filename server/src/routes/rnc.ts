@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { Prisma } from '@prisma/client'
+import PDFDocument from 'pdfkit'
 import multer from 'multer'
 import path from 'node:path'
 import { mkdirSync, createReadStream } from 'node:fs'
@@ -12,6 +13,7 @@ import {
   rncQuerySchema,
   rncUpdateSchema,
 } from '../schemas/rnc.js'
+import { montarRncPdf, type RncPdfData, type RncPdfFoto } from '../lib/rnc-pdf.js'
 
 export const rncRouter = Router()
 
@@ -208,6 +210,46 @@ rncRouter.delete('/fotos/:fotoId', async (req, res, next) => {
 })
 
 // ===== Operações principais do RNC ============================
+
+// Download do RNC em PDF (layout do formulário FOR.IND.CQA.012).
+// Antes de /:id para evitar colisão de rota.
+rncRouter.get('/:id/pdf', async (req, res, next) => {
+  try {
+    const rnc = await prisma.relatorioNaoConformidade.findUnique({
+      where: { id: req.params.id },
+      include: { ...includeRefs, fotos: { select: fotoSelect, orderBy: { createdAt: 'asc' } } },
+    })
+    if (!rnc) throw new HttpError(404, 'Relatório não encontrado')
+
+    // Carrega os bytes das fotos (apenas as imagens suportadas pelo PDF).
+    const fotos: RncPdfFoto[] = []
+    for (const f of rnc.fotos) {
+      if (!['image/jpeg', 'image/jpg', 'image/png'].includes(f.mimeType)) continue
+      try {
+        const buffer = await fs.readFile(path.join(UPLOAD_DIR, f.filename))
+        fotos.push({ legenda: f.legenda, mimeType: f.mimeType, buffer })
+      } catch {
+        // arquivo ausente — ignora
+      }
+    }
+
+    const filename = `RNC-${rnc.numero}.pdf`
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${filename}"`,
+    )
+
+    const doc = new PDFDocument({ size: 'A4', margin: 28 })
+    doc.on('error', (err) => next(err))
+    doc.pipe(res)
+    montarRncPdf(doc, rnc as unknown as RncPdfData, fotos)
+    doc.end()
+  } catch (err) {
+    next(err)
+  }
+})
+
 rncRouter.get('/:id', async (req, res, next) => {
   try {
     const item = await prisma.relatorioNaoConformidade.findUnique({

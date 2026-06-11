@@ -1,4 +1,4 @@
-import { apiRequest } from './client'
+import { ApiError, apiRequest, tokenStorage } from './client'
 
 export type RncStatus = 'DRAFT' | 'OPEN' | 'IN_PROGRESS' | 'CLOSED' | 'CANCELLED'
 
@@ -141,4 +141,26 @@ export const rncApi = {
 
   update: (id: string, input: Partial<RncCreateInput>) =>
     apiRequest<Rnc>(`/rnc/${id}`, { method: 'PATCH', body: input }),
+
+  /** Baixa o PDF da RNC (layout do formulário) e dispara o download. */
+  downloadPdf: async (id: string, numero: string): Promise<void> => {
+    const token = tokenStorage.get()
+    const res = await fetch(`/api/rnc/${id}/pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+    if (!res.ok) {
+      if (res.status === 401) tokenStorage.clear()
+      const payload = await res.json().catch(() => null)
+      throw new ApiError(res.status, payload?.message ?? res.statusText, payload)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `RNC-${numero}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
 }

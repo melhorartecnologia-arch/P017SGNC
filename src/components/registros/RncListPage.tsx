@@ -6,7 +6,10 @@ import {
   Plus,
   Pencil,
   Eye,
+  Download,
+  Loader2,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
@@ -56,6 +59,20 @@ export function RncListPage() {
   const [wizardOpen, setWizardOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<Rnc | null>(null)
   const [viewing, setViewing] = React.useState<Rnc | null>(null)
+  const [downloadingId, setDownloadingId] = React.useState<string | null>(null)
+
+  const handleDownload = async (r: Rnc) => {
+    setDownloadingId(r.id)
+    try {
+      await rncApi.downloadPdf(r.id, r.numero)
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao gerar o PDF.'
+      toast.error('Não foi possível baixar o PDF', { description: message })
+    } finally {
+      setDownloadingId(null)
+    }
+  }
 
   const fetchPage = React.useCallback(
     async (opts: { status?: RncStatus | ''; page: number }) => {
@@ -312,6 +329,20 @@ export function RncListPage() {
                           title="Visualizar RNC"
                         >
                           <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleDownload(r)}
+                          disabled={downloadingId === r.id}
+                          title="Baixar PDF do RNC"
+                        >
+                          {downloadingId === r.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4" />
+                          )}
                         </Button>
                         <Button
                           variant="ghost"
