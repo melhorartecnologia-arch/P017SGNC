@@ -406,6 +406,28 @@ export function RncDetailPanel({ rnc, onClose, onEdit }: Props) {
                 )}
               </Section>
 
+              <Section title="Matriz de aprovação (assinaturas)">
+                {rnc.aprovadores.length === 0 ? (
+                  <Row label="Aprovadores">
+                    <em className="text-neutral-400">
+                      Nenhum aprovador cadastrado para a filial/turno desta
+                      RNC.
+                    </em>
+                  </Row>
+                ) : (
+                  rnc.aprovadores.map((a) => (
+                    <Row key={a.id} label={a.areaNome}>
+                      <span className="font-medium text-neutral-900">
+                        {a.nome}
+                      </span>
+                      {a.cargo && (
+                        <span className="text-neutral-500"> · {a.cargo}</span>
+                      )}
+                    </Row>
+                  ))
+                )}
+              </Section>
+
               <Section title="Origem & severidade">
                 <Row label="Origem da NC">
                   {rnc.origem ? (

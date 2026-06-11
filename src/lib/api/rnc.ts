@@ -54,6 +54,16 @@ export type Rnc = {
   nomeMotorista: string | null
   cnhMotorista: string | null
 
+  /** Matriz de aprovação: quem deve assinar (uma pessoa por área). */
+  aprovadores: {
+    id: string
+    areaNome: string
+    nome: string
+    cargo: string | null
+    email: string | null
+    nivel: number | null
+  }[]
+
   filial: { id: string; codigo: string; nome: string }
   fornecedor: { id: string; codigo: string; razaoSocial: string; cnpj: string }
   tipoNaoConformidade: {

@@ -14,6 +14,10 @@ import {
   rncUpdateSchema,
 } from '../schemas/rnc.js'
 import { montarRncPdf, type RncPdfData, type RncPdfFoto } from '../lib/rnc-pdf.js'
+import {
+  montarMatrizAprovadores,
+  selecionarAprovadores,
+} from '../lib/rnc-aprovadores.js'
 
 export const rncRouter = Router()
 
@@ -66,6 +70,17 @@ const includeRefs = {
       dataRecebimento: true,
     },
     orderBy: { createdAt: 'asc' },
+  },
+  aprovadores: {
+    select: {
+      id: true,
+      areaNome: true,
+      nome: true,
+      cargo: true,
+      email: true,
+      nivel: true,
+    },
+    orderBy: { areaNome: 'asc' },
   },
 } as const
 
@@ -233,6 +248,22 @@ rncRouter.get('/:id/pdf', async (req, res, next) => {
       }
     }
 
+    // RNCs criados antes da matriz de aprovação: calcula na hora (sem
+    // persistir) para o PDF já sair com os nomes.
+    let aprovadores = rnc.aprovadores
+    if (aprovadores.length === 0) {
+      aprovadores = (
+        await selecionarAprovadores(prisma, rnc.filialId, rnc.turnoId)
+      ).map((a) => ({
+        id: a.aprovadorId,
+        areaNome: a.areaNome,
+        nome: a.nome,
+        cargo: a.cargo,
+        email: a.email,
+        nivel: a.nivel,
+      }))
+    }
+
     const filename = `RNC-${rnc.numero}.pdf`
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader(
@@ -243,7 +274,7 @@ rncRouter.get('/:id/pdf', async (req, res, next) => {
     const doc = new PDFDocument({ size: 'A4', margin: 28 })
     doc.on('error', (err) => next(err))
     doc.pipe(res)
-    montarRncPdf(doc, rnc as unknown as RncPdfData, fotos)
+    montarRncPdf(doc, { ...rnc, aprovadores } as unknown as RncPdfData, fotos)
     doc.end()
   } catch (err) {
     next(err)
@@ -298,7 +329,7 @@ rncRouter.post('/', async (req, res, next) => {
       })
       const numero =
         codigoFilial + mes2 + ano2 + String(jaExistem + 1).padStart(3, '0')
-      return tx.relatorioNaoConformidade.create({
+      const novo = await tx.relatorioNaoConformidade.create({
         data: {
           ...rncData,
           numero,
@@ -318,6 +349,18 @@ rncRouter.post('/', async (req, res, next) => {
             })),
           },
         },
+        select: { id: true },
+      })
+      // Matriz de aprovação: uma pessoa por área da filial, respeitando
+      // a restrição de turno do cadastro de aprovadores.
+      await montarMatrizAprovadores(
+        tx,
+        novo.id,
+        data.filialId,
+        data.turnoId ?? null,
+      )
+      return tx.relatorioNaoConformidade.findUniqueOrThrow({
+        where: { id: novo.id },
         include: includeRefs,
       })
     })
@@ -386,11 +429,26 @@ rncRouter.patch('/:id', async (req, res, next) => {
           })
         }
       }
-      return tx.relatorioNaoConformidade.update({
+      const salvo = await tx.relatorioNaoConformidade.update({
         where: { id: req.params.id },
         data: rest,
         include: includeRefs,
       })
+      // Filial ou turno alterados mudam quem deve assinar — remonta a
+      // matriz de aprovação.
+      if (rest.filialId !== undefined || rest.turnoId !== undefined) {
+        await montarMatrizAprovadores(
+          tx,
+          salvo.id,
+          salvo.filialId,
+          salvo.turnoId,
+        )
+        return tx.relatorioNaoConformidade.findUniqueOrThrow({
+          where: { id: salvo.id },
+          include: includeRefs,
+        })
+      }
+      return salvo
     })
     res.json(updated)
   } catch (err) {

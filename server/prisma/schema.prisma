@@ -277,6 +277,7 @@ model Area {
   ativo     Boolean @default(true)
 
   aprovadores Aprovador[]
+  rncAprovadores RncAprovador[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -303,6 +304,8 @@ model Aprovador {
   filial Filial         @relation(fields: [filialId], references: [id], onDelete: Restrict)
   area   Area           @relation(fields: [areaId], references: [id], onDelete: Restrict)
   turno  TurnoTrabalho? @relation(fields: [turnoId], references: [id], onDelete: SetNull)
+
+  rncAprovadores RncAprovador[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -365,6 +368,7 @@ model RelatorioNaoConformidade {
   fotos               RncFoto[]
   lotes               RncLote[]
   notasFiscais        RncNotaFiscal[]
+  aprovadores         RncAprovador[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -460,4 +464,30 @@ model ConfiguracaoSmtp {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("configuracoes_smtp")
+}
+
+/// Matriz de aprovação de uma RNC — quem deve assinar o documento.
+/// Uma pessoa por área cadastrada em Aprovador para a filial da RNC;
+/// quando o aprovador tem restrição de turno, vale apenas para RNCs
+/// do turno correspondente. Os campos de texto são um retrato do
+/// cadastro no momento da montagem da matriz.
+model RncAprovador {
+  id          String  @id @default(uuid()) @db.Uuid
+  rncId       String  @map("rnc_id") @db.Uuid
+  aprovadorId String? @map("aprovador_id") @db.Uuid
+  areaId      String? @map("area_id") @db.Uuid
+  areaNome    String  @map("area_nome") @db.VarChar(120)
+  nome        String  @db.VarChar(120)
+  cargo       String? @db.VarChar(120)
+  email       String? @db.VarChar(160)
+  nivel       Int?
+
+  rnc       RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
+  aprovador Aprovador?               @relation(fields: [aprovadorId], references: [id], onDelete: SetNull)
+  area      Area?                    @relation(fields: [areaId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([rncId])
+  @@map("rnc_aprovadores")
 }

@@ -21,6 +21,7 @@ export type RncPdfData = {
   origem: { codigo: string; nome: string } | null
   severidade: { nivel: number; nome: string } | null
   criadoPor: { nome: string; email: string } | null
+  aprovadores: { areaNome: string; nome: string; cargo: string | null }[]
   lotes: { numero: string; quantidade: number | null }[]
   notasFiscais: {
     numero: string | null
@@ -191,6 +192,7 @@ function caixaAssinatura(
   y: number,
   w: number,
   papel: string,
+  nome?: string,
 ) {
   const h = 44
   doc.rect(x, y, w, h).strokeColor(COR_BORDA).lineWidth(0.6).stroke()
@@ -205,6 +207,13 @@ function caixaAssinatura(
     .fontSize(7.5)
     .text('NOME:', x + 4, y + 22)
     .text('DATA:', x + 4, y + 33)
+  if (nome) {
+    doc
+      .fillColor(COR_VALOR)
+      .font('Helvetica-Bold')
+      .fontSize(7.5)
+      .text(nome, x + 32, y + 22, { width: w - 40, ellipsis: true })
+  }
   doc
     .moveTo(x + 32, y + 29)
     .lineTo(x + w - 6, y + 29)
@@ -411,21 +420,45 @@ export function montarRncPdf(
     { label: 'Emitente', valor: rnc.criadoPor ? `${rnc.criadoPor.nome} (${rnc.criadoPor.email})` : '' },
   ], 22)
 
-  // 6. Assinaturas
+  // 6. Assinaturas — matriz de aprovação da RNC (uma pessoa por área do
+  // cadastro de Aprovadores da filial, respeitando restrição de turno).
+  // Sem matriz, cai nos papéis padrão do formulário (em branco).
   tituloSecao(doc, est, '6. Assinaturas')
-  const papeis = [
-    'Conferente da Logística',
-    'Gestão Logística',
-    'Gestão PCP',
-    'Controle de Qualidade',
-    'Gestão Controle de Qualidade',
-    'Gerente da Área',
-  ]
   const colW = (CONTENT_W - 8) / 2
-  for (let i = 0; i < papeis.length; i += 2) {
-    novaPaginaSeNecessario(doc, est, 48)
-    caixaAssinatura(doc, LEFT, est.y, colW, papeis[i])
-    if (papeis[i + 1]) caixaAssinatura(doc, LEFT + colW + 8, est.y, colW, papeis[i + 1])
-    est.y += 48
+  if (rnc.aprovadores.length > 0) {
+    const entradas = rnc.aprovadores.map((a) => ({
+      papel: a.areaNome + (a.cargo ? ` — ${a.cargo}` : ''),
+      nome: a.nome,
+    }))
+    for (let i = 0; i < entradas.length; i += 2) {
+      novaPaginaSeNecessario(doc, est, 48)
+      caixaAssinatura(doc, LEFT, est.y, colW, entradas[i].papel, entradas[i].nome)
+      if (entradas[i + 1]) {
+        caixaAssinatura(
+          doc,
+          LEFT + colW + 8,
+          est.y,
+          colW,
+          entradas[i + 1].papel,
+          entradas[i + 1].nome,
+        )
+      }
+      est.y += 48
+    }
+  } else {
+    const papeis = [
+      'Conferente da Logística',
+      'Gestão Logística',
+      'Gestão PCP',
+      'Controle de Qualidade',
+      'Gestão Controle de Qualidade',
+      'Gerente da Área',
+    ]
+    for (let i = 0; i < papeis.length; i += 2) {
+      novaPaginaSeNecessario(doc, est, 48)
+      caixaAssinatura(doc, LEFT, est.y, colW, papeis[i])
+      if (papeis[i + 1]) caixaAssinatura(doc, LEFT + colW + 8, est.y, colW, papeis[i + 1])
+      est.y += 48
+    }
   }
 }
