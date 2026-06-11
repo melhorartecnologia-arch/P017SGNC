@@ -333,6 +333,19 @@ export function RncWizard({
     return acc + (Number.isFinite(n) ? n : 0)
   }, 0)
 
+  // Qtd. com defeito: quando informada, deve ser > 0 e não pode exceder o
+  // total dos lotes (quando houver quantidades informadas nos lotes).
+  const qtdDefeitoNum = parseFloat(quantidadeDefeito)
+  const qtdDefeitoInformada =
+    quantidadeDefeito.trim() !== '' && Number.isFinite(qtdDefeitoNum)
+  const qtdDefeitoZero = qtdDefeitoInformada && qtdDefeitoNum <= 0
+  const qtdDefeitoExcede =
+    qtdDefeitoInformada &&
+    qtdDefeitoNum > 0 &&
+    totalLote > 0 &&
+    qtdDefeitoNum > totalLote
+  const qtdDefeitoInvalida = qtdDefeitoZero || qtdDefeitoExcede
+
   // Data de identificação não pode ser futura. Comparação por string
   // YYYY-MM-DD (mesmo formato de todayISO) é suficiente no cliente; a
   // validação definitiva é feita no servidor com o relógio dele.
@@ -340,7 +353,10 @@ export function RncWizard({
   const step1Valid = filialId && data && !dataFutura && tipoId && turnoId
   const step2Valid = !!fornecedor
   const step3Valid =
-    !!produto && lotesPreenchidos.length > 0 && !lotesDuplicados
+    !!produto &&
+    lotesPreenchidos.length > 0 &&
+    !lotesDuplicados &&
+    !qtdDefeitoInvalida
   const stepFinalValid = step1Valid && step2Valid && step3Valid
 
   const addLoteRow = () => {
@@ -805,7 +821,20 @@ export function RncWizard({
                     value={quantidadeDefeito}
                     onChange={(e) => setQuantidadeDefeito(e.target.value)}
                     placeholder="0"
+                    className={qtdDefeitoInvalida ? 'border-red-400' : ''}
                   />
+                  {qtdDefeitoZero && (
+                    <span className="text-xs text-red-600">
+                      A quantidade com defeito deve ser maior que zero.
+                    </span>
+                  )}
+                  {qtdDefeitoExcede && (
+                    <span className="text-xs text-red-600">
+                      Não pode ser maior que o total dos lotes (
+                      {totalLote.toLocaleString('pt-BR')}
+                      {produto ? ` ${produto.unidadeMedida}` : ''}).
+                    </span>
+                  )}
                 </Field>
                 <Field
                   label="Tempo de parada (minutos)"

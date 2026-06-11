@@ -270,6 +270,35 @@ rncRouter.post('/', async (req, res, next) => {
 rncRouter.patch('/:id', async (req, res, next) => {
   try {
     const { lotes, ...rest } = rncUpdateSchema.parse(req.body)
+
+    // O schema valida quantidadeDefeito × lotes quando ambos vêm no
+    // payload. Quando o PATCH altera só um dos dois, completa com os
+    // valores atuais do banco para garantir a consistência final.
+    if (rest.quantidadeDefeito !== undefined || lotes !== undefined) {
+      const atual = await prisma.relatorioNaoConformidade.findUnique({
+        where: { id: req.params.id },
+        select: {
+          quantidadeDefeito: true,
+          lotes: { select: { quantidade: true } },
+        },
+      })
+      if (!atual) throw new HttpError(404, 'RNC não encontrado')
+      const qtd =
+        rest.quantidadeDefeito !== undefined
+          ? rest.quantidadeDefeito
+          : atual.quantidadeDefeito
+      const qtdsLotes = (lotes ?? atual.lotes).map((l) => l.quantidade)
+      if (qtd != null) {
+        const total = qtdsLotes.reduce<number>((acc, q) => acc + (q ?? 0), 0)
+        if (total > 0 && qtd > total) {
+          throw new HttpError(
+            400,
+            'A quantidade com defeito não pode ser maior que a quantidade total dos lotes.',
+          )
+        }
+      }
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       if (lotes !== undefined) {
         await tx.rncLote.deleteMany({ where: { rncId: req.params.id } })

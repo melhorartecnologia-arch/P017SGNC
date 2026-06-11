@@ -72,6 +72,40 @@ function dataIdentificacaoNaoFutura(
   }
 }
 
+/**
+ * A quantidade com defeito, quando informada, deve ser maior que zero e
+ * não pode exceder a soma das quantidades dos lotes (quando houver
+ * quantidades informadas nos lotes).
+ */
+function quantidadeDefeitoConsistente(
+  val: {
+    quantidadeDefeito?: number | null
+    lotes?: { quantidade: number | null }[]
+  },
+  ctx: z.RefinementCtx,
+) {
+  const qtd = val.quantidadeDefeito
+  if (qtd == null) return
+  if (qtd <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['quantidadeDefeito'],
+      message: 'A quantidade com defeito deve ser maior que zero.',
+    })
+    return
+  }
+  if (!val.lotes) return
+  const total = val.lotes.reduce((acc, l) => acc + (l.quantidade ?? 0), 0)
+  if (total > 0 && qtd > total) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['quantidadeDefeito'],
+      message:
+        'A quantidade com defeito não pode ser maior que a quantidade total dos lotes.',
+    })
+  }
+}
+
 const rncBaseSchema = z.object({
   filialId: z.string().uuid('Filial inválida'),
   fornecedorId: z.string().uuid('Fornecedor inválido'),
@@ -132,15 +166,17 @@ const rncBaseSchema = z.object({
   cnhMotorista: optionalString(20),
 })
 
-export const rncCreateSchema = rncBaseSchema.superRefine((val, ctx) =>
-  dataIdentificacaoNaoFutura(val.dataIdentificacao, ctx),
-)
+export const rncCreateSchema = rncBaseSchema.superRefine((val, ctx) => {
+  dataIdentificacaoNaoFutura(val.dataIdentificacao, ctx)
+  quantidadeDefeitoConsistente(val, ctx)
+})
 
 export const rncUpdateSchema = rncBaseSchema
   .partial()
-  .superRefine((val, ctx) =>
-    dataIdentificacaoNaoFutura(val.dataIdentificacao, ctx),
-  )
+  .superRefine((val, ctx) => {
+    dataIdentificacaoNaoFutura(val.dataIdentificacao, ctx)
+    quantidadeDefeitoConsistente(val, ctx)
+  })
 
 export const rncQuerySchema = z.object({
   fornecedorId: z.string().uuid().optional(),
