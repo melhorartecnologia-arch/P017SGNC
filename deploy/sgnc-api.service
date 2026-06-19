@@ -1,0 +1,31 @@
+# SGNC API — serviço systemd.
+#
+# Instalação:
+#   sudo cp deploy/sgnc-api.service /etc/systemd/system/sgnc-api.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now sgnc-api
+#   sudo systemctl status sgnc-api
+#
+# Logs:  sudo journalctl -u sgnc-api -f
+#
+# Observação: o bootstrap (prisma migrate deploy + seed) é feito manualmente
+# durante o deploy (ver docs/DEPLOY.md). Aqui o serviço só executa o build já
+# compilado, para reinícios rápidos. As variáveis ficam em server/.env (dotenv).
+
+[Unit]
+Description=SGNC API (Express + Prisma)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/sgnc/server
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
