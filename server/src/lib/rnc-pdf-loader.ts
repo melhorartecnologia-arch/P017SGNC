@@ -32,10 +32,15 @@ const pdfInclude = {
 } as const
 
 /**
- * Gera o PDF da RNC e o envia como attachment na resposta. Retorna false
- * quando a RNC não existe (o chamador trata o 404).
+ * Gera o PDF da RNC e o envia na resposta. `disposition` controla se o
+ * navegador baixa ('attachment') ou exibe embutido ('inline'). Retorna
+ * false quando a RNC não existe (o chamador trata o 404).
  */
-export async function streamRncPdf(rncId: string, res: Response): Promise<boolean> {
+export async function streamRncPdf(
+  rncId: string,
+  res: Response,
+  disposition: 'attachment' | 'inline' = 'attachment',
+): Promise<boolean> {
   const rnc = await prisma.relatorioNaoConformidade.findUnique({
     where: { id: rncId },
     include: pdfInclude,
@@ -70,7 +75,10 @@ export async function streamRncPdf(rncId: string, res: Response): Promise<boolea
   }
 
   res.setHeader('Content-Type', 'application/pdf')
-  res.setHeader('Content-Disposition', `attachment; filename="RNC-${rnc.numero}.pdf"`)
+  res.setHeader(
+    'Content-Disposition',
+    `${disposition}; filename="RNC-${rnc.numero}.pdf"`,
+  )
 
   const doc = new PDFDocument({ size: 'A4', margin: 28 })
   doc.pipe(res)

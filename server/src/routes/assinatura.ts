@@ -93,7 +93,8 @@ assinaturaRouter.get('/:token/pdf', async (req, res, next) => {
       select: { rncId: true },
     })
     if (!ap) throw new HttpError(404, 'Link de assinatura inválido ou expirado.')
-    const ok = await streamRncPdf(ap.rncId, res)
+    const disposition = req.query.inline === '1' ? 'inline' : 'attachment'
+    const ok = await streamRncPdf(ap.rncId, res, disposition)
     if (!ok) throw new HttpError(404, 'Relatório não encontrado')
   } catch (err) {
     next(err)

@@ -4,6 +4,8 @@ import {
   FileWarning,
   Check,
   Download,
+  Eye,
+  X,
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react'
@@ -41,6 +43,7 @@ export function AssinaturaPage({ token }: { token: string }) {
   const [assinadoEm, setAssinadoEm] = React.useState<string | null>(null)
   const [senha, setSenha] = React.useState('')
   const [erroAssinatura, setErroAssinatura] = React.useState<string | null>(null)
+  const [verPdf, setVerPdf] = React.useState(false)
 
   React.useEffect(() => {
     let cancelled = false
@@ -181,15 +184,42 @@ export function AssinaturaPage({ token }: { token: string }) {
           )}
 
           <div className="mt-5 border-t border-neutral-100 pt-5">
-            <a
-              href={assinaturaApi.pdfUrl(token)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-neutral-200 bg-white px-4 text-sm font-medium text-neutral-800 shadow-sm transition-colors hover:bg-neutral-50"
-            >
-              <Download className="h-4 w-4" />
-              Baixar a RNC em PDF
-            </a>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => setVerPdf(true)}
+                className="group flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-neutral-900 hover:shadow-md"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white transition-colors group-hover:bg-neutral-700">
+                  <Eye className="h-5 w-5" />
+                </span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-sm font-semibold text-neutral-900">
+                    Visualizar PDF
+                  </span>
+                  <span className="text-xs text-neutral-500">
+                    Abrir aqui na plataforma
+                  </span>
+                </span>
+              </button>
+
+              <a
+                href={assinaturaApi.pdfUrl(token)}
+                className="group flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-neutral-900 hover:shadow-md"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-700 transition-colors group-hover:bg-neutral-900 group-hover:text-white">
+                  <Download className="h-5 w-5" />
+                </span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-sm font-semibold text-neutral-900">
+                    Baixar PDF
+                  </span>
+                  <span className="text-xs text-neutral-500">
+                    Salvar no dispositivo
+                  </span>
+                </span>
+              </a>
+            </div>
 
             {assinadoEm ? (
               <div className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-medium text-emerald-800">
@@ -261,6 +291,49 @@ export function AssinaturaPage({ token }: { token: string }) {
           </ul>
         </div>
       </div>
+
+      {verPdf && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col bg-neutral-950/70 p-3 backdrop-blur-sm sm:p-6"
+          onClick={() => setVerPdf(false)}
+        >
+          <div
+            className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-neutral-200 px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <FileWarning className="h-4 w-4 text-neutral-500" />
+                <span className="text-sm font-semibold text-neutral-900">
+                  RNC {rnc.numero}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <a
+                  href={assinaturaApi.pdfUrl(token)}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-neutral-200 px-3 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50"
+                >
+                  <Download className="h-4 w-4" />
+                  Baixar
+                </a>
+                <button
+                  type="button"
+                  onClick={() => setVerPdf(false)}
+                  aria-label="Fechar"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+            <iframe
+              title={`RNC ${rnc.numero}`}
+              src={assinaturaApi.pdfUrl(token, true)}
+              className="h-full w-full flex-1 bg-neutral-100"
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

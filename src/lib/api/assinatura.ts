@@ -57,6 +57,7 @@ export const assinaturaApi = {
       },
     ),
 
-  pdfUrl: (token: string) =>
-    `/api/assinatura/${encodeURIComponent(token)}/pdf`,
+  /** URL do PDF: download (attachment) por padrão; inline para visualizar. */
+  pdfUrl: (token: string, inline = false) =>
+    `/api/assinatura/${encodeURIComponent(token)}/pdf${inline ? '?inline=1' : ''}`,
 }
