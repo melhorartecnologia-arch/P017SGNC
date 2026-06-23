@@ -13,22 +13,18 @@ export type AprovadorSelecionado = {
 }
 
 /**
- * Seleciona quem deve assinar uma RNC: UMA pessoa por área cadastrada
- * no cadastro de Aprovadores para a filial da RNC.
+ * Candidatos elegíveis a aprovar a RNC, agrupados por área e ordenados
+ * dentro da área (match de turno primeiro, depois menor nível).
  *
- * Regras:
- * - Aprovador com restrição de turno só é elegível quando a RNC é do
- *   turno correspondente; sem restrição (turno nulo) vale para todos.
- * - Dentro da área, quem casa exatamente com o turno da RNC tem
- *   prioridade sobre quem não tem restrição; em empate vence o menor
- *   nível (nível 1 = principal).
- * - Área sem nenhum elegível fica fora da matriz.
+ * Regra de turno: aprovador com restrição de turno só é elegível quando
+ * a RNC é do turno correspondente; sem restrição (turno nulo) vale para
+ * todos.
  */
-export async function selecionarAprovadores(
+export async function candidatosPorArea(
   db: Db,
   filialId: string,
   turnoId: string | null,
-): Promise<AprovadorSelecionado[]> {
+): Promise<Map<string, AprovadorSelecionado[]>> {
   const candidatos = await db.aprovador.findMany({
     where: { filialId, ativo: true },
     select: {
@@ -45,32 +41,50 @@ export async function selecionarAprovadores(
 
   const porArea = new Map<string, typeof candidatos>()
   for (const c of candidatos) {
-    // Restrição de turno: só entra se for do mesmo turno da RNC.
     if (c.turnoId && c.turnoId !== turnoId) continue
     const lista = porArea.get(c.areaId) ?? []
     lista.push(c)
     porArea.set(c.areaId, lista)
   }
 
-  const escolhidos: AprovadorSelecionado[] = []
-  for (const lista of porArea.values()) {
+  const resultado = new Map<string, AprovadorSelecionado[]>()
+  for (const [areaId, lista] of porArea) {
     lista.sort((a, b) => {
       const aMatch = a.turnoId ? 0 : 1
       const bMatch = b.turnoId ? 0 : 1
       return aMatch - bMatch || a.nivel - b.nivel
     })
-    const e = lista[0]
-    escolhidos.push({
-      aprovadorId: e.id,
-      areaId: e.areaId,
-      areaNome: e.area.nome,
-      nome: e.nome,
-      cargo: e.cargo,
-      email: e.email,
-      nivel: e.nivel,
-    })
+    resultado.set(
+      areaId,
+      lista.map((e) => ({
+        aprovadorId: e.id,
+        areaId: e.areaId,
+        areaNome: e.area.nome,
+        nome: e.nome,
+        cargo: e.cargo,
+        email: e.email,
+        nivel: e.nivel,
+      })),
+    )
   }
+  return resultado
+}
 
+/**
+ * Seleciona quem deve assinar uma RNC inicialmente: UMA pessoa por área
+ * (a de maior prioridade — geralmente o nível 1). Áreas sem elegível
+ * ficam de fora. Os demais níveis entram depois, via escalonamento.
+ */
+export async function selecionarAprovadores(
+  db: Db,
+  filialId: string,
+  turnoId: string | null,
+): Promise<AprovadorSelecionado[]> {
+  const porArea = await candidatosPorArea(db, filialId, turnoId)
+  const escolhidos: AprovadorSelecionado[] = []
+  for (const lista of porArea.values()) {
+    if (lista[0]) escolhidos.push(lista[0])
+  }
   escolhidos.sort((a, b) => a.areaNome.localeCompare(b.areaNome, 'pt-BR'))
   return escolhidos
 }

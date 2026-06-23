@@ -18,6 +18,10 @@ import { streamRncPdf } from '../lib/rnc-pdf-loader.js'
 import { pendenciasParaAssinatura } from '../lib/rnc-completude.js'
 import { criarTransporteSmtp } from '../lib/smtp.js'
 import { montarEmailAssinatura } from '../lib/rnc-email.js'
+import {
+  processarWorkflows,
+  enviarLembreteManual,
+} from '../lib/rnc-workflow.js'
 
 export const rncRouter = Router()
 
@@ -88,8 +92,10 @@ const includeRefs = {
       assinaturaLongitude: true,
       assinaturaPrecisao: true,
       assinaturaMetadados: true,
+      lembreteEnviadoEm: true,
+      viaEscalonamento: true,
     },
-    orderBy: { areaNome: 'asc' },
+    orderBy: [{ areaNome: 'asc' }, { nivel: 'asc' }],
   },
   _count: { select: { fotos: true } },
 } as const
@@ -371,13 +377,15 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
       )
     }
 
-    // Houve ao menos um envio: a RNC sai de rascunho para "aberta".
-    if (rnc.status === 'DRAFT') {
-      await prisma.relatorioNaoConformidade.update({
-        where: { id: rnc.id },
-        data: { status: 'OPEN' },
-      })
-    }
+    // Houve ao menos um envio: a RNC sai de rascunho para "aberta" e marca
+    // o início do prazo (SLA) na primeira vez que é enviada.
+    await prisma.relatorioNaoConformidade.update({
+      where: { id: rnc.id },
+      data: {
+        ...(rnc.status === 'DRAFT' ? { status: 'OPEN' as const } : {}),
+        ...(rnc.assinaturaEnviadaEm ? {} : { assinaturaEnviadaEm: new Date() }),
+      },
+    })
 
     // Registra o envio no histórico de workflows.
     const usuarioEnvio = req.user?.sub
@@ -404,6 +412,54 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
       include: includeRefs,
     })
     res.json({ rnc: atualizado, enviados, falhas })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Envia lembrete manual aos aprovadores ainda pendentes da RNC.
+rncRouter.post('/:id/lembrete', async (req, res, next) => {
+  try {
+    const rnc = await prisma.relatorioNaoConformidade.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, assinaturaEnviadaEm: true },
+    })
+    if (!rnc) throw new HttpError(404, 'Relatório não encontrado')
+    if (!rnc.assinaturaEnviadaEm) {
+      throw new HttpError(
+        400,
+        'Envie a RNC para assinatura antes de mandar um lembrete.',
+      )
+    }
+    const { enviados, semSmtp, semPendentes } = await enviarLembreteManual(
+      prisma,
+      rnc.id,
+    )
+    if (semSmtp) {
+      throw new HttpError(
+        400,
+        'Servidor de e-mail (SMTP) não configurado ou desativado.',
+      )
+    }
+    if (semPendentes) {
+      throw new HttpError(400, 'Não há aprovadores pendentes para lembrar.')
+    }
+    const atualizado = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
+      where: { id: rnc.id },
+      include: includeRefs,
+    })
+    res.json({ rnc: atualizado, enviados })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Processa o SLA dos workflows (lembretes a 50% e escalonamento a 100%).
+// Idempotente — pode ser chamado por um agendador (cron) externo.
+rncRouter.post('/processar-workflows', async (_req, res, next) => {
+  try {
+    const resultado = await processarWorkflows(prisma)
+    res.json(resultado)
   } catch (err) {
     next(err)
   }

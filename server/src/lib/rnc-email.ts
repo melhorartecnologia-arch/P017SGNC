@@ -12,6 +12,10 @@ export type DadosEmailAssinatura = {
   areaNome: string
   token: string
   senha: string
+  /** solicitacao = 1º envio; lembrete = SLA 50%; escalonamento = nível superior. */
+  tipo?: 'solicitacao' | 'lembrete' | 'escalonamento'
+  /** Texto do prazo (ex.: "12h") para o aviso de expiração. */
+  prazoTexto?: string | null
 }
 
 function fmtData(d: Date): string {
@@ -31,13 +35,34 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
   const base = env.APP_BASE_URL.replace(/\/$/, '')
   const linkAssinar = `${base}/?assinar=${encodeURIComponent(d.token)}`
   const linkPdf = `${base}/api/assinatura/${encodeURIComponent(d.token)}/pdf`
+  const tipo = d.tipo ?? 'solicitacao'
 
-  const subject = `RNC ${d.numero} — solicitação de assinatura (${d.areaNome})`
+  const subject =
+    tipo === 'lembrete'
+      ? `LEMBRETE — RNC ${d.numero}: prazo de assinatura expirando (${d.areaNome})`
+      : tipo === 'escalonamento'
+        ? `ESCALONAMENTO — RNC ${d.numero} aguardando sua assinatura (${d.areaNome})`
+        : `RNC ${d.numero} — solicitação de assinatura (${d.areaNome})`
+
+  // Aviso conforme o tipo (lembrete/escalonamento).
+  const aviso =
+    tipo === 'lembrete'
+      ? `ATENÇÃO: o prazo${d.prazoTexto ? ` de ${d.prazoTexto}` : ''} para assinatura está expirando. Caso não seja assinada a tempo, a RNC será escalonada para o nível superior da sua área.`
+      : tipo === 'escalonamento'
+        ? `Esta RNC foi escalonada para você porque o prazo de assinatura do nível anterior expirou sem assinatura.`
+        : ''
+
+  const intro =
+    tipo === 'solicitacao'
+      ? `Você foi indicado(a) como aprovador da área "${d.areaNome}" para a RNC abaixo e sua assinatura é necessária.`
+      : `Sua assinatura da área "${d.areaNome}" para a RNC abaixo ainda está pendente.`
 
   const linhas = [
     `Olá, ${d.aprovadorNome}.`,
     '',
-    `Você foi indicado(a) como aprovador da área "${d.areaNome}" para a RNC abaixo e sua assinatura é necessária.`,
+    aviso ? aviso : '',
+    aviso ? '' : '',
+    intro,
     '',
     `RNC: ${d.numero}`,
     `Unidade: ${d.filialNome}`,
@@ -58,12 +83,23 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
 
   const text = linhas.join('\n')
 
+  const tituloHtml =
+    tipo === 'lembrete'
+      ? `Lembrete de assinatura — RNC ${escapeHtml(d.numero)}`
+      : tipo === 'escalonamento'
+        ? `Escalonamento — RNC ${escapeHtml(d.numero)}`
+        : `Solicitação de assinatura — RNC ${escapeHtml(d.numero)}`
+
+  const avisoHtml = aviso
+    ? `<div style="margin:0 0 14px;padding:10px 14px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:13px">${escapeHtml(aviso)}</div>`
+    : ''
+
   const html = `
   <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:560px;margin:0 auto">
-    <h2 style="margin:0 0 4px">Solicitação de assinatura — RNC ${escapeHtml(d.numero)}</h2>
+    <h2 style="margin:0 0 4px">${tituloHtml}</h2>
     <p style="color:#6b7280;margin:0 0 16px">Sistema de Gestão de Não Conformidade</p>
-    <p>Olá, <b>${escapeHtml(d.aprovadorNome)}</b>. Você foi indicado(a) como aprovador da área
-       <b>${escapeHtml(d.areaNome)}</b> para a RNC abaixo e sua assinatura é necessária.</p>
+    ${avisoHtml}
+    <p>Olá, <b>${escapeHtml(d.aprovadorNome)}</b>. ${escapeHtml(intro)}</p>
     <table style="border-collapse:collapse;width:100%;font-size:14px;margin:12px 0">
       ${[
         ['RNC', d.numero],

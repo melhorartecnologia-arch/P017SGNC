@@ -345,6 +345,10 @@ model RelatorioNaoConformidade {
   status                RncStatus @default(DRAFT)
   criadoPorId           String    @map("criado_por_id") @db.Uuid
 
+  // Workflow de assinatura / SLA (Política de Resposta)
+  assinaturaEnviadaEm DateTime? @map("assinatura_enviada_em")
+  escalonadoEm        DateTime? @map("escalonado_em")
+
   // Material & lote
   produtoId          String?   @map("produto_id") @db.Uuid
   quantidadeDefeito  Float?    @map("quantidade_defeito")
@@ -486,6 +490,8 @@ model RncAprovador {
   assinadoEm     DateTime? @map("assinado_em")
   tokenAssinatura String?  @unique @map("token_assinatura") @db.VarChar(64)
   senhaAssinatura String?  @map("senha_assinatura") @db.VarChar(6)
+  lembreteEnviadoEm DateTime? @map("lembrete_enviado_em")
+  viaEscalonamento  Boolean   @default(false) @map("via_escalonamento")
 
   // Metadados técnicos capturados no momento da assinatura.
   assinaturaIp        String? @map("assinatura_ip") @db.VarChar(64)

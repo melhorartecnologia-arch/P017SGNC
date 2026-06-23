@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import { env } from './env.js'
 import { prisma } from './db.js'
+import { processarWorkflows } from './lib/rnc-workflow.js'
 import { errorHandler } from './middleware/error.js'
 import { requireAuth } from './middleware/auth.js'
 import { authRouter } from './routes/auth.js'
@@ -82,6 +83,23 @@ async function start() {
   app.listen(env.PORT, () => {
     console.log(`SGNC API rodando em http://localhost:${env.PORT}`)
   })
+
+  // Agendador do SLA de assinatura: lembretes (50%) e escalonamento (100%).
+  const TICK_MS = 10 * 60 * 1000 // a cada 10 min
+  const tick = async () => {
+    try {
+      const r = await processarWorkflows(prisma)
+      if (r.lembretesEnviados || r.escalonamentos) {
+        console.log(
+          `SGNC workflow: ${r.lembretesEnviados} lembrete(s), ${r.escalonamentos} escalonamento(s).`,
+        )
+      }
+    } catch (err) {
+      console.error('SGNC workflow: falha ao processar SLA.', err)
+    }
+  }
+  setTimeout(tick, 30_000) // primeiro tick logo após subir
+  setInterval(tick, TICK_MS)
 }
 
 start()

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { X, Pencil, Check, Loader2, Send } from 'lucide-react'
+import { X, Pencil, Check, Loader2, Send, BellRing } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -59,7 +59,29 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
   const open = !!rnc
   const [assinandoId, setAssinandoId] = React.useState<string | null>(null)
   const [enviando, setEnviando] = React.useState(false)
+  const [lembrando, setLembrando] = React.useState(false)
   const pendencias = rnc ? pendenciasParaAssinatura(rnc) : []
+  const jaEnviada = !!rnc?.assinaturaEnviadaEm
+  const temPendentesAssinatura =
+    !!rnc && rnc.aprovadores.some((a) => !a.assinadoEm)
+
+  const handleEnviarLembrete = async () => {
+    if (!rnc) return
+    setLembrando(true)
+    try {
+      const { rnc: atualizado, enviados } = await rncApi.enviarLembrete(rnc.id)
+      onUpdated?.(atualizado)
+      toast.success('Lembrete enviado', {
+        description: `${enviados} aprovador(es) pendente(s) notificado(s).`,
+      })
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao enviar lembrete.'
+      toast.error('Não foi possível enviar o lembrete', { description: message })
+    } finally {
+      setLembrando(false)
+    }
+  }
 
   const handleEnviarAssinatura = async () => {
     if (!rnc) return
@@ -189,6 +211,24 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                   )}
                   Enviar para assinatura
                 </Button>
+                {jaEnviada && temPendentesAssinatura && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    onClick={handleEnviarLembrete}
+                    disabled={lembrando}
+                    title="Enviar lembrete aos aprovadores pendentes"
+                  >
+                    {lembrando ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <BellRing className="h-3.5 w-3.5" />
+                    )}
+                    Enviar lembrete
+                  </Button>
+                )}
                 {onEdit && (
                   <Button
                     type="button"
@@ -501,8 +541,18 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                           className="flex items-center justify-between gap-2 rounded-md border border-neutral-200 px-2.5 py-1.5"
                         >
                           <div className="flex min-w-0 flex-col">
-                            <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+                            <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-500">
                               {a.areaNome}
+                              {a.nivel != null && a.nivel > 1 && (
+                                <span className="rounded bg-neutral-100 px-1 py-px text-[9px] text-neutral-600">
+                                  Nível {a.nivel}
+                                </span>
+                              )}
+                              {a.viaEscalonamento && (
+                                <span className="rounded bg-amber-100 px-1 py-px text-[9px] font-semibold text-amber-700">
+                                  Escalonado
+                                </span>
+                              )}
                             </span>
                             <span className="truncate text-sm text-neutral-900">
                               <span className="font-medium">{a.nome}</span>
@@ -516,6 +566,12 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                             {assinado && (
                               <span className="text-[11px] text-emerald-700">
                                 Assinado em {formatDataHoraBR(a.assinadoEm)}
+                              </span>
+                            )}
+                            {!assinado && a.lembreteEnviadoEm && (
+                              <span className="text-[11px] text-amber-700">
+                                Lembrete enviado em{' '}
+                                {formatDataHoraBR(a.lembreteEnviadoEm)}
                               </span>
                             )}
                             {assinado &&

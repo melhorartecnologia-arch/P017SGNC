@@ -31,6 +31,8 @@ export type Rnc = {
   dataIdentificacao: string
   status: RncStatus
   criadoPorId: string
+  assinaturaEnviadaEm: string | null
+  escalonadoEm: string | null
 
   // Material & lote
   produtoId: string | null
@@ -71,6 +73,8 @@ export type Rnc = {
     assinaturaLongitude: number | null
     assinaturaPrecisao: number | null
     assinaturaMetadados: Record<string, unknown> | null
+    lembreteEnviadoEm: string | null
+    viaEscalonamento: boolean
   }[]
 
   filial: { id: string; codigo: string; nome: string }
@@ -232,6 +236,12 @@ export const rncApi = {
       enviados: string[]
       falhas: { email: string; erro: string }[]
     }>(`/rnc/${id}/enviar-assinatura`, { method: 'POST' }),
+
+  /** Lembrete manual aos aprovadores ainda pendentes. */
+  enviarLembrete: (id: string) =>
+    apiRequest<{ rnc: Rnc; enviados: number }>(`/rnc/${id}/lembrete`, {
+      method: 'POST',
+    }),
 
   /** Histórico de envios de workflow para assinatura (filtra por código). */
   listEnvios: (params: { q?: string; page?: number; pageSize?: number } = {}) =>
