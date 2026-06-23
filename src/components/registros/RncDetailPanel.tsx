@@ -1,5 +1,13 @@
 import * as React from 'react'
-import { X, Pencil, Check, Loader2, Send, BellRing } from 'lucide-react'
+import {
+  X,
+  Pencil,
+  Check,
+  Loader2,
+  Send,
+  BellRing,
+  ArrowUpCircle,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -60,6 +68,7 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
   const [assinandoId, setAssinandoId] = React.useState<string | null>(null)
   const [enviando, setEnviando] = React.useState(false)
   const [lembrando, setLembrando] = React.useState(false)
+  const [escalonando, setEscalonando] = React.useState(false)
   const pendencias = rnc ? pendenciasParaAssinatura(rnc) : []
   // "Enviada" = saiu de rascunho (cobre RNCs enviadas antes do campo
   // assinaturaEnviadaEm existir).
@@ -88,6 +97,24 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
       toast.error('Não foi possível enviar o lembrete', { description: message })
     } finally {
       setLembrando(false)
+    }
+  }
+
+  const handleEscalonar = async () => {
+    if (!rnc) return
+    setEscalonando(true)
+    try {
+      const { rnc: atualizado, novos } = await rncApi.escalonar(rnc.id)
+      onUpdated?.(atualizado)
+      toast.success('Escalonado para o nível acima', {
+        description: `${novos} aprovador(es) do nível superior notificado(s).`,
+      })
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao escalonar.'
+      toast.error('Não foi possível escalonar', { description: message })
+    } finally {
+      setEscalonando(false)
     }
   }
 
@@ -235,6 +262,24 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                       <BellRing className="h-3.5 w-3.5" />
                     )}
                     Enviar lembrete
+                  </Button>
+                )}
+                {jaEnviada && temPendentesAssinatura && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    onClick={handleEscalonar}
+                    disabled={escalonando}
+                    title="Escalonar agora para o nível acima dos aprovadores pendentes"
+                  >
+                    {escalonando ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ArrowUpCircle className="h-3.5 w-3.5" />
+                    )}
+                    Escalonar agora
                   </Button>
                 )}
                 {onEdit && (

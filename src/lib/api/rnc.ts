@@ -243,6 +243,12 @@ export const rncApi = {
       method: 'POST',
     }),
 
+  /** Escalonamento manual: sobe um nível acima nas áreas pendentes. */
+  escalonar: (id: string) =>
+    apiRequest<{ rnc: Rnc; novos: number }>(`/rnc/${id}/escalonar`, {
+      method: 'POST',
+    }),
+
   /** Histórico de envios de workflow para assinatura (filtra por código). */
   listEnvios: (params: { q?: string; page?: number; pageSize?: number } = {}) =>
     apiRequest<{

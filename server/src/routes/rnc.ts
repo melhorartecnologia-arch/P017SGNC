@@ -21,6 +21,7 @@ import { montarEmailAssinatura } from '../lib/rnc-email.js'
 import {
   processarWorkflows,
   enviarLembreteManual,
+  escalonarManual,
 } from '../lib/rnc-workflow.js'
 
 export const rncRouter = Router()
@@ -456,6 +457,53 @@ rncRouter.post('/:id/lembrete', async (req, res, next) => {
       include: includeRefs,
     })
     res.json({ rnc: atualizado, enviados })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Escalonamento manual: sobe um nível acima do atual nas áreas pendentes,
+// mesmo antes do prazo expirar.
+rncRouter.post('/:id/escalonar', async (req, res, next) => {
+  try {
+    const rnc = await prisma.relatorioNaoConformidade.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, status: true },
+    })
+    if (!rnc) throw new HttpError(404, 'Relatório não encontrado')
+    if (rnc.status === 'DRAFT') {
+      throw new HttpError(
+        400,
+        'Envie a RNC para assinatura antes de escalonar.',
+      )
+    }
+    const r = await escalonarManual(prisma, rnc.id)
+    if (r.semSmtp) {
+      throw new HttpError(
+        400,
+        'Servidor de e-mail (SMTP) não configurado ou desativado. Configure em Configurações Técnicas.',
+      )
+    }
+    if (r.semPendentes) {
+      throw new HttpError(400, 'Não há aprovadores pendentes para escalonar.')
+    }
+    if (r.semCandidatos) {
+      throw new HttpError(
+        400,
+        'Não há nível acima disponível no cadastro de aprovadores para as áreas pendentes.',
+      )
+    }
+    if (r.novos === 0 && r.falhas.length > 0) {
+      throw new HttpError(
+        502,
+        `Falha ao enviar o escalonamento por e-mail: ${r.falhas[0]}`,
+      )
+    }
+    const atualizado = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
+      where: { id: rnc.id },
+      include: includeRefs,
+    })
+    res.json({ rnc: atualizado, novos: r.novos })
   } catch (err) {
     next(err)
   }

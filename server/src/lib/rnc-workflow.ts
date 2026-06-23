@@ -105,6 +105,95 @@ export async function enviarWorkflowAprovador(
   }
 }
 
+/**
+ * Escalona as áreas pendentes da RNC para níveis superiores, incluindo
+ * os aprovadores na matriz e enviando o workflow a eles.
+ * - modo 'todos': adiciona todos os níveis superiores ainda fora da matriz.
+ * - modo 'proximo': adiciona apenas o próximo nível acima do atual (um passo).
+ * Retorna quantos foram adicionados/notificados e as falhas de envio.
+ */
+async function escalonarRncInterno(
+  prisma: PrismaClient,
+  transporte: Transporte,
+  rnc: RncInfo,
+  modo: 'todos' | 'proximo',
+): Promise<{ novos: number; falhas: string[]; havendoCandidatos: boolean }> {
+  const candidatos = await candidatosPorArea(prisma, rnc.filialId, rnc.turnoId)
+  const todos = await prisma.rncAprovador.findMany({
+    where: { rncId: rnc.id },
+    select: { areaId: true, aprovadorId: true, assinadoEm: true, nivel: true },
+  })
+
+  // Áreas resolvidas (alguém já assinou) saem da escalada.
+  const assinadasPorArea = new Set<string>()
+  const maxNivelPorArea = new Map<string, number>()
+  const jaNaMatriz = new Set(todos.map((t) => t.aprovadorId).filter(Boolean))
+  for (const t of todos) {
+    if (!t.areaId) continue
+    if (t.assinadoEm) assinadasPorArea.add(t.areaId)
+    const atual = maxNivelPorArea.get(t.areaId) ?? 0
+    if ((t.nivel ?? 0) > atual) maxNivelPorArea.set(t.areaId, t.nivel ?? 0)
+  }
+
+  let novos = 0
+  let havendoCandidatos = false
+  const falhas: string[] = []
+
+  for (const [areaId, lista] of candidatos) {
+    if (assinadasPorArea.has(areaId)) continue
+    // Só escalona áreas que estão na matriz e ainda pendentes.
+    if (!maxNivelPorArea.has(areaId)) continue
+    const maxAtual = maxNivelPorArea.get(areaId) ?? 0
+    const acima = lista
+      .filter((c) => !jaNaMatriz.has(c.aprovadorId) && c.nivel > maxAtual)
+      .sort((a, b) => a.nivel - b.nivel)
+    if (acima.length === 0) continue
+    havendoCandidatos = true
+
+    // 'proximo' = só o próximo nível (e empates desse nível); 'todos' = todos.
+    const proximoNivel = acima[0].nivel
+    const alvo =
+      modo === 'proximo'
+        ? acima.filter((c) => c.nivel === proximoNivel)
+        : acima
+
+    for (const c of alvo) {
+      const criado = await prisma.rncAprovador.create({
+        data: {
+          rncId: rnc.id,
+          aprovadorId: c.aprovadorId,
+          areaId: c.areaId,
+          areaNome: c.areaNome,
+          nome: c.nome,
+          cargo: c.cargo,
+          email: c.email,
+          nivel: c.nivel,
+          viaEscalonamento: true,
+        },
+        select: {
+          id: true,
+          nome: true,
+          areaNome: true,
+          email: true,
+          tokenAssinatura: true,
+          senhaAssinatura: true,
+        },
+      })
+      const r = await enviarWorkflowAprovador(
+        prisma,
+        transporte,
+        rnc,
+        criado,
+        'escalonamento',
+      )
+      if (r.ok) novos++
+      else if (r.erro) falhas.push(r.erro)
+    }
+  }
+
+  return { novos, falhas, havendoCandidatos }
+}
+
 export type ResultadoProcessamento = {
   lembretesEnviados: number
   escalonamentos: number
@@ -189,63 +278,12 @@ export async function processarWorkflows(
       }
     }
 
-    // 2) Escalonamento a 100% — uma vez por RNC.
+    // 2) Escalonamento a 100% — uma vez por RNC (todos os níveis acima).
     if (decorrido >= limiteEscalona && !rnc.escalonadoEm) {
-      const candidatos = await candidatosPorArea(prisma, rnc.filialId, rnc.turnoId)
-      const todos = await prisma.rncAprovador.findMany({
-        where: { rncId: rnc.id },
-        select: { areaId: true, aprovadorId: true, assinadoEm: true, nivel: true },
-      })
-      // Áreas com pendência (ninguém da área assinou ainda).
-      const areasComPendencia = new Set(
-        pendentes.map((p) => p.areaId).filter(Boolean) as string[],
-      )
-      const assinadasPorArea = new Map<string, boolean>()
-      for (const t of todos) {
-        if (!t.areaId) continue
-        if (t.assinadoEm) assinadasPorArea.set(t.areaId, true)
-      }
-      const jaNaMatriz = new Set(todos.map((t) => t.aprovadorId).filter(Boolean))
-
-      for (const areaId of areasComPendencia) {
-        if (assinadasPorArea.get(areaId)) continue // alguém da área já assinou
-        const lista = candidatos.get(areaId) ?? []
-        // Níveis superiores ainda não incluídos na matriz.
-        const novos = lista.filter((c) => !jaNaMatriz.has(c.aprovadorId))
-        for (const c of novos) {
-          const criado = await prisma.rncAprovador.create({
-            data: {
-              rncId: rnc.id,
-              aprovadorId: c.aprovadorId,
-              areaId: c.areaId,
-              areaNome: c.areaNome,
-              nome: c.nome,
-              cargo: c.cargo,
-              email: c.email,
-              nivel: c.nivel,
-              viaEscalonamento: true,
-            },
-            select: {
-              id: true,
-              nome: true,
-              areaNome: true,
-              email: true,
-              tokenAssinatura: true,
-              senhaAssinatura: true,
-            },
-          })
-          const r = await enviarWorkflowAprovador(
-            prisma,
-            transporte,
-            rnc,
-            criado,
-            'escalonamento',
-          )
-          if (r.ok) {
-            out.escalonamentos++
-            mexeu = true
-          }
-        }
+      const { novos } = await escalonarRncInterno(prisma, transporte, rnc, 'todos')
+      if (novos > 0) {
+        out.escalonamentos += novos
+        mexeu = true
       }
       await prisma.relatorioNaoConformidade.update({
         where: { id: rnc.id },
@@ -257,6 +295,66 @@ export async function processarWorkflows(
   }
 
   return out
+}
+
+export type ResultadoEscalonamentoManual = {
+  novos: number
+  falhas: string[]
+  semSmtp: boolean
+  semPendentes: boolean
+  semCandidatos: boolean
+}
+
+/**
+ * Escalonamento manual: sobe um nível acima do atual nas áreas pendentes,
+ * independentemente do prazo. Pode ser clicado várias vezes para subir
+ * níveis sucessivos.
+ */
+export async function escalonarManual(
+  prisma: PrismaClient,
+  rncId: string,
+): Promise<ResultadoEscalonamentoManual> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: rncInfoSelect,
+  })
+  if (!rnc) throw new Error('RNC não encontrada')
+
+  const temPendentes = await prisma.rncAprovador.count({
+    where: { rncId, assinadoEm: null },
+  })
+  if (temPendentes === 0)
+    return {
+      novos: 0,
+      falhas: [],
+      semSmtp: false,
+      semPendentes: true,
+      semCandidatos: false,
+    }
+
+  const transporte = await criarTransporteSmtp()
+  if (!transporte)
+    return {
+      novos: 0,
+      falhas: [],
+      semSmtp: true,
+      semPendentes: false,
+      semCandidatos: false,
+    }
+
+  const { novos, falhas, havendoCandidatos } = await escalonarRncInterno(
+    prisma,
+    transporte,
+    rnc,
+    'proximo',
+  )
+  return {
+    novos,
+    falhas,
+    semSmtp: false,
+    semPendentes: false,
+    semCandidatos: !havendoCandidatos,
+  }
 }
 
 export type ResultadoLembreteManual = {
