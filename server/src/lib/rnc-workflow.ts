@@ -3,8 +3,37 @@ import type { Prisma, PrismaClient } from '@prisma/client'
 import { criarTransporteSmtp, type Transporte } from './smtp.js'
 import { montarEmailAssinatura, montarEmailConclusao } from './rnc-email.js'
 import { candidatosPorArea } from './rnc-aprovadores.js'
+import {
+  criarContextoWa,
+  enviarTemplateWa,
+  type WaContexto,
+} from './wa.js'
 
 type Db = Prisma.TransactionClient | PrismaClient
+
+/** Data/hora no formato "dd/mm/aaaa às HHhMM" (fuso de operação). */
+function fmtPrazoData(d: Date): string {
+  const p = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d)
+  const g = (t: string) => p.find((x) => x.type === t)?.value ?? ''
+  return `${g('day')}/${g('month')}/${g('year')} às ${g('hour')}h${g('minute')}`
+}
+
+/** Texto do tempo restante até o prazo (ex.: "24 horas", "30 minutos"). */
+function fmtTempoRestante(deadline: Date): string {
+  const ms = deadline.getTime() - Date.now()
+  if (ms <= 0) return 'expirado'
+  const horas = ms / 3600_000
+  if (horas >= 1) return `${Math.round(horas)} horas`
+  return `${Math.max(1, Math.round(ms / 60_000))} minutos`
+}
 
 const rncInfoSelect = {
   id: true,
@@ -31,6 +60,7 @@ type AprovadorRow = {
   nome: string
   areaNome: string
   email: string | null
+  whatsapp: string | null
   tokenAssinatura: string | null
   senhaAssinatura: string | null
 }
@@ -51,16 +81,20 @@ function fmtHoras(horas: number): string {
   return horas % 1 === 0 ? `${horas}h` : `${horas.toFixed(1)}h`
 }
 
-/** Envia o e-mail de workflow a um aprovador, gerando token/senha se faltar. */
+/**
+ * Notifica um aprovador (e-mail + WhatsApp, conforme disponível), gerando
+ * token/senha se faltar. O e-mail é obrigatório para o sucesso; o WhatsApp
+ * é best-effort. `horasSla` é o prazo da Política de Resposta (horas).
+ */
 export async function enviarWorkflowAprovador(
   db: Db,
   transporte: Transporte,
+  wa: WaContexto | null,
   rnc: RncInfo,
   ap: AprovadorRow,
   tipo: 'solicitacao' | 'lembrete' | 'escalonamento',
-  prazoTexto?: string | null,
+  horasSla?: number | null,
 ): Promise<{ ok: boolean; erro?: string }> {
-  if (!ap.email) return { ok: false, erro: 'sem e-mail' }
   const token = ap.tokenAssinatura ?? randomBytes(24).toString('hex')
   const senha =
     ap.senhaAssinatura ?? String(randomInt(0, 1_000_000)).padStart(6, '0')
@@ -71,38 +105,81 @@ export async function enviarWorkflowAprovador(
     })
   }
 
-  const { subject, text, html } = montarEmailAssinatura({
-    numero: rnc.numero,
-    filialNome: rnc.filial?.nome ?? '',
-    fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
-    tipoNc: rnc.tipoNaoConformidade
-      ? `${rnc.tipoNaoConformidade.codigo} — ${rnc.tipoNaoConformidade.descricao}`
-      : '',
-    severidade: rnc.severidade
-      ? `Nível ${rnc.severidade.nivel} — ${rnc.severidade.nome}`
-      : null,
-    dataIdentificacao: rnc.dataIdentificacao,
-    descricaoDefeito: rnc.descricaoDefeito,
-    aprovadorNome: ap.nome,
-    areaNome: ap.areaNome,
-    token,
-    senha,
-    tipo,
-    prazoTexto,
-  })
+  // Prazo (deadline) a partir do início do workflow + SLA.
+  const base = rnc.assinaturaEnviadaEm ?? new Date()
+  const deadline =
+    horasSla && horasSla > 0
+      ? new Date(base.getTime() + horasSla * 3600_000)
+      : null
+  const prazoData = deadline ? fmtPrazoData(deadline) : 'a definir'
+  const prazoTexto = horasSla && horasSla > 0 ? fmtHoras(horasSla) : null
 
-  try {
-    await transporte.transporter.sendMail({
-      from: transporte.remetente,
-      to: ap.email,
-      subject,
-      text,
-      html,
+  // ── E-mail ────────────────────────────────────────────────
+  let emailOk = false
+  let emailErro: string | undefined
+  if (ap.email) {
+    const { subject, text, html } = montarEmailAssinatura({
+      numero: rnc.numero,
+      filialNome: rnc.filial?.nome ?? '',
+      fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+      tipoNc: rnc.tipoNaoConformidade
+        ? `${rnc.tipoNaoConformidade.codigo} — ${rnc.tipoNaoConformidade.descricao}`
+        : '',
+      severidade: rnc.severidade
+        ? `Nível ${rnc.severidade.nivel} — ${rnc.severidade.nome}`
+        : null,
+      dataIdentificacao: rnc.dataIdentificacao,
+      descricaoDefeito: rnc.descricaoDefeito,
+      aprovadorNome: ap.nome,
+      areaNome: ap.areaNome,
+      token,
+      senha,
+      tipo,
+      prazoTexto,
     })
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, erro: err instanceof Error ? err.message : 'erro' }
+    try {
+      await transporte.transporter.sendMail({
+        from: transporte.remetente,
+        to: ap.email,
+        subject,
+        text,
+        html,
+      })
+      emailOk = true
+    } catch (err) {
+      emailErro = err instanceof Error ? err.message : 'erro'
+    }
+  } else {
+    emailErro = 'sem e-mail'
   }
+
+  // ── WhatsApp (best-effort) ────────────────────────────────
+  let waOk = false
+  if (wa && ap.whatsapp) {
+    const fornecedor = rnc.fornecedor?.razaoSocial ?? ''
+    const r =
+      tipo === 'lembrete'
+        ? await enviarTemplateWa(wa, ap.whatsapp, 'lembrete', {
+            '1': ap.nome,
+            '2': rnc.numero,
+            '3': prazoData,
+            '4': deadline ? fmtTempoRestante(deadline) : 'a definir',
+            '5': token,
+          })
+        : // solicitacao e escalonamento usam o template de solicitação.
+          await enviarTemplateWa(wa, ap.whatsapp, 'solicitacao', {
+            '1': ap.nome,
+            '2': rnc.numero,
+            '3': fornecedor,
+            '4': prazoData,
+            '5': token,
+          })
+    waOk = r.ok
+  }
+
+  // Sucesso = notificado por qualquer canal (e-mail ou WhatsApp).
+  if (emailOk || waOk) return { ok: true }
+  return { ok: false, erro: emailErro }
 }
 
 /**
@@ -115,8 +192,10 @@ export async function enviarWorkflowAprovador(
 async function escalonarRncInterno(
   prisma: PrismaClient,
   transporte: Transporte,
+  wa: WaContexto | null,
   rnc: RncInfo,
   modo: 'todos' | 'proximo',
+  horasSla: number | null,
 ): Promise<{ novos: number; falhas: string[]; havendoCandidatos: boolean }> {
   const candidatos = await candidatosPorArea(prisma, rnc.filialId, rnc.turnoId)
   const todos = await prisma.rncAprovador.findMany({
@@ -167,6 +246,7 @@ async function escalonarRncInterno(
           nome: c.nome,
           cargo: c.cargo,
           email: c.email,
+          whatsapp: c.whatsapp,
           nivel: c.nivel,
           viaEscalonamento: true,
         },
@@ -175,6 +255,7 @@ async function escalonarRncInterno(
           nome: true,
           areaNome: true,
           email: true,
+          whatsapp: true,
           tokenAssinatura: true,
           senhaAssinatura: true,
         },
@@ -182,9 +263,11 @@ async function escalonarRncInterno(
       const r = await enviarWorkflowAprovador(
         prisma,
         transporte,
+        wa,
         rnc,
         criado,
         'escalonamento',
+        horasSla,
       )
       if (r.ok) novos++
       else if (r.erro) falhas.push(r.erro)
@@ -221,6 +304,7 @@ export async function processarWorkflows(
   const transporte = await criarTransporteSmtp()
   if (!transporte) return out // SMTP não configurado.
 
+  const wa = criarContextoWa()
   const agora = Date.now()
   const limiteLembrete = horas * 0.5 * 3600_000
   const limiteEscalona = horas * 3600_000
@@ -246,6 +330,7 @@ export async function processarWorkflows(
         nome: true,
         areaNome: true,
         email: true,
+        whatsapp: true,
         areaId: true,
         nivel: true,
         tokenAssinatura: true,
@@ -258,14 +343,15 @@ export async function processarWorkflows(
     // 1) Lembrete a 50% — quem não assinou e ainda não recebeu lembrete.
     if (decorrido >= limiteLembrete) {
       for (const ap of pendentes) {
-        if (ap.lembreteEnviadoEm || !ap.email) continue
+        if (ap.lembreteEnviadoEm || (!ap.email && !ap.whatsapp)) continue
         const r = await enviarWorkflowAprovador(
           prisma,
           transporte,
+          wa,
           rnc,
           ap,
           'lembrete',
-          fmtHoras(horas),
+          horas,
         )
         if (r.ok) {
           await prisma.rncAprovador.update({
@@ -280,7 +366,14 @@ export async function processarWorkflows(
 
     // 2) Escalonamento a 100% — uma vez por RNC (todos os níveis acima).
     if (decorrido >= limiteEscalona && !rnc.escalonadoEm) {
-      const { novos } = await escalonarRncInterno(prisma, transporte, rnc, 'todos')
+      const { novos } = await escalonarRncInterno(
+        prisma,
+        transporte,
+        wa,
+        rnc,
+        'todos',
+        horas,
+      )
       if (novos > 0) {
         out.escalonamentos += novos
         mexeu = true
@@ -342,11 +435,15 @@ export async function escalonarManual(
       semCandidatos: false,
     }
 
+  const horas = await horasRespostaRnc(prisma)
+  const wa = criarContextoWa()
   const { novos, falhas, havendoCandidatos } = await escalonarRncInterno(
     prisma,
     transporte,
+    wa,
     rnc,
     'proximo',
+    horas,
   )
   return {
     novos,
@@ -376,12 +473,17 @@ export async function enviarLembreteManual(
   if (!rnc) throw new Error('RNC não encontrada')
 
   const pendentes = await prisma.rncAprovador.findMany({
-    where: { rncId, assinadoEm: null, email: { not: null } },
+    where: {
+      rncId,
+      assinadoEm: null,
+      OR: [{ email: { not: null } }, { whatsapp: { not: null } }],
+    },
     select: {
       id: true,
       nome: true,
       areaNome: true,
       email: true,
+      whatsapp: true,
       tokenAssinatura: true,
       senhaAssinatura: true,
     },
@@ -394,16 +496,18 @@ export async function enviarLembreteManual(
     return { enviados: 0, falhas: [], semSmtp: true, semPendentes: false }
 
   const horas = await horasRespostaRnc(prisma)
+  const wa = criarContextoWa()
   let enviados = 0
   const falhas: string[] = []
   for (const ap of pendentes) {
     const r = await enviarWorkflowAprovador(
       prisma,
       transporte,
+      wa,
       rnc,
       ap,
       'lembrete',
-      horas ? fmtHoras(horas) : null,
+      horas,
     )
     if (r.ok) {
       await prisma.rncAprovador.update({
@@ -447,6 +551,7 @@ export async function finalizarSeConcluida(
           nome: true,
           cargo: true,
           email: true,
+          whatsapp: true,
           assinadoEm: true,
           assinaturaIp: true,
           assinaturaNavegador: true,
@@ -515,6 +620,24 @@ export async function finalizarSeConcluida(
       })
     } catch {
       // Falha no e-mail não desfaz a conclusão.
+    }
+  }
+
+  // WhatsApp de conclusão aos aprovadores que têm número (best-effort).
+  const wa = criarContextoWa()
+  if (wa) {
+    const dataConclusao = fmtPrazoData(new Date())
+    const total = String(rnc.aprovadores.length)
+    const enviadosWa = new Set<string>()
+    for (const a of rnc.aprovadores) {
+      if (!a.whatsapp || enviadosWa.has(a.whatsapp)) continue
+      enviadosWa.add(a.whatsapp)
+      await enviarTemplateWa(wa, a.whatsapp, 'concluida', {
+        '1': a.nome,
+        '2': rnc.numero,
+        '3': dataConclusao,
+        '4': total,
+      })
     }
   }
   return true

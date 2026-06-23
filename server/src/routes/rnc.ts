@@ -12,17 +12,18 @@ import {
   rncQuerySchema,
   rncUpdateSchema,
 } from '../schemas/rnc.js'
-import { randomBytes, randomInt } from 'node:crypto'
 import { montarMatrizAprovadores } from '../lib/rnc-aprovadores.js'
 import { streamRncPdf } from '../lib/rnc-pdf-loader.js'
 import { pendenciasParaAssinatura } from '../lib/rnc-completude.js'
 import { criarTransporteSmtp } from '../lib/smtp.js'
-import { montarEmailAssinatura } from '../lib/rnc-email.js'
+import { criarContextoWa } from '../lib/wa.js'
 import {
   processarWorkflows,
   enviarLembreteManual,
   escalonarManual,
   finalizarSeConcluida,
+  enviarWorkflowAprovador,
+  horasRespostaRnc,
 } from '../lib/rnc-workflow.js'
 
 export const rncRouter = Router()
@@ -309,11 +310,11 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
       )
     }
 
-    const destinatarios = rnc.aprovadores.filter((a) => a.email)
+    const destinatarios = rnc.aprovadores.filter((a) => a.email || a.whatsapp)
     if (destinatarios.length === 0) {
       throw new HttpError(
         400,
-        'Nenhum aprovador com e-mail cadastrado para esta RNC. Verifique o cadastro de aprovadores da filial/turno.',
+        'Nenhum aprovador com e-mail ou WhatsApp cadastrado para esta RNC. Verifique o cadastro de aprovadores da filial/turno.',
       )
     }
 
@@ -325,57 +326,28 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
       )
     }
 
+    const wa = criarContextoWa()
+    const horasSla = await horasRespostaRnc(prisma)
     const enviados: string[] = []
     const falhas: { email: string; erro: string }[] = []
     for (const ap of destinatarios) {
-      const token = ap.tokenAssinatura ?? randomBytes(24).toString('hex')
-      // Senha de assinatura: 6 dígitos aleatórios, enviada no e-mail.
-      const senha =
-        ap.senhaAssinatura ?? String(randomInt(0, 1_000_000)).padStart(6, '0')
-      if (!ap.tokenAssinatura || !ap.senhaAssinatura) {
-        await prisma.rncAprovador.update({
-          where: { id: ap.id },
-          data: { tokenAssinatura: token, senhaAssinatura: senha },
-        })
-      }
-      const { subject, text, html } = montarEmailAssinatura({
-        numero: rnc.numero,
-        filialNome: rnc.filial?.nome ?? '',
-        fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
-        tipoNc: rnc.tipoNaoConformidade
-          ? `${rnc.tipoNaoConformidade.codigo} — ${rnc.tipoNaoConformidade.descricao}`
-          : '',
-        severidade: rnc.severidade
-          ? `Nível ${rnc.severidade.nivel} — ${rnc.severidade.nome}`
-          : null,
-        dataIdentificacao: rnc.dataIdentificacao,
-        descricaoDefeito: rnc.descricaoDefeito,
-        aprovadorNome: ap.nome,
-        areaNome: ap.areaNome,
-        token,
-        senha,
-      })
-      try {
-        await transporte.transporter.sendMail({
-          from: transporte.remetente,
-          to: ap.email!,
-          subject,
-          text,
-          html,
-        })
-        enviados.push(ap.email!)
-      } catch (err) {
-        falhas.push({
-          email: ap.email!,
-          erro: err instanceof Error ? err.message : 'erro desconhecido',
-        })
-      }
+      const r = await enviarWorkflowAprovador(
+        prisma,
+        transporte,
+        wa,
+        rnc,
+        ap,
+        'solicitacao',
+        horasSla,
+      )
+      if (r.ok) enviados.push(ap.email ?? ap.nome)
+      else falhas.push({ email: ap.email ?? ap.nome, erro: r.erro ?? 'erro' })
     }
 
     if (enviados.length === 0) {
       throw new HttpError(
         502,
-        `Falha ao enviar os e-mails de assinatura: ${falhas
+        `Falha ao notificar os aprovadores: ${falhas
           .map((f) => f.erro)
           .join('; ')}`,
       )
@@ -406,7 +378,7 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
         enviadoPorNome: usuarioEnvio?.nome ?? req.user?.email ?? 'sistema',
         totalDestinatarios: enviados.length,
         destinatarios: destinatarios
-          .filter((a) => enviados.includes(a.email!))
+          .filter((a) => enviados.includes(a.email ?? a.nome))
           .map((a) => ({ email: a.email, areaNome: a.areaNome, nome: a.nome })),
       },
     })

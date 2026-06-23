@@ -487,6 +487,7 @@ model RncAprovador {
   nome           String    @db.VarChar(120)
   cargo          String?   @db.VarChar(120)
   email          String?   @db.VarChar(160)
+  whatsapp       String?   @db.VarChar(20)
   nivel          Int?
   assinadoEm     DateTime? @map("assinado_em")
   tokenAssinatura String?  @unique @map("token_assinatura") @db.VarChar(64)

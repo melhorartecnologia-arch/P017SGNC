@@ -9,6 +9,7 @@ export type AprovadorSelecionado = {
   nome: string
   cargo: string | null
   email: string | null
+  whatsapp: string | null
   nivel: number
 }
 
@@ -35,6 +36,7 @@ export async function candidatosPorArea(
       nome: true,
       cargo: true,
       email: true,
+      whatsapp: true,
       area: { select: { nome: true } },
     },
   })
@@ -63,6 +65,7 @@ export async function candidatosPorArea(
         nome: e.nome,
         cargo: e.cargo,
         email: e.email,
+        whatsapp: e.whatsapp,
         nivel: e.nivel,
       })),
     )
