@@ -164,6 +164,22 @@ export function resumoAssinaturas(rnc: Rnc): AssinaturaStatus {
   return { total, assinadas, estado: 'completo', label: `Assinado · ${total}/${total}` }
 }
 
+export type EnvioAssinatura = {
+  id: string
+  rncNumero: string
+  enviadoPorNome: string
+  totalDestinatarios: number
+  destinatarios: { email: string; areaNome: string; nome: string }[]
+  enviadoEm: string
+  rnc: {
+    id: string
+    status: RncStatus
+    filial: { codigo: string; nome: string } | null
+    fornecedor: { codigo: string; razaoSocial: string } | null
+    aprovadores: { areaNome: string; nome: string; assinadoEm: string | null }[]
+  } | null
+}
+
 /** Pendências que impedem o envio para assinatura (espelha o servidor). */
 export function pendenciasParaAssinatura(rnc: Rnc): string[] {
   const f: string[] = []
@@ -216,6 +232,21 @@ export const rncApi = {
       enviados: string[]
       falhas: { email: string; erro: string }[]
     }>(`/rnc/${id}/enviar-assinatura`, { method: 'POST' }),
+
+  /** Histórico de envios de workflow para assinatura (filtra por código). */
+  listEnvios: (params: { q?: string; page?: number; pageSize?: number } = {}) =>
+    apiRequest<{
+      items: EnvioAssinatura[]
+      page: number
+      pageSize: number
+      total: number
+    }>('/rnc/envios', {
+      query: {
+        q: params.q,
+        page: params.page,
+        pageSize: params.pageSize,
+      },
+    }),
 
   /** Baixa o PDF da RNC (layout do formulário) e dispara o download. */
   downloadPdf: async (id: string, numero: string): Promise<void> => {

@@ -24,6 +24,7 @@ model Usuario {
 
   filialPadrao              Filial?                    @relation(fields: [filialPadraoId], references: [id], onDelete: SetNull)
   relatoriosNaoConformidade RelatorioNaoConformidade[]
+  enviosAssinatura          RncEnvioAssinatura[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -369,6 +370,7 @@ model RelatorioNaoConformidade {
   lotes               RncLote[]
   notasFiscais        RncNotaFiscal[]
   aprovadores         RncAprovador[]
+  enviosAssinatura    RncEnvioAssinatura[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -504,4 +506,25 @@ model RncAprovador {
 
   @@index([rncId])
   @@map("rnc_aprovadores")
+}
+
+/// Log de cada envio de um RNC para assinatura (workflow). Permite
+/// rastrear o histórico de disparos do workflow de assinatura.
+model RncEnvioAssinatura {
+  id                 String   @id @default(uuid()) @db.Uuid
+  rncId              String   @map("rnc_id") @db.Uuid
+  rncNumero          String   @map("rnc_numero") @db.VarChar(40)
+  enviadoPorId       String?  @map("enviado_por_id") @db.Uuid
+  enviadoPorNome     String   @map("enviado_por_nome") @db.VarChar(120)
+  totalDestinatarios Int      @map("total_destinatarios")
+  destinatarios      Json     // [{ email, areaNome, nome }]
+  enviadoEm          DateTime @default(now()) @map("enviado_em")
+
+  rnc        RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
+  enviadoPor Usuario?                 @relation(fields: [enviadoPorId], references: [id], onDelete: SetNull)
+
+  @@index([rncId])
+  @@index([rncNumero])
+  @@index([enviadoEm])
+  @@map("rnc_envios_assinatura")
 }

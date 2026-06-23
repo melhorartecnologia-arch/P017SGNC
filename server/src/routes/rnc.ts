@@ -379,11 +379,78 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
       })
     }
 
+    // Registra o envio no histórico de workflows.
+    const usuarioEnvio = req.user?.sub
+      ? await prisma.usuario.findUnique({
+          where: { id: req.user.sub },
+          select: { nome: true },
+        })
+      : null
+    await prisma.rncEnvioAssinatura.create({
+      data: {
+        rncId: rnc.id,
+        rncNumero: rnc.numero,
+        enviadoPorId: req.user?.sub ?? null,
+        enviadoPorNome: usuarioEnvio?.nome ?? req.user?.email ?? 'sistema',
+        totalDestinatarios: enviados.length,
+        destinatarios: destinatarios
+          .filter((a) => enviados.includes(a.email!))
+          .map((a) => ({ email: a.email, areaNome: a.areaNome, nome: a.nome })),
+      },
+    })
+
     const atualizado = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
       where: { id: rnc.id },
       include: includeRefs,
     })
     res.json({ rnc: atualizado, enviados, falhas })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Histórico de envios de workflow para assinatura, filtrável por código.
+// Antes de /:id para evitar colisão de rota.
+rncRouter.get('/envios', async (req, res, next) => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : ''
+    const page = Math.max(1, Number(req.query.page) || 1)
+    const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 20))
+
+    const where: Prisma.RncEnvioAssinaturaWhereInput = q
+      ? { rncNumero: { contains: q, mode: 'insensitive' } }
+      : {}
+
+    const [total, items] = await Promise.all([
+      prisma.rncEnvioAssinatura.count({ where }),
+      prisma.rncEnvioAssinatura.findMany({
+        where,
+        orderBy: { enviadoEm: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          rncNumero: true,
+          enviadoPorNome: true,
+          totalDestinatarios: true,
+          destinatarios: true,
+          enviadoEm: true,
+          rnc: {
+            select: {
+              id: true,
+              status: true,
+              filial: { select: { codigo: true, nome: true } },
+              fornecedor: { select: { codigo: true, razaoSocial: true } },
+              aprovadores: {
+                select: { areaNome: true, nome: true, assinadoEm: true },
+                orderBy: { areaNome: 'asc' },
+              },
+            },
+          },
+        },
+      }),
+    ])
+    res.json({ items, page, pageSize, total })
   } catch (err) {
     next(err)
   }

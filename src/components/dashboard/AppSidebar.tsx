@@ -23,6 +23,7 @@ import {
   LayoutGrid,
   UserCheck,
   Mail,
+  Send,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -45,6 +46,7 @@ type Item = {
 const mainNav: Item[] = [
   { key: 'dashboard', label: 'Painel Principal', icon: LayoutDashboard },
   { key: 'rnc-list', label: 'RNCs', icon: FileWarning },
+  { key: 'workflows-assinatura', label: 'Workflows de Assinatura', icon: Send },
   { key: 'lifecycle', label: 'Acompanhamento', icon: ListChecks },
   { key: 'analytics', label: 'Pendências de Assinaturas', icon: BarChart3 },
 ]
