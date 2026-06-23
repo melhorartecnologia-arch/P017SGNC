@@ -259,11 +259,18 @@ export async function processarWorkflows(
   return out
 }
 
+export type ResultadoLembreteManual = {
+  enviados: number
+  falhas: string[]
+  semSmtp: boolean
+  semPendentes: boolean
+}
+
 /** Lembrete manual: envia a todos os aprovadores ainda pendentes da RNC. */
 export async function enviarLembreteManual(
   prisma: PrismaClient,
   rncId: string,
-): Promise<{ enviados: number; semSmtp: boolean; semPendentes: boolean }> {
+): Promise<ResultadoLembreteManual> {
   const rnc = await prisma.relatorioNaoConformidade.findUnique({
     where: { id: rncId },
     select: rncInfoSelect,
@@ -282,13 +289,15 @@ export async function enviarLembreteManual(
     },
   })
   if (pendentes.length === 0)
-    return { enviados: 0, semSmtp: false, semPendentes: true }
+    return { enviados: 0, falhas: [], semSmtp: false, semPendentes: true }
 
   const transporte = await criarTransporteSmtp()
-  if (!transporte) return { enviados: 0, semSmtp: true, semPendentes: false }
+  if (!transporte)
+    return { enviados: 0, falhas: [], semSmtp: true, semPendentes: false }
 
   const horas = await horasRespostaRnc(prisma)
   let enviados = 0
+  const falhas: string[] = []
   for (const ap of pendentes) {
     const r = await enviarWorkflowAprovador(
       prisma,
@@ -304,7 +313,9 @@ export async function enviarLembreteManual(
         data: { lembreteEnviadoEm: new Date() },
       })
       enviados++
+    } else if (r.erro) {
+      falhas.push(r.erro)
     }
   }
-  return { enviados, semSmtp: false, semPendentes: false }
+  return { enviados, falhas, semSmtp: false, semPendentes: false }
 }

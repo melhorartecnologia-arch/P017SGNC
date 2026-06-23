@@ -95,7 +95,7 @@ const includeRefs = {
       lembreteEnviadoEm: true,
       viaEscalonamento: true,
     },
-    orderBy: [{ areaNome: 'asc' }, { nivel: 'asc' }],
+    orderBy: { areaNome: 'asc' },
   },
   _count: { select: { fotos: true } },
 } as const
@@ -422,27 +422,34 @@ rncRouter.post('/:id/lembrete', async (req, res, next) => {
   try {
     const rnc = await prisma.relatorioNaoConformidade.findUnique({
       where: { id: req.params.id },
-      select: { id: true, assinaturaEnviadaEm: true },
+      select: { id: true, status: true },
     })
     if (!rnc) throw new HttpError(404, 'Relatório não encontrado')
-    if (!rnc.assinaturaEnviadaEm) {
+    // "Enviada" = saiu de rascunho. Cobre também RNCs enviadas antes de
+    // existir o campo assinaturaEnviadaEm.
+    if (rnc.status === 'DRAFT') {
       throw new HttpError(
         400,
         'Envie a RNC para assinatura antes de mandar um lembrete.',
       )
     }
-    const { enviados, semSmtp, semPendentes } = await enviarLembreteManual(
-      prisma,
-      rnc.id,
-    )
+    const { enviados, falhas, semSmtp, semPendentes } =
+      await enviarLembreteManual(prisma, rnc.id)
     if (semSmtp) {
       throw new HttpError(
         400,
-        'Servidor de e-mail (SMTP) não configurado ou desativado.',
+        'Servidor de e-mail (SMTP) não configurado ou desativado. Configure em Configurações Técnicas.',
       )
     }
     if (semPendentes) {
       throw new HttpError(400, 'Não há aprovadores pendentes para lembrar.')
+    }
+    // Havia pendentes mas nenhum e-mail saiu: falha de SMTP — reporta.
+    if (enviados === 0 && falhas.length > 0) {
+      throw new HttpError(
+        502,
+        `Falha ao enviar o lembrete por e-mail: ${falhas[0]}`,
+      )
     }
     const atualizado = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
       where: { id: rnc.id },

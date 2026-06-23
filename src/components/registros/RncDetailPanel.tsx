@@ -61,7 +61,9 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
   const [enviando, setEnviando] = React.useState(false)
   const [lembrando, setLembrando] = React.useState(false)
   const pendencias = rnc ? pendenciasParaAssinatura(rnc) : []
-  const jaEnviada = !!rnc?.assinaturaEnviadaEm
+  // "Enviada" = saiu de rascunho (cobre RNCs enviadas antes do campo
+  // assinaturaEnviadaEm existir).
+  const jaEnviada = !!rnc && rnc.status !== 'DRAFT'
   const temPendentesAssinatura =
     !!rnc && rnc.aprovadores.some((a) => !a.assinadoEm)
 
@@ -71,9 +73,15 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
     try {
       const { rnc: atualizado, enviados } = await rncApi.enviarLembrete(rnc.id)
       onUpdated?.(atualizado)
-      toast.success('Lembrete enviado', {
-        description: `${enviados} aprovador(es) pendente(s) notificado(s).`,
-      })
+      if (enviados > 0) {
+        toast.success('Lembrete enviado', {
+          description: `${enviados} aprovador(es) pendente(s) notificado(s).`,
+        })
+      } else {
+        toast.warning('Nenhum lembrete enviado', {
+          description: 'Verifique se há aprovadores pendentes com e-mail.',
+        })
+      }
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message : 'Falha ao enviar lembrete.'
