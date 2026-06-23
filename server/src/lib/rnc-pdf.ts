@@ -26,6 +26,13 @@ export type RncPdfData = {
     nome: string
     cargo: string | null
     assinadoEm: Date | null
+    assinaturaIp?: string | null
+    assinaturaNavegador?: string | null
+    assinaturaSo?: string | null
+    assinaturaDispositivo?: string | null
+    assinaturaLatitude?: number | null
+    assinaturaLongitude?: number | null
+    assinaturaPrecisao?: number | null
   }[]
   lotes: { numero: string; quantidade: number | null }[]
   notasFiscais: {
@@ -68,6 +75,16 @@ function num(n: number | null | undefined): string {
   if (n == null) return ''
   return n.toLocaleString('pt-BR')
 }
+
+function fmtDataHora(d: Date | null | undefined): string {
+  if (!d) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+const COR_ASSINADO_BORDA = '#86efac'
+const COR_ASSINADO_FUNDO = '#f0fdf4'
+const COR_ASSINADO_TEXTO = '#15803d'
 
 type Estado = { y: number }
 
@@ -191,52 +208,111 @@ function cabecalho(doc: Doc, est: Estado, rnc: RncPdfData) {
   est.y += h + 6
 }
 
+type AssinaturaEntrada = {
+  papel: string
+  nome: string
+  assinadoEm: Date | null
+  ip?: string | null
+  navegador?: string | null
+  so?: string | null
+  dispositivo?: string | null
+  lat?: number | null
+  lng?: number | null
+  precisao?: number | null
+}
+
+const ALTURA_ASSINADO = 78
+const ALTURA_PENDENTE = 44
+
+/** Altura da caixa conforme assinada ou não. */
+function alturaCaixa(e: AssinaturaEntrada): number {
+  return e.assinadoEm ? ALTURA_ASSINADO : ALTURA_PENDENTE
+}
+
 function caixaAssinatura(
   doc: Doc,
   x: number,
   y: number,
   w: number,
-  papel: string,
-  nome?: string,
-  data?: string,
+  h: number,
+  e: AssinaturaEntrada,
 ) {
-  const h = 44
-  doc.rect(x, y, w, h).strokeColor(COR_BORDA).lineWidth(0.6).stroke()
+  const assinado = !!e.assinadoEm
+
+  // Assinada: destaque verde com selo; pendente: caixa neutra para firma.
+  if (assinado) {
+    doc.rect(x, y, w, h).fill(COR_ASSINADO_FUNDO)
+    doc.rect(x, y, w, h).strokeColor(COR_ASSINADO_BORDA).lineWidth(1).stroke()
+  } else {
+    doc.rect(x, y, w, h).strokeColor(COR_BORDA).lineWidth(0.6).stroke()
+  }
+
   doc
     .fillColor(COR_LABEL)
     .font('Helvetica-Bold')
     .fontSize(6.5)
-    .text(papel.toUpperCase(), x + 4, y + 3, { width: w - 8 })
-  doc
-    .fillColor(COR_VALOR)
-    .font('Helvetica')
-    .fontSize(7.5)
-    .text('NOME:', x + 4, y + 22)
-    .text('DATA:', x + 4, y + 33)
-  if (nome) {
+    .text(e.papel.toUpperCase(), x + 4, y + 3, { width: w - 70 })
+
+  if (assinado) {
+    // Selo "ASSINADO" no canto superior direito.
+    const pw = 44
+    doc.roundedRect(x + w - pw - 4, y + 2.5, pw, 11, 3).fill(COR_ASSINADO_TEXTO)
+    doc
+      .fillColor('#ffffff')
+      .font('Helvetica-Bold')
+      .fontSize(6.5)
+      .text('ASSINADO', x + w - pw - 4, y + 5, { width: pw, align: 'center' })
+
     doc
       .fillColor(COR_VALOR)
       .font('Helvetica-Bold')
-      .fontSize(7.5)
-      .text(nome, x + 32, y + 22, { width: w - 40, ellipsis: true })
-  }
-  if (data) {
+      .fontSize(8.5)
+      .text(e.nome, x + 4, y + 16, { width: w - 8, ellipsis: true })
+
+    // Metadados da assinatura.
+    let ly = y + 28
+    const linha = (txt: string) => {
+      doc
+        .fillColor(COR_ASSINADO_TEXTO)
+        .font('Helvetica')
+        .fontSize(6.2)
+        .text(txt, x + 4, ly, { width: w - 8, ellipsis: true })
+      ly += 8.2
+    }
+    linha(`Assinado em ${fmtDataHora(e.assinadoEm)}`)
+    if (e.ip || e.navegador) {
+      linha([e.ip ? `IP ${e.ip}` : '', e.navegador].filter(Boolean).join(' · '))
+    }
+    if (e.so || e.dispositivo) {
+      linha([e.so, e.dispositivo].filter(Boolean).join(' · '))
+    }
+    if (e.lat != null && e.lng != null) {
+      const prec = e.precisao != null ? ` (±${Math.round(e.precisao)} m)` : ''
+      linha(`Local ${e.lat.toFixed(5)}, ${e.lng.toFixed(5)}${prec}`)
+    }
+  } else {
     doc
       .fillColor(COR_VALOR)
       .font('Helvetica')
       .fontSize(7.5)
-      .text(data, x + 32, y + 33, { width: w - 40 })
+      .text('NOME:', x + 4, y + 22)
+      .text('DATA:', x + 4, y + 33)
+    doc
+      .fillColor(COR_VALOR)
+      .font('Helvetica-Bold')
+      .fontSize(7.5)
+      .text(e.nome, x + 32, y + 22, { width: w - 40, ellipsis: true })
+    doc
+      .moveTo(x + 32, y + 29)
+      .lineTo(x + w - 6, y + 29)
+      .strokeColor(COR_BORDA)
+      .stroke()
+    doc
+      .moveTo(x + 32, y + 40)
+      .lineTo(x + w - 6, y + 40)
+      .strokeColor(COR_BORDA)
+      .stroke()
   }
-  doc
-    .moveTo(x + 32, y + 29)
-    .lineTo(x + w - 6, y + 29)
-    .strokeColor(COR_BORDA)
-    .stroke()
-  doc
-    .moveTo(x + 32, y + 40)
-    .lineTo(x + w - 6, y + 40)
-    .strokeColor(COR_BORDA)
-    .stroke()
 }
 
 /**
@@ -438,42 +514,40 @@ export function montarRncPdf(
   // Sem matriz, cai nos papéis padrão do formulário (em branco).
   tituloSecao(doc, est, '6. Assinaturas')
   const colW = (CONTENT_W - 8) / 2
+
+  let entradas: AssinaturaEntrada[]
   if (rnc.aprovadores.length > 0) {
-    const entradas = rnc.aprovadores.map((a) => ({
+    entradas = rnc.aprovadores.map((a) => ({
       papel: a.areaNome + (a.cargo ? ` — ${a.cargo}` : ''),
       nome: a.nome,
-      data: a.assinadoEm ? fmtData(a.assinadoEm) : undefined,
+      assinadoEm: a.assinadoEm,
+      ip: a.assinaturaIp,
+      navegador: a.assinaturaNavegador,
+      so: a.assinaturaSo,
+      dispositivo: a.assinaturaDispositivo,
+      lat: a.assinaturaLatitude,
+      lng: a.assinaturaLongitude,
+      precisao: a.assinaturaPrecisao,
     }))
-    for (let i = 0; i < entradas.length; i += 2) {
-      novaPaginaSeNecessario(doc, est, 48)
-      caixaAssinatura(doc, LEFT, est.y, colW, entradas[i].papel, entradas[i].nome, entradas[i].data)
-      if (entradas[i + 1]) {
-        caixaAssinatura(
-          doc,
-          LEFT + colW + 8,
-          est.y,
-          colW,
-          entradas[i + 1].papel,
-          entradas[i + 1].nome,
-          entradas[i + 1].data,
-        )
-      }
-      est.y += 48
-    }
   } else {
-    const papeis = [
+    // Sem matriz: papéis padrão do formulário, todos em branco.
+    entradas = [
       'Conferente da Logística',
       'Gestão Logística',
       'Gestão PCP',
       'Controle de Qualidade',
       'Gestão Controle de Qualidade',
       'Gerente da Área',
-    ]
-    for (let i = 0; i < papeis.length; i += 2) {
-      novaPaginaSeNecessario(doc, est, 48)
-      caixaAssinatura(doc, LEFT, est.y, colW, papeis[i])
-      if (papeis[i + 1]) caixaAssinatura(doc, LEFT + colW + 8, est.y, colW, papeis[i + 1])
-      est.y += 48
-    }
+    ].map((papel) => ({ papel, nome: '', assinadoEm: null }))
+  }
+
+  for (let i = 0; i < entradas.length; i += 2) {
+    const a = entradas[i]
+    const b = entradas[i + 1]
+    const rowH = Math.max(alturaCaixa(a), b ? alturaCaixa(b) : 0)
+    novaPaginaSeNecessario(doc, est, rowH + 4)
+    caixaAssinatura(doc, LEFT, est.y, colW, rowH, a)
+    if (b) caixaAssinatura(doc, LEFT + colW + 8, est.y, colW, rowH, b)
+    est.y += rowH + 4
   }
 }

@@ -26,7 +26,22 @@ const pdfInclude = {
   },
   fotos: { select: { filename: true, mimeType: true, legenda: true }, orderBy: { createdAt: 'asc' } },
   aprovadores: {
-    select: { areaNome: true, nome: true, cargo: true, assinadoEm: true, nivel: true, email: true, aprovadorId: true },
+    select: {
+      areaNome: true,
+      nome: true,
+      cargo: true,
+      assinadoEm: true,
+      nivel: true,
+      email: true,
+      aprovadorId: true,
+      assinaturaIp: true,
+      assinaturaNavegador: true,
+      assinaturaSo: true,
+      assinaturaDispositivo: true,
+      assinaturaLatitude: true,
+      assinaturaLongitude: true,
+      assinaturaPrecisao: true,
+    },
     orderBy: { areaNome: 'asc' },
   },
 } as const
@@ -70,6 +85,13 @@ export async function streamRncPdf(
         email: a.email,
         nivel: a.nivel,
         assinadoEm: null,
+        assinaturaIp: null,
+        assinaturaNavegador: null,
+        assinaturaSo: null,
+        assinaturaDispositivo: null,
+        assinaturaLatitude: null,
+        assinaturaLongitude: null,
+        assinaturaPrecisao: null,
       }),
     )
   }
