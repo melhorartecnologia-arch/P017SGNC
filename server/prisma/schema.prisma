@@ -477,11 +477,12 @@ model RncAprovador {
   aprovadorId String? @map("aprovador_id") @db.Uuid
   areaId      String? @map("area_id") @db.Uuid
   areaNome    String  @map("area_nome") @db.VarChar(120)
-  nome        String  @db.VarChar(120)
-  cargo       String? @db.VarChar(120)
-  email       String? @db.VarChar(160)
-  nivel       Int?
-  assinadoEm  DateTime? @map("assinado_em")
+  nome           String    @db.VarChar(120)
+  cargo          String?   @db.VarChar(120)
+  email          String?   @db.VarChar(160)
+  nivel          Int?
+  assinadoEm     DateTime? @map("assinado_em")
+  tokenAssinatura String?  @unique @map("token_assinatura") @db.VarChar(64)
 
   rnc       RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
   aprovador Aprovador?               @relation(fields: [aprovadorId], references: [id], onDelete: SetNull)

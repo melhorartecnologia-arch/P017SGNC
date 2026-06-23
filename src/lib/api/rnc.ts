@@ -79,6 +79,7 @@ export type Rnc = {
   severidade: SeveridadeRef | null
   produto: ProdutoRef | null
   criadoPor: { id: string; nome: string; email: string }
+  _count: { fotos: number }
   createdAt: string
   updatedAt: string
 }
@@ -155,6 +156,22 @@ export function resumoAssinaturas(rnc: Rnc): AssinaturaStatus {
   return { total, assinadas, estado: 'completo', label: `Assinado · ${total}/${total}` }
 }
 
+/** Pendências que impedem o envio para assinatura (espelha o servidor). */
+export function pendenciasParaAssinatura(rnc: Rnc): string[] {
+  const f: string[] = []
+  if (!rnc.produtoId) f.push('Produto')
+  if (rnc.lotes.length === 0) f.push('Lotes')
+  if (rnc.quantidadeDefeito == null) f.push('Quantidade com defeito')
+  if (rnc.notasFiscais.length === 0) f.push('Nota fiscal')
+  if (!rnc.disposicaoMaterialId) f.push('Disposição do material')
+  if (!rnc.origemId) f.push('Origem da não conformidade')
+  if (!rnc.severidadeId) f.push('Severidade')
+  if (!rnc.descricaoDefeito || !rnc.descricaoDefeito.trim())
+    f.push('Descrição do defeito')
+  if (rnc._count.fotos === 0) f.push('Fotos da ocorrência')
+  return f
+}
+
 export const rncApi = {
   list: (params: RncListParams = {}) =>
     apiRequest<RncListResponse>('/rnc', {
@@ -183,6 +200,14 @@ export const rncApi = {
       method: 'PATCH',
       body: { assinado },
     }),
+
+  /** Envia a RNC para assinatura dos aprovadores (e-mail com link). */
+  enviarParaAssinatura: (id: string) =>
+    apiRequest<{
+      rnc: Rnc
+      enviados: string[]
+      falhas: { email: string; erro: string }[]
+    }>(`/rnc/${id}/enviar-assinatura`, { method: 'POST' }),
 
   /** Baixa o PDF da RNC (layout do formulário) e dispara o download. */
   downloadPdf: async (id: string, numero: string): Promise<void> => {

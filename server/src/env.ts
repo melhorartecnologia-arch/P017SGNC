@@ -5,6 +5,8 @@ const schema = z.object({
   DATABASE_URL: z.string().url(),
   PORT: z.coerce.number().int().positive().default(3333),
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
+  // URL pública do app (front), usada nos links dos e-mails de assinatura.
+  APP_BASE_URL: z.string().url().default('http://localhost:5173'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   JWT_SECRET: z.string().min(8).default('dev-secret-trocar-em-producao'),
   JWT_EXPIRES_IN: z.coerce.number().int().positive().default(43200),

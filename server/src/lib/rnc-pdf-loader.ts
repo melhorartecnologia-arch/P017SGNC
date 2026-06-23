@@ -1,0 +1,80 @@
+import type { Response } from 'express'
+import PDFDocument from 'pdfkit'
+import path from 'node:path'
+import fs from 'node:fs/promises'
+import { prisma } from '../db.js'
+import { montarRncPdf, type RncPdfData, type RncPdfFoto } from './rnc-pdf.js'
+import { selecionarAprovadores } from './rnc-aprovadores.js'
+
+const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'rnc-fotos')
+const IMAGENS_PDF = ['image/jpeg', 'image/jpg', 'image/png']
+
+const pdfInclude = {
+  filial: { select: { id: true, codigo: true, nome: true } },
+  fornecedor: { select: { id: true, codigo: true, razaoSocial: true, cnpj: true } },
+  tipoNaoConformidade: { select: { id: true, codigo: true, descricao: true } },
+  turno: { select: { id: true, codigo: true, nome: true } },
+  disposicaoMaterial: { select: { id: true, codigo: true, descricao: true } },
+  origem: { select: { id: true, codigo: true, nome: true } },
+  severidade: { select: { id: true, codigo: true, nome: true, nivel: true, cor: true } },
+  produto: { select: { id: true, codigo: true, descricao: true, unidadeMedida: true } },
+  criadoPor: { select: { id: true, nome: true, email: true } },
+  lotes: { select: { numero: true, quantidade: true }, orderBy: { createdAt: 'asc' } },
+  notasFiscais: {
+    select: { numero: true, dataFabricacao: true, dataValidade: true, dataRecebimento: true },
+    orderBy: { createdAt: 'asc' },
+  },
+  fotos: { select: { filename: true, mimeType: true, legenda: true }, orderBy: { createdAt: 'asc' } },
+  aprovadores: {
+    select: { areaNome: true, nome: true, cargo: true, assinadoEm: true, nivel: true, email: true, aprovadorId: true },
+    orderBy: { areaNome: 'asc' },
+  },
+} as const
+
+/**
+ * Gera o PDF da RNC e o envia como attachment na resposta. Retorna false
+ * quando a RNC não existe (o chamador trata o 404).
+ */
+export async function streamRncPdf(rncId: string, res: Response): Promise<boolean> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    include: pdfInclude,
+  })
+  if (!rnc) return false
+
+  const fotos: RncPdfFoto[] = []
+  for (const f of rnc.fotos) {
+    if (!IMAGENS_PDF.includes(f.mimeType)) continue
+    try {
+      const buffer = await fs.readFile(path.join(UPLOAD_DIR, f.filename))
+      fotos.push({ legenda: f.legenda, mimeType: f.mimeType, buffer })
+    } catch {
+      // arquivo ausente — ignora
+    }
+  }
+
+  // RNCs antigos sem matriz: calcula na hora (sem persistir).
+  let aprovadores = rnc.aprovadores
+  if (aprovadores.length === 0) {
+    aprovadores = (await selecionarAprovadores(prisma, rnc.filialId, rnc.turnoId)).map(
+      (a) => ({
+        aprovadorId: a.aprovadorId,
+        areaNome: a.areaNome,
+        nome: a.nome,
+        cargo: a.cargo,
+        email: a.email,
+        nivel: a.nivel,
+        assinadoEm: null,
+      }),
+    )
+  }
+
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `attachment; filename="RNC-${rnc.numero}.pdf"`)
+
+  const doc = new PDFDocument({ size: 'A4', margin: 28 })
+  doc.pipe(res)
+  montarRncPdf(doc, { ...rnc, aprovadores } as unknown as RncPdfData, fotos)
+  doc.end()
+  return true
+}

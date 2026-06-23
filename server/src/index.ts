@@ -21,6 +21,7 @@ import { politicasRespostaRouter } from './routes/politicas-resposta.js'
 import { rncRouter } from './routes/rnc.js'
 import { iaRouter } from './routes/ia.js'
 import { configuracoesRouter } from './routes/configuracoes.js'
+import { assinaturaRouter } from './routes/assinatura.js'
 
 const app = express()
 
@@ -37,6 +38,8 @@ app.get('/health', async (_req, res) => {
 })
 
 app.use('/api/auth', authRouter)
+// Acesso público por token (link mágico de assinatura por e-mail).
+app.use('/api/assinatura', assinaturaRouter)
 
 app.use('/api/usuarios', requireAuth, usuariosRouter)
 app.use('/api/filiais', requireAuth, filiaisRouter)

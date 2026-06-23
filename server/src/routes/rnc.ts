@@ -1,6 +1,5 @@
 import { Router } from 'express'
 import { Prisma } from '@prisma/client'
-import PDFDocument from 'pdfkit'
 import multer from 'multer'
 import path from 'node:path'
 import { mkdirSync, createReadStream } from 'node:fs'
@@ -13,11 +12,12 @@ import {
   rncQuerySchema,
   rncUpdateSchema,
 } from '../schemas/rnc.js'
-import { montarRncPdf, type RncPdfData, type RncPdfFoto } from '../lib/rnc-pdf.js'
-import {
-  montarMatrizAprovadores,
-  selecionarAprovadores,
-} from '../lib/rnc-aprovadores.js'
+import { randomBytes } from 'node:crypto'
+import { montarMatrizAprovadores } from '../lib/rnc-aprovadores.js'
+import { streamRncPdf } from '../lib/rnc-pdf-loader.js'
+import { pendenciasParaAssinatura } from '../lib/rnc-completude.js'
+import { criarTransporteSmtp } from '../lib/smtp.js'
+import { montarEmailAssinatura } from '../lib/rnc-email.js'
 
 export const rncRouter = Router()
 
@@ -83,6 +83,7 @@ const includeRefs = {
     },
     orderBy: { areaNome: 'asc' },
   },
+  _count: { select: { fotos: true } },
 } as const
 
 rncRouter.get('/', async (req, res, next) => {
@@ -256,53 +257,121 @@ rncRouter.patch('/:rncId/aprovadores/:id', async (req, res, next) => {
 // Antes de /:id para evitar colisão de rota.
 rncRouter.get('/:id/pdf', async (req, res, next) => {
   try {
+    const ok = await streamRncPdf(req.params.id, res)
+    if (!ok) throw new HttpError(404, 'Relatório não encontrado')
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Envia a RNC para assinatura: valida a completude, gera tokens de acesso
+// para os aprovadores e dispara um e-mail para cada um.
+rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
+  try {
     const rnc = await prisma.relatorioNaoConformidade.findUnique({
       where: { id: req.params.id },
-      include: { ...includeRefs, fotos: { select: fotoSelect, orderBy: { createdAt: 'asc' } } },
+      include: {
+        filial: { select: { nome: true } },
+        fornecedor: { select: { razaoSocial: true } },
+        tipoNaoConformidade: { select: { codigo: true, descricao: true } },
+        severidade: { select: { nivel: true, nome: true } },
+        lotes: { select: { id: true } },
+        notasFiscais: { select: { id: true } },
+        fotos: { select: { id: true } },
+        aprovadores: true,
+      },
     })
     if (!rnc) throw new HttpError(404, 'Relatório não encontrado')
 
-    // Carrega os bytes das fotos (apenas as imagens suportadas pelo PDF).
-    const fotos: RncPdfFoto[] = []
-    for (const f of rnc.fotos) {
-      if (!['image/jpeg', 'image/jpg', 'image/png'].includes(f.mimeType)) continue
+    const pendencias = pendenciasParaAssinatura(rnc)
+    if (pendencias.length > 0) {
+      throw new HttpError(
+        400,
+        `Preencha os campos obrigatórios e anexe ao menos uma foto antes de enviar para assinatura. Pendências: ${pendencias.join(', ')}.`,
+      )
+    }
+
+    const destinatarios = rnc.aprovadores.filter((a) => a.email)
+    if (destinatarios.length === 0) {
+      throw new HttpError(
+        400,
+        'Nenhum aprovador com e-mail cadastrado para esta RNC. Verifique o cadastro de aprovadores da filial/turno.',
+      )
+    }
+
+    const transporte = await criarTransporteSmtp()
+    if (!transporte) {
+      throw new HttpError(
+        400,
+        'Servidor de e-mail (SMTP) não configurado ou desativado. Configure em Configurações Técnicas.',
+      )
+    }
+
+    const enviados: string[] = []
+    const falhas: { email: string; erro: string }[] = []
+    for (const ap of destinatarios) {
+      const token = ap.tokenAssinatura ?? randomBytes(24).toString('hex')
+      if (!ap.tokenAssinatura) {
+        await prisma.rncAprovador.update({
+          where: { id: ap.id },
+          data: { tokenAssinatura: token },
+        })
+      }
+      const { subject, text, html } = montarEmailAssinatura({
+        numero: rnc.numero,
+        filialNome: rnc.filial?.nome ?? '',
+        fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+        tipoNc: rnc.tipoNaoConformidade
+          ? `${rnc.tipoNaoConformidade.codigo} — ${rnc.tipoNaoConformidade.descricao}`
+          : '',
+        severidade: rnc.severidade
+          ? `Nível ${rnc.severidade.nivel} — ${rnc.severidade.nome}`
+          : null,
+        dataIdentificacao: rnc.dataIdentificacao,
+        descricaoDefeito: rnc.descricaoDefeito,
+        aprovadorNome: ap.nome,
+        areaNome: ap.areaNome,
+        token,
+      })
       try {
-        const buffer = await fs.readFile(path.join(UPLOAD_DIR, f.filename))
-        fotos.push({ legenda: f.legenda, mimeType: f.mimeType, buffer })
-      } catch {
-        // arquivo ausente — ignora
+        await transporte.transporter.sendMail({
+          from: transporte.remetente,
+          to: ap.email!,
+          subject,
+          text,
+          html,
+        })
+        enviados.push(ap.email!)
+      } catch (err) {
+        falhas.push({
+          email: ap.email!,
+          erro: err instanceof Error ? err.message : 'erro desconhecido',
+        })
       }
     }
 
-    // RNCs criados antes da matriz de aprovação: calcula na hora (sem
-    // persistir) para o PDF já sair com os nomes.
-    let aprovadores = rnc.aprovadores
-    if (aprovadores.length === 0) {
-      aprovadores = (
-        await selecionarAprovadores(prisma, rnc.filialId, rnc.turnoId)
-      ).map((a) => ({
-        id: a.aprovadorId,
-        areaNome: a.areaNome,
-        nome: a.nome,
-        cargo: a.cargo,
-        email: a.email,
-        nivel: a.nivel,
-        assinadoEm: null,
-      }))
+    if (enviados.length === 0) {
+      throw new HttpError(
+        502,
+        `Falha ao enviar os e-mails de assinatura: ${falhas
+          .map((f) => f.erro)
+          .join('; ')}`,
+      )
     }
 
-    const filename = `RNC-${rnc.numero}.pdf`
-    res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${filename}"`,
-    )
+    // Houve ao menos um envio: a RNC sai de rascunho para "aberta".
+    if (rnc.status === 'DRAFT') {
+      await prisma.relatorioNaoConformidade.update({
+        where: { id: rnc.id },
+        data: { status: 'OPEN' },
+      })
+    }
 
-    const doc = new PDFDocument({ size: 'A4', margin: 28 })
-    doc.on('error', (err) => next(err))
-    doc.pipe(res)
-    montarRncPdf(doc, { ...rnc, aprovadores } as unknown as RncPdfData, fotos)
-    doc.end()
+    const atualizado = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
+      where: { id: rnc.id },
+      include: includeRefs,
+    })
+    res.json({ rnc: atualizado, enviados, falhas })
   } catch (err) {
     next(err)
   }

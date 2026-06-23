@@ -1,10 +1,16 @@
 import * as React from 'react'
-import { X, Pencil, Check, Loader2 } from 'lucide-react'
+import { X, Pencil, Check, Loader2, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/client'
-import { rncApi, resumoAssinaturas, type Rnc, type RncStatus } from '@/lib/api/rnc'
+import {
+  rncApi,
+  resumoAssinaturas,
+  pendenciasParaAssinatura,
+  type Rnc,
+  type RncStatus,
+} from '@/lib/api/rnc'
 import { RncFotosSection } from './RncFotosSection'
 
 const STATUS_LABELS: Record<RncStatus, string> = {
@@ -52,6 +58,33 @@ type Props = {
 export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
   const open = !!rnc
   const [assinandoId, setAssinandoId] = React.useState<string | null>(null)
+  const [enviando, setEnviando] = React.useState(false)
+  const pendencias = rnc ? pendenciasParaAssinatura(rnc) : []
+
+  const handleEnviarAssinatura = async () => {
+    if (!rnc) return
+    setEnviando(true)
+    try {
+      const { rnc: atualizado, enviados, falhas } =
+        await rncApi.enviarParaAssinatura(rnc.id)
+      onUpdated?.(atualizado)
+      if (falhas.length === 0) {
+        toast.success('RNC enviada para assinatura', {
+          description: `${enviados.length} e-mail(s) enviado(s) aos aprovadores.`,
+        })
+      } else {
+        toast.warning('Enviada com pendências', {
+          description: `${enviados.length} enviado(s), ${falhas.length} falha(s).`,
+        })
+      }
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao enviar para assinatura.'
+      toast.error('Não foi possível enviar', { description: message })
+    } finally {
+      setEnviando(false)
+    }
+  }
 
   const toggleAssinatura = async (aprovadorId: string, assinado: boolean) => {
     if (!rnc) return
@@ -136,6 +169,26 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5"
+                  onClick={handleEnviarAssinatura}
+                  disabled={enviando || pendencias.length > 0}
+                  title={
+                    pendencias.length > 0
+                      ? `Pendências antes de enviar: ${pendencias.join(', ')}`
+                      : 'Enviar e-mail de assinatura aos aprovadores'
+                  }
+                >
+                  {enviando ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Send className="h-3.5 w-3.5" />
+                  )}
+                  Enviar para assinatura
+                </Button>
                 {onEdit && (
                   <Button
                     type="button"
