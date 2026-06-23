@@ -1,7 +1,7 @@
 import { randomBytes, randomInt } from 'node:crypto'
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { criarTransporteSmtp, type Transporte } from './smtp.js'
-import { montarEmailAssinatura } from './rnc-email.js'
+import { montarEmailAssinatura, montarEmailConclusao } from './rnc-email.js'
 import { candidatosPorArea } from './rnc-aprovadores.js'
 
 type Db = Prisma.TransactionClient | PrismaClient
@@ -416,4 +416,106 @@ export async function enviarLembreteManual(
     }
   }
   return { enviados, falhas, semSmtp: false, semPendentes: false }
+}
+
+/**
+ * Verifica se TODAS as assinaturas da RNC foram concluídas. Em caso
+ * afirmativo (e ainda não notificado), marca a conclusão, encerra a RNC
+ * e envia um e-mail de conclusão a todos os envolvidos (aprovadores +
+ * emitente) com o resumo das assinaturas. Idempotente.
+ */
+export async function finalizarSeConcluida(
+  prisma: PrismaClient,
+  rncId: string,
+): Promise<boolean> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      id: true,
+      numero: true,
+      dataIdentificacao: true,
+      status: true,
+      assinaturasConcluidasEm: true,
+      filial: { select: { nome: true } },
+      fornecedor: { select: { razaoSocial: true } },
+      tipoNaoConformidade: { select: { codigo: true, descricao: true } },
+      severidade: { select: { nivel: true, nome: true } },
+      criadoPor: { select: { nome: true, email: true } },
+      aprovadores: {
+        select: {
+          areaNome: true,
+          nome: true,
+          cargo: true,
+          email: true,
+          assinadoEm: true,
+          assinaturaIp: true,
+          assinaturaNavegador: true,
+          assinaturaSo: true,
+          assinaturaDispositivo: true,
+          assinaturaLatitude: true,
+          assinaturaLongitude: true,
+        },
+        orderBy: { areaNome: 'asc' },
+      },
+    },
+  })
+  if (!rnc) return false
+  if (rnc.assinaturasConcluidasEm) return false // já concluída/notificada
+  if (rnc.aprovadores.length === 0) return false
+  if (!rnc.aprovadores.every((a) => a.assinadoEm)) return false // ainda pendente
+
+  // Marca a conclusão e encerra a RNC (evita reenvio mesmo se o e-mail falhar).
+  await prisma.relatorioNaoConformidade.update({
+    where: { id: rnc.id },
+    data: { assinaturasConcluidasEm: new Date(), status: 'CLOSED' },
+  })
+
+  const transporte = await criarTransporteSmtp()
+  if (!transporte) return true // concluída, mas sem SMTP para notificar
+
+  const { subject, text, html } = montarEmailConclusao({
+    numero: rnc.numero,
+    filialNome: rnc.filial?.nome ?? '',
+    fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+    tipoNc: rnc.tipoNaoConformidade
+      ? `${rnc.tipoNaoConformidade.codigo} — ${rnc.tipoNaoConformidade.descricao}`
+      : '',
+    severidade: rnc.severidade
+      ? `Nível ${rnc.severidade.nivel} — ${rnc.severidade.nome}`
+      : null,
+    dataIdentificacao: rnc.dataIdentificacao,
+    emitenteNome: rnc.criadoPor?.nome ?? null,
+    assinaturas: rnc.aprovadores.map((a) => ({
+      areaNome: a.areaNome,
+      nome: a.nome,
+      cargo: a.cargo,
+      assinadoEm: a.assinadoEm,
+      ip: a.assinaturaIp,
+      navegador: a.assinaturaNavegador,
+      so: a.assinaturaSo,
+      dispositivo: a.assinaturaDispositivo,
+      latitude: a.assinaturaLatitude,
+      longitude: a.assinaturaLongitude,
+    })),
+  })
+
+  // Destinatários: aprovadores + emitente, sem repetir e-mails.
+  const destinatarios = new Set<string>()
+  for (const a of rnc.aprovadores) if (a.email) destinatarios.add(a.email)
+  if (rnc.criadoPor?.email) destinatarios.add(rnc.criadoPor.email)
+
+  if (destinatarios.size > 0) {
+    try {
+      await transporte.transporter.sendMail({
+        from: transporte.remetente,
+        to: [...destinatarios].join(', '),
+        subject,
+        text,
+        html,
+      })
+    } catch {
+      // Falha no e-mail não desfaz a conclusão.
+    }
+  }
+  return true
 }

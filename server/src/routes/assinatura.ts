@@ -4,6 +4,7 @@ import { UAParser } from 'ua-parser-js'
 import { prisma } from '../db.js'
 import { HttpError } from '../middleware/error.js'
 import { streamRncPdf } from '../lib/rnc-pdf-loader.js'
+import { finalizarSeConcluida } from '../lib/rnc-workflow.js'
 
 const assinarSchema = z.object({
   senha: z
@@ -109,7 +110,7 @@ assinaturaRouter.post('/:token/assinar', async (req, res, next) => {
 
     const ap = await prisma.rncAprovador.findUnique({
       where: { tokenAssinatura: req.params.token },
-      select: { id: true, assinadoEm: true, senhaAssinatura: true },
+      select: { id: true, rncId: true, assinadoEm: true, senhaAssinatura: true },
     })
     if (!ap) throw new HttpError(404, 'Link de assinatura inválido ou expirado.')
 
@@ -174,6 +175,8 @@ assinaturaRouter.post('/:token/assinar', async (req, res, next) => {
       where: { id: ap.id },
       select: { assinadoEm: true },
     })
+    // Se esta foi a última assinatura, notifica a conclusão a todos.
+    await finalizarSeConcluida(prisma, ap.rncId)
     res.json({ ok: true, assinadoEm: atualizado.assinadoEm })
   } catch (err) {
     next(err)

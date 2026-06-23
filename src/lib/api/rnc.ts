@@ -33,6 +33,7 @@ export type Rnc = {
   criadoPorId: string
   assinaturaEnviadaEm: string | null
   escalonadoEm: string | null
+  assinaturasConcluidasEm: string | null
 
   // Material & lote
   produtoId: string | null

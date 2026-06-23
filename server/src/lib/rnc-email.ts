@@ -136,3 +136,129 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
 
   return { subject, text, html }
 }
+
+function fmtDataHora(d: Date | null | undefined): string {
+  if (!d) return '—'
+  return d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+}
+
+export type AssinaturaResumo = {
+  areaNome: string
+  nome: string
+  cargo: string | null
+  assinadoEm: Date | null
+  ip: string | null
+  navegador: string | null
+  so: string | null
+  dispositivo: string | null
+  latitude: number | null
+  longitude: number | null
+}
+
+export type DadosEmailConclusao = {
+  numero: string
+  filialNome: string
+  fornecedorNome: string
+  tipoNc: string
+  severidade: string | null
+  dataIdentificacao: Date
+  emitenteNome: string | null
+  assinaturas: AssinaturaResumo[]
+}
+
+/** E-mail de conclusão: todas as assinaturas da RNC foram realizadas. */
+export function montarEmailConclusao(d: DadosEmailConclusao) {
+  const base = env.APP_BASE_URL.replace(/\/$/, '')
+  const subject = `RNC ${d.numero} — assinaturas concluídas`
+
+  const linhasResumo = d.assinaturas.map((a) => {
+    const local =
+      a.latitude != null && a.longitude != null
+        ? `${a.latitude.toFixed(5)}, ${a.longitude.toFixed(5)}`
+        : '—'
+    return [
+      `• ${a.areaNome}: ${a.nome}${a.cargo ? ` (${a.cargo})` : ''}`,
+      `    Assinado em: ${fmtDataHora(a.assinadoEm)}`,
+      `    IP: ${a.ip ?? '—'} · ${a.navegador ?? '—'}`,
+      `    Dispositivo: ${[a.so, a.dispositivo].filter(Boolean).join(' · ') || '—'}`,
+      `    Localização: ${local}`,
+    ].join('\n')
+  })
+
+  const text = [
+    `As assinaturas da RNC ${d.numero} foram concluídas.`,
+    '',
+    `Unidade: ${d.filialNome}`,
+    `Fornecedor: ${d.fornecedorNome}`,
+    `Tipo de não conformidade: ${d.tipoNc}`,
+    d.severidade ? `Severidade: ${d.severidade}` : '',
+    `Data da ocorrência: ${fmtData(d.dataIdentificacao)}`,
+    d.emitenteNome ? `Emitente: ${d.emitenteNome}` : '',
+    '',
+    'Assinaturas realizadas:',
+    ...linhasResumo,
+    '',
+    `Acesse a plataforma: ${base}`,
+    '',
+    'Mensagem automática do SGNC — Sistema de Gestão de Não Conformidade.',
+  ]
+    .filter((l) => l !== '')
+    .join('\n')
+
+  const linhasHtml = d.assinaturas
+    .map((a) => {
+      const local =
+        a.latitude != null && a.longitude != null
+          ? `<a href="https://www.google.com/maps?q=${a.latitude},${a.longitude}">${a.latitude.toFixed(5)}, ${a.longitude.toFixed(5)}</a>`
+          : '—'
+      const disp = [a.so, a.dispositivo].filter(Boolean).join(' · ') || '—'
+      return `<tr>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb">${escapeHtml(a.areaNome)}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb"><b>${escapeHtml(a.nome)}</b>${a.cargo ? `<br><span style="color:#6b7280">${escapeHtml(a.cargo)}</span>` : ''}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb">${escapeHtml(fmtDataHora(a.assinadoEm))}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb">${escapeHtml(a.ip ?? '—')}<br><span style="color:#6b7280">${escapeHtml(a.navegador ?? '—')} · ${escapeHtml(disp)}</span></td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb">${local}</td>
+      </tr>`
+    })
+    .join('')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:680px;margin:0 auto">
+    <h2 style="margin:0 0 4px">Assinaturas concluídas — RNC ${escapeHtml(d.numero)}</h2>
+    <p style="color:#6b7280;margin:0 0 12px">Sistema de Gestão de Não Conformidade</p>
+    <div style="margin:0 0 14px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#15803d;font-size:14px">
+      Todas as assinaturas previstas para esta RNC foram realizadas.
+    </div>
+    <table style="border-collapse:collapse;width:100%;font-size:13px;margin:0 0 14px">
+      ${[
+        ['Unidade', d.filialNome],
+        ['Fornecedor', d.fornecedorNome],
+        ['Tipo de NC', d.tipoNc],
+        ...(d.severidade ? [['Severidade', d.severidade]] : []),
+        ['Data da ocorrência', fmtData(d.dataIdentificacao)],
+        ...(d.emitenteNome ? [['Emitente', d.emitenteNome]] : []),
+      ]
+        .map(
+          ([k, v]) =>
+            `<tr><td style="padding:4px 8px;color:#6b7280;border:1px solid #e5e7eb;white-space:nowrap">${escapeHtml(k)}</td><td style="padding:4px 8px;border:1px solid #e5e7eb">${escapeHtml(v)}</td></tr>`,
+        )
+        .join('')}
+    </table>
+    <h3 style="margin:0 0 6px;font-size:14px">Assinaturas realizadas</h3>
+    <table style="border-collapse:collapse;width:100%;font-size:12px">
+      <thead>
+        <tr style="background:#f9fafb;color:#6b7280">
+          <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Área</th>
+          <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Aprovador</th>
+          <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Assinado em</th>
+          <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Origem</th>
+          <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Local</th>
+        </tr>
+      </thead>
+      <tbody>${linhasHtml}</tbody>
+    </table>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}

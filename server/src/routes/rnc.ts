@@ -22,6 +22,7 @@ import {
   processarWorkflows,
   enviarLembreteManual,
   escalonarManual,
+  finalizarSeConcluida,
 } from '../lib/rnc-workflow.js'
 
 export const rncRouter = Router()
@@ -256,6 +257,8 @@ rncRouter.patch('/:rncId/aprovadores/:id', async (req, res, next) => {
       where: { id: alvo.id },
       data: { assinadoEm: assinado ? new Date() : null },
     })
+    // Se foi a última assinatura, notifica a conclusão a todos.
+    if (assinado) await finalizarSeConcluida(prisma, alvo.rncId)
     const rnc = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
       where: { id: req.params.rncId },
       include: includeRefs,

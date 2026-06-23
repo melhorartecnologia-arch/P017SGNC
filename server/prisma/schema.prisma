@@ -348,6 +348,7 @@ model RelatorioNaoConformidade {
   // Workflow de assinatura / SLA (Política de Resposta)
   assinaturaEnviadaEm DateTime? @map("assinatura_enviada_em")
   escalonadoEm        DateTime? @map("escalonado_em")
+  assinaturasConcluidasEm DateTime? @map("assinaturas_concluidas_em")
 
   // Material & lote
   produtoId          String?   @map("produto_id") @db.Uuid

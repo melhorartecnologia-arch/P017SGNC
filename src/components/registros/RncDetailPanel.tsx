@@ -576,6 +576,13 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
               <Section
                 title={`Matriz de aprovação · ${resumoAssinaturas(rnc).label}`}
               >
+                {rnc.assinaturasConcluidasEm && (
+                  <div className="mb-2 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
+                    Todas as assinaturas concluídas em{' '}
+                    {formatDataHoraBR(rnc.assinaturasConcluidasEm)} — e-mail de
+                    conclusão enviado aos envolvidos.
+                  </div>
+                )}
                 {rnc.aprovadores.length === 0 ? (
                   <Row label="Aprovadores">
                     <em className="text-neutral-400">
