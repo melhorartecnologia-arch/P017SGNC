@@ -25,6 +25,9 @@ import { assinaturaRouter } from './routes/assinatura.js'
 
 const app = express()
 
+// Atrás de proxy/balanceador: confia no X-Forwarded-* para obter o IP real.
+app.set('trust proxy', true)
+
 app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }))
 app.use(express.json({ limit: '1mb' }))
 

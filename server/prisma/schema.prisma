@@ -483,6 +483,18 @@ model RncAprovador {
   nivel          Int?
   assinadoEm     DateTime? @map("assinado_em")
   tokenAssinatura String?  @unique @map("token_assinatura") @db.VarChar(64)
+  senhaAssinatura String?  @map("senha_assinatura") @db.VarChar(6)
+
+  // Metadados técnicos capturados no momento da assinatura.
+  assinaturaIp        String? @map("assinatura_ip") @db.VarChar(64)
+  assinaturaUserAgent String? @map("assinatura_user_agent") @db.Text
+  assinaturaNavegador String? @map("assinatura_navegador") @db.VarChar(120)
+  assinaturaSo        String? @map("assinatura_so") @db.VarChar(120)
+  assinaturaDispositivo String? @map("assinatura_dispositivo") @db.VarChar(120)
+  assinaturaLatitude  Float?  @map("assinatura_latitude")
+  assinaturaLongitude Float?  @map("assinatura_longitude")
+  assinaturaPrecisao  Float?  @map("assinatura_precisao")
+  assinaturaMetadados Json?   @map("assinatura_metadados")
 
   rnc       RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
   aprovador Aprovador?               @relation(fields: [aprovadorId], references: [id], onDelete: SetNull)

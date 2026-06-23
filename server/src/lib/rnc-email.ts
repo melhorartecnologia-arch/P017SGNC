@@ -11,6 +11,7 @@ export type DadosEmailAssinatura = {
   aprovadorNome: string
   areaNome: string
   token: string
+  senha: string
 }
 
 function fmtData(d: Date): string {
@@ -46,6 +47,9 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
     `Data da ocorrência: ${fmtData(d.dataIdentificacao)}`,
     d.descricaoDefeito ? `Defeito: ${d.descricaoDefeito}` : '',
     '',
+    `Senha de assinatura: ${d.senha}`,
+    '(informe esta senha na plataforma para confirmar a assinatura)',
+    '',
     `Acessar e assinar pela plataforma: ${linkAssinar}`,
     `Baixar a RNC em PDF: ${linkPdf}`,
     '',
@@ -80,6 +84,11 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
         )
         .join('')}
     </table>
+    <div style="margin:16px 0;padding:12px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb">
+      <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:.04em">Senha de assinatura</div>
+      <div style="font-size:28px;font-weight:700;letter-spacing:.25em;color:#111827">${escapeHtml(d.senha)}</div>
+      <div style="font-size:12px;color:#6b7280">Informe esta senha na plataforma para confirmar a assinatura.</div>
+    </div>
     <p style="margin:20px 0">
       <a href="${linkAssinar}" style="background:#111827;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;display:inline-block">
         Acessar e assinar a RNC

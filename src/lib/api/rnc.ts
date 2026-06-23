@@ -63,6 +63,14 @@ export type Rnc = {
     email: string | null
     nivel: number | null
     assinadoEm: string | null
+    assinaturaIp: string | null
+    assinaturaNavegador: string | null
+    assinaturaSo: string | null
+    assinaturaDispositivo: string | null
+    assinaturaLatitude: number | null
+    assinaturaLongitude: number | null
+    assinaturaPrecisao: number | null
+    assinaturaMetadados: Record<string, unknown> | null
   }[]
 
   filial: { id: string; codigo: string; nome: string }

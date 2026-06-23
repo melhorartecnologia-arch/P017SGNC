@@ -8,8 +8,14 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { ApiError } from '@/lib/api/client'
 import { assinaturaApi, type AssinaturaResumo } from '@/lib/api/assinatura'
+import {
+  coletarMetadadosCliente,
+  obterGeolocalizacao,
+} from '@/lib/utils/clientMetadata'
 
 function fmtData(iso: string | null | undefined): string {
   if (!iso) return ''
@@ -33,6 +39,8 @@ export function AssinaturaPage({ token }: { token: string }) {
   const [error, setError] = React.useState<string | null>(null)
   const [assinando, setAssinando] = React.useState(false)
   const [assinadoEm, setAssinadoEm] = React.useState<string | null>(null)
+  const [senha, setSenha] = React.useState('')
+  const [erroAssinatura, setErroAssinatura] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -60,12 +68,24 @@ export function AssinaturaPage({ token }: { token: string }) {
   }, [token])
 
   const handleAssinar = async () => {
+    if (!/^\d{6}$/.test(senha.trim())) {
+      setErroAssinatura('Informe a senha de 6 dígitos enviada por e-mail.')
+      return
+    }
     setAssinando(true)
+    setErroAssinatura(null)
     try {
-      const res = await assinaturaApi.assinar(token)
+      // Coleta metadados técnicos e, se autorizado, a geolocalização.
+      const [geolocalizacao] = await Promise.all([obterGeolocalizacao()])
+      const metadados = coletarMetadadosCliente()
+      const res = await assinaturaApi.assinar(token, {
+        senha: senha.trim(),
+        geolocalizacao,
+        metadados,
+      })
       setAssinadoEm(res.assinadoEm)
     } catch (err) {
-      setError(
+      setErroAssinatura(
         err instanceof ApiError ? err.message : 'Falha ao registrar a assinatura.',
       )
     } finally {
@@ -160,7 +180,7 @@ export function AssinaturaPage({ token }: { token: string }) {
             </div>
           )}
 
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+          <div className="mt-5 border-t border-neutral-100 pt-5">
             <a
               href={assinaturaApi.pdfUrl(token)}
               target="_blank"
@@ -172,19 +192,52 @@ export function AssinaturaPage({ token }: { token: string }) {
             </a>
 
             {assinadoEm ? (
-              <div className="inline-flex h-9 items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-medium text-emerald-800">
+              <div className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 text-sm font-medium text-emerald-800">
                 <CheckCircle2 className="h-4 w-4" />
                 Assinado em {fmtDataHora(assinadoEm)}
               </div>
             ) : (
-              <Button onClick={handleAssinar} disabled={assinando}>
-                {assinando ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Check className="h-4 w-4" />
+              <div className="mt-4 flex flex-col gap-2">
+                <Label htmlFor="senha-assinatura">Senha de assinatura *</Label>
+                <p className="text-xs text-neutral-500">
+                  Digite a senha de 6 dígitos enviada no e-mail desta
+                  solicitação.
+                </p>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                  <Input
+                    id="senha-assinatura"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={senha}
+                    onChange={(e) => {
+                      setSenha(e.target.value.replace(/\D/g, '').slice(0, 6))
+                      setErroAssinatura(null)
+                    }}
+                    placeholder="••••••"
+                    className="w-40 text-center text-lg tracking-[0.4em]"
+                  />
+                  <Button
+                    onClick={handleAssinar}
+                    disabled={assinando || senha.length !== 6}
+                  >
+                    {assinando ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="h-4 w-4" />
+                    )}
+                    Assinar esta RNC
+                  </Button>
+                </div>
+                {erroAssinatura && (
+                  <span className="text-xs text-red-600">{erroAssinatura}</span>
                 )}
-                Assinar esta RNC
-              </Button>
+                <p className="text-[11px] text-neutral-400">
+                  Ao assinar, registramos data/hora, IP, navegador,
+                  dispositivo e — se você autorizar — a localização, como
+                  evidência da assinatura.
+                </p>
+              </div>
             )}
           </div>
         </div>

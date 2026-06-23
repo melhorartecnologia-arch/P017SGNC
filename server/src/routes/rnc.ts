@@ -12,7 +12,7 @@ import {
   rncQuerySchema,
   rncUpdateSchema,
 } from '../schemas/rnc.js'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomInt } from 'node:crypto'
 import { montarMatrizAprovadores } from '../lib/rnc-aprovadores.js'
 import { streamRncPdf } from '../lib/rnc-pdf-loader.js'
 import { pendenciasParaAssinatura } from '../lib/rnc-completude.js'
@@ -80,6 +80,14 @@ const includeRefs = {
       email: true,
       nivel: true,
       assinadoEm: true,
+      assinaturaIp: true,
+      assinaturaNavegador: true,
+      assinaturaSo: true,
+      assinaturaDispositivo: true,
+      assinaturaLatitude: true,
+      assinaturaLongitude: true,
+      assinaturaPrecisao: true,
+      assinaturaMetadados: true,
     },
     orderBy: { areaNome: 'asc' },
   },
@@ -311,10 +319,13 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
     const falhas: { email: string; erro: string }[] = []
     for (const ap of destinatarios) {
       const token = ap.tokenAssinatura ?? randomBytes(24).toString('hex')
-      if (!ap.tokenAssinatura) {
+      // Senha de assinatura: 6 dígitos aleatórios, enviada no e-mail.
+      const senha =
+        ap.senhaAssinatura ?? String(randomInt(0, 1_000_000)).padStart(6, '0')
+      if (!ap.tokenAssinatura || !ap.senhaAssinatura) {
         await prisma.rncAprovador.update({
           where: { id: ap.id },
-          data: { tokenAssinatura: token },
+          data: { tokenAssinatura: token, senhaAssinatura: senha },
         })
       }
       const { subject, text, html } = montarEmailAssinatura({
@@ -332,6 +343,7 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
         aprovadorNome: ap.nome,
         areaNome: ap.areaNome,
         token,
+        senha,
       })
       try {
         await transporte.transporter.sendMail({

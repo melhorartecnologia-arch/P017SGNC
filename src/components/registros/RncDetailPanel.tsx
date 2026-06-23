@@ -518,6 +518,35 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                                 Assinado em {formatDataHoraBR(a.assinadoEm)}
                               </span>
                             )}
+                            {assinado &&
+                              (a.assinaturaIp ||
+                                a.assinaturaNavegador ||
+                                a.assinaturaLatitude != null) && (
+                                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-neutral-500">
+                                  {a.assinaturaIp && (
+                                    <span>IP: {a.assinaturaIp}</span>
+                                  )}
+                                  {a.assinaturaNavegador && (
+                                    <span>{a.assinaturaNavegador}</span>
+                                  )}
+                                  {a.assinaturaSo && <span>{a.assinaturaSo}</span>}
+                                  {a.assinaturaDispositivo && (
+                                    <span>{a.assinaturaDispositivo}</span>
+                                  )}
+                                  {a.assinaturaLatitude != null &&
+                                    a.assinaturaLongitude != null && (
+                                      <a
+                                        href={`https://www.google.com/maps?q=${a.assinaturaLatitude},${a.assinaturaLongitude}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-sky-600 underline-offset-2 hover:underline"
+                                      >
+                                        Local ({a.assinaturaLatitude.toFixed(5)},{' '}
+                                        {a.assinaturaLongitude.toFixed(5)})
+                                      </a>
+                                    )}
+                                </div>
+                              )}
                           </div>
                           <Button
                             variant={assinado ? 'outline' : 'default'}

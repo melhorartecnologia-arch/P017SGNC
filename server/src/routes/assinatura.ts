@@ -1,7 +1,32 @@
 import { Router } from 'express'
+import { z } from 'zod'
+import { UAParser } from 'ua-parser-js'
 import { prisma } from '../db.js'
 import { HttpError } from '../middleware/error.js'
 import { streamRncPdf } from '../lib/rnc-pdf-loader.js'
+
+const assinarSchema = z.object({
+  senha: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'Informe a senha de 6 dígitos enviada por e-mail.'),
+  geolocalizacao: z
+    .object({
+      latitude: z.number(),
+      longitude: z.number(),
+      precisao: z.number().optional().nullable(),
+    })
+    .optional()
+    .nullable(),
+  metadados: z.record(z.unknown()).optional().nullable(),
+})
+
+/** IP de origem considerando proxies (X-Forwarded-For). */
+function ipOrigem(req: import('express').Request): string {
+  const xff = req.headers['x-forwarded-for']
+  if (typeof xff === 'string' && xff.length > 0) return xff.split(',')[0].trim()
+  return req.ip ?? req.socket.remoteAddress ?? ''
+}
 
 /**
  * Acesso público (link mágico por token) para o aprovador ver e assinar
@@ -75,20 +100,75 @@ assinaturaRouter.get('/:token/pdf', async (req, res, next) => {
   }
 })
 
-// Registra a assinatura do aprovador dono do token.
+// Registra a assinatura do aprovador dono do token. Exige a senha de 6
+// dígitos enviada por e-mail e captura metadados técnicos da assinatura.
 assinaturaRouter.post('/:token/assinar', async (req, res, next) => {
   try {
+    const { senha, geolocalizacao, metadados } = assinarSchema.parse(req.body)
+
     const ap = await prisma.rncAprovador.findUnique({
       where: { tokenAssinatura: req.params.token },
-      select: { id: true, assinadoEm: true },
+      select: { id: true, assinadoEm: true, senhaAssinatura: true },
     })
     if (!ap) throw new HttpError(404, 'Link de assinatura inválido ou expirado.')
-    if (!ap.assinadoEm) {
-      await prisma.rncAprovador.update({
-        where: { id: ap.id },
-        data: { assinadoEm: new Date() },
-      })
+
+    if (ap.assinadoEm) {
+      return res.json({ ok: true, assinadoEm: ap.assinadoEm, jaAssinado: true })
     }
+
+    if (!ap.senhaAssinatura || senha !== ap.senhaAssinatura) {
+      throw new HttpError(400, 'Senha de assinatura incorreta.')
+    }
+
+    const ua = req.headers['user-agent'] ?? ''
+    const r = UAParser(ua)
+    const ip = ipOrigem(req)
+    const navegador = [r.browser.name, r.browser.version]
+      .filter(Boolean)
+      .join(' ')
+    const so = [r.os.name, r.os.version].filter(Boolean).join(' ')
+    const dispositivo =
+      [r.device.vendor, r.device.model].filter(Boolean).join(' ') ||
+      (r.device.type ?? 'Desktop')
+
+    // JSON com tudo que pudermos coletar (servidor + cliente).
+    const metaCompleto = {
+      capturadoEm: new Date().toISOString(),
+      ip,
+      userAgent: ua,
+      navegador: r.browser,
+      sistemaOperacional: r.os,
+      dispositivo: r.device,
+      engine: r.engine,
+      cpu: r.cpu,
+      headers: {
+        accept: req.headers['accept'],
+        acceptLanguage: req.headers['accept-language'],
+        referer: req.headers['referer'],
+        secChUa: req.headers['sec-ch-ua'],
+        secChUaPlatform: req.headers['sec-ch-ua-platform'],
+        secChUaMobile: req.headers['sec-ch-ua-mobile'],
+      },
+      geolocalizacao: geolocalizacao ?? null,
+      cliente: metadados ?? null,
+    }
+
+    await prisma.rncAprovador.update({
+      where: { id: ap.id },
+      data: {
+        assinadoEm: new Date(),
+        assinaturaIp: ip.slice(0, 64),
+        assinaturaUserAgent: String(ua),
+        assinaturaNavegador: navegador.slice(0, 120) || null,
+        assinaturaSo: so.slice(0, 120) || null,
+        assinaturaDispositivo: dispositivo.slice(0, 120) || null,
+        assinaturaLatitude: geolocalizacao?.latitude ?? null,
+        assinaturaLongitude: geolocalizacao?.longitude ?? null,
+        assinaturaPrecisao: geolocalizacao?.precisao ?? null,
+        // Roundtrip JSON: remove undefined e satisfaz o tipo Json do Prisma.
+        assinaturaMetadados: JSON.parse(JSON.stringify(metaCompleto)),
+      },
+    })
     const atualizado = await prisma.rncAprovador.findUniqueOrThrow({
       where: { id: ap.id },
       select: { assinadoEm: true },

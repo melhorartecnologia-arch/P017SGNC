@@ -33,14 +33,28 @@ async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T
 }
 
+export type AssinarPayload = {
+  senha: string
+  geolocalizacao?: {
+    latitude: number
+    longitude: number
+    precisao?: number | null
+  } | null
+  metadados?: Record<string, unknown> | null
+}
+
 export const assinaturaApi = {
   get: (token: string) =>
     publicRequest<AssinaturaResumo>(`/${encodeURIComponent(token)}`),
 
-  assinar: (token: string) =>
-    publicRequest<{ ok: boolean; assinadoEm: string }>(
+  assinar: (token: string, payload: AssinarPayload) =>
+    publicRequest<{ ok: boolean; assinadoEm: string; jaAssinado?: boolean }>(
       `/${encodeURIComponent(token)}/assinar`,
-      { method: 'POST' },
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
     ),
 
   pdfUrl: (token: string) =>
