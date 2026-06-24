@@ -132,6 +132,10 @@ export type RncListParams = {
   fornecedorId?: string
   tipoNaoConformidadeId?: string
   filialId?: string
+  produtoId?: string
+  disposicaoMaterialId?: string
+  origemId?: string
+  severidadeId?: string
   status?: RncStatus
   limit?: number
   page?: number
@@ -208,6 +212,10 @@ export const rncApi = {
         fornecedorId: params.fornecedorId,
         tipoNaoConformidadeId: params.tipoNaoConformidadeId,
         filialId: params.filialId,
+        produtoId: params.produtoId,
+        disposicaoMaterialId: params.disposicaoMaterialId,
+        origemId: params.origemId,
+        severidadeId: params.severidadeId,
         status: params.status,
         limit: params.limit,
         page: params.page,

@@ -105,12 +105,30 @@ const includeRefs = {
 
 rncRouter.get('/', async (req, res, next) => {
   try {
-    const { fornecedorId, tipoNaoConformidadeId, filialId, status, limit, page, pageSize } =
-      rncQuerySchema.parse(req.query)
+    const {
+      fornecedorId,
+      tipoNaoConformidadeId,
+      filialId,
+      produtoId,
+      disposicaoMaterialId,
+      origemId,
+      severidadeId,
+      status,
+      limit,
+      page,
+      pageSize,
+    } = rncQuerySchema.parse(req.query)
     const where: Prisma.RelatorioNaoConformidadeWhereInput = {}
     if (fornecedorId) where.fornecedorId = fornecedorId
     if (tipoNaoConformidadeId) where.tipoNaoConformidadeId = tipoNaoConformidadeId
     if (filialId) where.filialId = filialId
+    // "__none__" filtra registros sem o vínculo (campo nulo).
+    const opt = (v: string | undefined) =>
+      v === '__none__' ? null : v || undefined
+    if (produtoId) where.produtoId = opt(produtoId)
+    if (disposicaoMaterialId) where.disposicaoMaterialId = opt(disposicaoMaterialId)
+    if (origemId) where.origemId = opt(origemId)
+    if (severidadeId) where.severidadeId = opt(severidadeId)
     if (status) where.status = status
 
     const take = limit ?? pageSize

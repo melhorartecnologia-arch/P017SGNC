@@ -32,6 +32,7 @@ dashboardRouter.get('/rnc', async (_req, res, next) => {
   try {
     const [
       total,
+      porStatusRaw,
       porFilialRaw,
       porTipoRaw,
       porFornecedorRaw,
@@ -41,6 +42,10 @@ dashboardRouter.get('/rnc', async (_req, res, next) => {
       porSeveridadeRaw,
     ] = await Promise.all([
       prisma.relatorioNaoConformidade.count(),
+      prisma.relatorioNaoConformidade.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+      }),
       prisma.relatorioNaoConformidade.groupBy({
         by: ['filialId'],
         _count: { _all: true },
@@ -137,17 +142,24 @@ dashboardRouter.get('/rnc', async (_req, res, next) => {
         return {
           id: r.severidadeId,
           label: s ? `Nível ${s.nivel} — ${s.nome}` : 'Não informada',
+          nivel: s?.nivel ?? null,
           cor: s?.cor ?? '#a3a3a3',
           total: r._count._all,
         }
       })
-      .sort((a, b) => b.total - a.total)
+      .sort((a, b) => (a.nivel ?? 99) - (b.nivel ?? 99))
+
+    const porStatus = porStatusRaw.map((r) => ({
+      status: r.status as string,
+      total: r._count._all,
+    }))
 
     const ordena = (arr: Contagem[]) =>
       [...arr].sort((a, b) => b.total - a.total)
 
     res.json({
       total,
+      porStatus,
       porFilial: ordena(
         await porRelacao('filialId', porFilialRaw, labelFilial),
       ),

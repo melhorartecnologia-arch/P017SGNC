@@ -209,6 +209,12 @@ export const rncQuerySchema = z.object({
   fornecedorId: z.string().uuid().optional(),
   tipoNaoConformidadeId: z.string().uuid().optional(),
   filialId: z.string().uuid().optional(),
+  // Filtros adicionais para drill-down do dashboard. Aceitam o sentinel
+  // "__none__" para filtrar registros sem o vínculo (campo nulo).
+  produtoId: z.string().optional(),
+  disposicaoMaterialId: z.string().optional(),
+  origemId: z.string().optional(),
+  severidadeId: z.string().optional(),
   status: rncStatusEnum.optional(),
   /** Quantos registros retornar quando usado como lookup ("últimas 3"). */
   limit: z.coerce.number().int().min(1).max(50).optional(),
