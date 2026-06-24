@@ -22,6 +22,7 @@ import { LoginPage } from '@/components/auth/LoginPage'
 import { RncWizard } from '@/components/registros/RncWizard'
 import { RncListPage } from '@/components/registros/RncListPage'
 import { WorkflowAssinaturasPage } from '@/components/registros/WorkflowAssinaturasPage'
+import { DashboardPage } from '@/components/dashboard/DashboardPage'
 import { useAuth } from '@/lib/auth/AuthContext'
 
 function App() {
@@ -89,6 +90,7 @@ function App() {
   const isSmtpConfig = activeKey === 'cfg-smtp' && auth.user.role === 'ADMIN'
   const isRncList = activeKey === 'rnc-list'
   const isWorkflows = activeKey === 'workflows-assinatura'
+  const isDashboard = activeKey === 'dashboard'
 
   let pageTitle = activeLabel
   if (isFilial) pageTitle = 'Cadastro de Filial'
@@ -153,6 +155,8 @@ function App() {
             <RncListPage />
           ) : isWorkflows ? (
             <WorkflowAssinaturasPage />
+          ) : isDashboard ? (
+            <DashboardPage />
           ) : (
             <UnderConstruction title={pageTitle} />
           )}
