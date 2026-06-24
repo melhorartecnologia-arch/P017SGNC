@@ -20,6 +20,7 @@ import {
   PieChart,
   Pie,
   Cell,
+  LabelList,
 } from 'recharts'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
@@ -496,6 +497,11 @@ function Barras({
               onClick={() => onPick(d)}
             />
           ))}
+          <LabelList
+            dataKey="total"
+            position="right"
+            style={{ fontSize: 11, fontWeight: 600, fill: '#334155' }}
+          />
         </Bar>
       </BarChart>
     </ResponsiveContainer>
@@ -515,7 +521,7 @@ function Colunas({
   const cores = ramp(dados.length)
   return (
     <ResponsiveContainer width="100%" height={236}>
-      <BarChart data={dados} margin={{ top: 6, right: 8, bottom: 44, left: -16 }}>
+      <BarChart data={dados} margin={{ top: 18, right: 8, bottom: 44, left: -16 }}>
         <CartesianGrid vertical={false} stroke="#f3f4f6" />
         <XAxis
           dataKey="label"
@@ -546,6 +552,11 @@ function Colunas({
               onClick={() => onPick(d)}
             />
           ))}
+          <LabelList
+            dataKey="total"
+            position="top"
+            style={{ fontSize: 11, fontWeight: 600, fill: '#334155' }}
+          />
         </Bar>
       </BarChart>
     </ResponsiveContainer>
@@ -583,6 +594,11 @@ function Rosca({
             {dados.map((d, i) => (
               <Cell key={i} cursor="pointer" fill={cor(d.nivel, i)} onClick={() => onPick(d)} />
             ))}
+            <LabelList
+              dataKey="total"
+              position="inside"
+              style={{ fontSize: 11, fontWeight: 700, fill: '#fff' }}
+            />
           </Pie>
           <Tooltip formatter={(value) => [`${value} RNCs`, '']} contentStyle={tooltipStyle} />
         </PieChart>
