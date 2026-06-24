@@ -28,8 +28,18 @@ async function porRelacao<T extends { _count: number }>(
   })
 }
 
-dashboardRouter.get('/rnc', async (_req, res, next) => {
+dashboardRouter.get('/rnc', async (req, res, next) => {
   try {
+    // Filtro de período por data de identificação.
+    const de = typeof req.query.de === 'string' ? new Date(req.query.de) : null
+    const ate = typeof req.query.ate === 'string' ? new Date(req.query.ate) : null
+    const wP: { dataIdentificacao?: { gte?: Date; lt?: Date } } = {}
+    if ((de && !isNaN(de.getTime())) || (ate && !isNaN(ate.getTime()))) {
+      wP.dataIdentificacao = {}
+      if (de && !isNaN(de.getTime())) wP.dataIdentificacao.gte = de
+      if (ate && !isNaN(ate.getTime())) wP.dataIdentificacao.lt = ate
+    }
+
     const [
       total,
       porStatusRaw,
@@ -41,43 +51,50 @@ dashboardRouter.get('/rnc', async (_req, res, next) => {
       porOrigemRaw,
       porSeveridadeRaw,
     ] = await Promise.all([
-      prisma.relatorioNaoConformidade.count(),
+      prisma.relatorioNaoConformidade.count({ where: wP }),
       prisma.relatorioNaoConformidade.groupBy({
         by: ['status'],
         _count: { _all: true },
+        where: wP,
       }),
       prisma.relatorioNaoConformidade.groupBy({
         by: ['filialId'],
         _count: { _all: true },
+        where: wP,
       }),
       prisma.relatorioNaoConformidade.groupBy({
         by: ['tipoNaoConformidadeId'],
         _count: { _all: true },
+        where: wP,
       }),
       prisma.relatorioNaoConformidade.groupBy({
         by: ['fornecedorId'],
         _count: { _all: true },
+        where: wP,
         orderBy: { _count: { fornecedorId: 'desc' } },
         take: 5,
       }),
       prisma.relatorioNaoConformidade.groupBy({
         by: ['produtoId'],
         _count: { _all: true },
-        where: { produtoId: { not: null } },
+        where: { produtoId: { not: null }, ...wP },
         orderBy: { _count: { produtoId: 'desc' } },
         take: 5,
       }),
       prisma.relatorioNaoConformidade.groupBy({
         by: ['disposicaoMaterialId'],
         _count: { _all: true },
+        where: wP,
       }),
       prisma.relatorioNaoConformidade.groupBy({
         by: ['origemId'],
         _count: { _all: true },
+        where: wP,
       }),
       prisma.relatorioNaoConformidade.groupBy({
         by: ['severidadeId'],
         _count: { _all: true },
+        where: wP,
       }),
     ])
 

@@ -20,5 +20,8 @@ export type DashboardRnc = {
 }
 
 export const dashboardApi = {
-  rnc: () => apiRequest<DashboardRnc>('/dashboard/rnc'),
+  rnc: (periodo?: { de?: string; ate?: string }) =>
+    apiRequest<DashboardRnc>('/dashboard/rnc', {
+      query: { de: periodo?.de, ate: periodo?.ate },
+    }),
 }

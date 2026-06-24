@@ -137,6 +137,8 @@ export type RncListParams = {
   origemId?: string
   severidadeId?: string
   status?: RncStatus
+  de?: string
+  ate?: string
   limit?: number
   page?: number
   pageSize?: number
@@ -217,6 +219,8 @@ export const rncApi = {
         origemId: params.origemId,
         severidadeId: params.severidadeId,
         status: params.status,
+        de: params.de,
+        ate: params.ate,
         limit: params.limit,
         page: params.page,
         pageSize: params.pageSize,

@@ -3,10 +3,10 @@ import {
   Loader2,
   FileWarning,
   Truck,
-  Package,
   AlertTriangle,
+  CheckCircle2,
+  Clock,
   X,
-  ChevronRight,
   Search as SearchIcon,
 } from 'lucide-react'
 import {
@@ -29,14 +29,13 @@ import {
   type Contagem,
   type DashboardRnc,
 } from '@/lib/api/dashboard'
-import { rncApi, type Rnc, type RncStatus } from '@/lib/api/rnc'
+import { rncApi, type Rnc, type RncListParams, type RncStatus } from '@/lib/api/rnc'
 import { RncDetailPanel } from '@/components/registros/RncDetailPanel'
 
 // Paleta sóbria (slate) — escala de cinza/ardósia + um acento discreto.
 const ACENTO = '#4f46e5'
 const SLATE = ['#1e293b', '#334155', '#475569', '#64748b', '#94a3b8', '#cbd5e1']
 
-/** Ramp de n tons (escuro→claro) para hierarquia sutil nas barras. */
 function ramp(n: number): string[] {
   if (n <= 1) return [SLATE[1]]
   return Array.from({ length: n }, (_, i) => {
@@ -72,29 +71,49 @@ function fmtDataBR(iso: string | null | undefined): string {
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`
 }
 
-/** Dimensão de drill-down → nome do parâmetro de filtro da lista de RNC. */
-type Dim =
-  | 'filialId'
-  | 'tipoNaoConformidadeId'
-  | 'fornecedorId'
-  | 'produtoId'
-  | 'disposicaoMaterialId'
-  | 'origemId'
-  | 'severidadeId'
+// ── Período (seletor rápido) ────────────────────────────────────────
+const PERIODOS = [
+  { key: 'tudo', label: 'Tudo' },
+  { key: '7d', label: '7 dias' },
+  { key: '30d', label: '30 dias' },
+  { key: '90d', label: '90 dias' },
+  { key: 'ano', label: 'Este ano' },
+] as const
+type PeriodoKey = (typeof PERIODOS)[number]['key']
 
-type Filtro = { dim: Dim; id: string | null; titulo: string; label: string }
+function rangeDe(key: PeriodoKey): { de?: string; ate?: string } {
+  const now = new Date()
+  const dias = (n: number) => new Date(now.getTime() - n * 86400000).toISOString()
+  if (key === '7d') return { de: dias(7) }
+  if (key === '30d') return { de: dias(30) }
+  if (key === '90d') return { de: dias(90) }
+  if (key === 'ano') return { de: new Date(now.getFullYear(), 0, 1).toISOString() }
+  return {}
+}
+
+type Filtro = {
+  titulo: string
+  params: Partial<RncListParams>
+  posFiltro?: (r: Rnc) => boolean
+}
 
 export function DashboardPage() {
   const [data, setData] = React.useState<DashboardRnc | null>(null)
   const [loading, setLoading] = React.useState(true)
+  const [atualizando, setAtualizando] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [periodoKey, setPeriodoKey] = React.useState<PeriodoKey>('tudo')
   const [filtro, setFiltro] = React.useState<Filtro | null>(null)
   const [viewing, setViewing] = React.useState<Rnc | null>(null)
 
+  const periodo = React.useMemo(() => rangeDe(periodoKey), [periodoKey])
+
   React.useEffect(() => {
     let cancelled = false
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setAtualizando(true)
     dashboardApi
-      .rnc()
+      .rnc(rangeDe(periodoKey))
       .then((d) => !cancelled && setData(d))
       .catch((err) => {
         if (cancelled) return
@@ -102,11 +121,22 @@ export function DashboardPage() {
           err instanceof ApiError ? err.message : 'Não foi possível carregar o painel.',
         )
       })
-      .finally(() => !cancelled && setLoading(false))
+      .finally(() => {
+        if (cancelled) return
+        setLoading(false)
+        setAtualizando(false)
+      })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [periodoKey])
+
+  // Abre o drill mesclando o período corrente nos parâmetros.
+  const drill = (
+    titulo: string,
+    params: Partial<RncListParams>,
+    posFiltro?: (r: Rnc) => boolean,
+  ) => setFiltro({ titulo, params: { ...params, ...periodo }, posFiltro })
 
   if (loading) {
     return (
@@ -138,20 +168,47 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-5 p-4 md:p-6">
-      {/* Storytelling — título + síntese */}
-      <header className="flex flex-col gap-1">
-        <h1 className="text-lg font-semibold tracking-tight text-neutral-900">
-          Painel de Não Conformidades
-        </h1>
+      {/* Cabeçalho + seletor de período */}
+      <header className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-lg font-semibold tracking-tight text-neutral-900">
+            Painel de Não Conformidades
+          </h1>
+          <div className="flex items-center gap-1.5">
+            {atualizando && (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-300" />
+            )}
+            <div className="flex items-center gap-1 rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm">
+              {PERIODOS.map((p) => (
+                <button
+                  key={p.key}
+                  onClick={() => setPeriodoKey(p.key)}
+                  className={cn(
+                    'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                    periodoKey === p.key
+                      ? 'bg-neutral-900 text-white'
+                      : 'text-neutral-500 hover:bg-neutral-100',
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {total > 0 ? (
           <p className="max-w-3xl text-sm leading-relaxed text-neutral-500">
-            <b className="text-neutral-700">{total}</b> RNCs registradas —{' '}
+            <b className="text-neutral-700">{total}</b> RNCs no período —{' '}
             <b className="text-neutral-700">{pctEncerradas}%</b> já encerradas e{' '}
             <b className="text-neutral-700">{abertas}</b> em andamento.
             {topForn && (
               <>
-                {' '}Maior incidência no fornecedor{' '}
-                <b className="text-neutral-700">{topForn.label.split(' — ')[1] ?? topForn.label}</b>.
+                {' '}Maior incidência:{' '}
+                <b className="text-neutral-700">
+                  {topForn.label.split(' — ')[1] ?? topForn.label}
+                </b>
+                .
               </>
             )}
             {sevPredominante && (
@@ -164,67 +221,116 @@ export function DashboardPage() {
               </>
             )}{' '}
             <span className="text-neutral-400">
-              Clique em qualquer gráfico para explorar até a RNC.
+              Clique nos cartões ou gráficos para explorar até a RNC.
             </span>
           </p>
         ) : (
           <p className="text-sm text-neutral-500">
-            Ainda não há RNCs cadastradas — os indicadores aparecem conforme os
-            registros forem criados.
+            Nenhuma RNC no período selecionado.
           </p>
         )}
       </header>
 
-      {/* KPIs compactos */}
+      {/* KPIs interativos */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi icon={FileWarning} label="Total de RNCs" valor={total} destaque />
-        <Kpi icon={ChevronRight} label="Em andamento" valor={abertas} />
-        <Kpi icon={AlertTriangle} label="Alta/crítica" valor={criticas} />
-        <Kpi icon={Truck} label="Fornecedores" valor={data.topFornecedores.length} />
+        <Kpi
+          icon={FileWarning}
+          label="Total de RNCs"
+          valor={total}
+          destaque
+          onClick={() => drill('Todas as RNCs do período', {})}
+        />
+        <Kpi
+          icon={Clock}
+          label="Em andamento"
+          valor={abertas}
+          onClick={() =>
+            drill('RNCs em andamento', {}, (r) =>
+              ['OPEN', 'IN_PROGRESS'].includes(r.status),
+            )
+          }
+        />
+        <Kpi
+          icon={AlertTriangle}
+          label="Alta/crítica"
+          valor={criticas}
+          onClick={() =>
+            drill(
+              'RNCs de severidade alta/crítica',
+              {},
+              (r) => (r.severidade?.nivel ?? 0) >= 3,
+            )
+          }
+        />
+        <Kpi
+          icon={CheckCircle2}
+          label="Encerradas"
+          valor={encerradas}
+          onClick={() => drill('RNCs encerradas', { status: 'CLOSED' })}
+        />
       </div>
 
-      {/* Distribuição */}
       <Secao titulo="Distribuição">
         <Painel titulo="Por filial">
-          <Barras dados={data.porFilial} onPick={(d) => setFiltro(filtroDe('filialId', 'filial', d))} />
+          <Colunas
+            dados={data.porFilial}
+            onPick={(d) => drill(`Filial: ${d.label}`, { filialId: d.id ?? '__none__' })}
+          />
         </Painel>
         <Painel titulo="Por tipo de não conformidade">
-          <Barras dados={data.porTipo} onPick={(d) => setFiltro(filtroDe('tipoNaoConformidadeId', 'tipo de NC', d))} />
+          <Colunas
+            dados={data.porTipo}
+            onPick={(d) =>
+              drill(`Tipo de NC: ${d.label}`, {
+                tipoNaoConformidadeId: d.id ?? '__none__',
+              })
+            }
+          />
         </Painel>
       </Secao>
 
-      {/* Responsáveis & itens */}
       <Secao titulo="Responsáveis & itens">
         <Painel titulo="Top 5 fornecedores" icon={Truck}>
-          <Barras dados={data.topFornecedores} onPick={(d) => setFiltro(filtroDe('fornecedorId', 'fornecedor', d))} />
+          <Barras
+            dados={data.topFornecedores}
+            onPick={(d) => drill(`Fornecedor: ${d.label}`, { fornecedorId: d.id ?? '__none__' })}
+          />
         </Painel>
-        <Painel titulo="Top 5 produtos" icon={Package}>
-          <Barras dados={data.topProdutos} onPick={(d) => setFiltro(filtroDe('produtoId', 'produto', d))} />
+        <Painel titulo="Top 5 produtos">
+          <Barras
+            dados={data.topProdutos}
+            onPick={(d) => drill(`Produto: ${d.label}`, { produtoId: d.id ?? '__none__' })}
+          />
         </Painel>
       </Secao>
 
-      {/* Natureza */}
       <Secao titulo="Natureza da não conformidade" cols={3}>
         <Painel titulo="Por disposição">
-          <Colunas dados={data.porDisposicao} onPick={(d) => setFiltro(filtroDe('disposicaoMaterialId', 'disposição', d))} />
+          <Colunas
+            dados={data.porDisposicao}
+            onPick={(d) =>
+              drill(`Disposição: ${d.label}`, {
+                disposicaoMaterialId: d.id ?? '__none__',
+              })
+            }
+          />
         </Painel>
         <Painel titulo="Por origem">
-          <Colunas dados={data.porOrigem} onPick={(d) => setFiltro(filtroDe('origemId', 'origem', d))} />
+          <Colunas
+            dados={data.porOrigem}
+            onPick={(d) => drill(`Origem: ${d.label}`, { origemId: d.id ?? '__none__' })}
+          />
         </Painel>
         <Painel titulo="Por severidade">
           <Rosca
             dados={data.porSeveridade}
-            onPick={(d) => setFiltro(filtroDe('severidadeId', 'severidade', d))}
+            onPick={(d) => drill(`Severidade: ${d.label}`, { severidadeId: d.id ?? '__none__' })}
           />
         </Painel>
       </Secao>
 
       {filtro && (
-        <DrillModal
-          filtro={filtro}
-          onClose={() => setFiltro(null)}
-          onOpenRnc={(r) => setViewing(r)}
-        />
+        <DrillModal filtro={filtro} onClose={() => setFiltro(null)} onOpenRnc={setViewing} />
       )}
 
       <RncDetailPanel
@@ -236,23 +342,28 @@ export function DashboardPage() {
   )
 }
 
-function filtroDe(dim: Dim, nome: string, d: Contagem): Filtro {
-  return { dim, id: d.id, titulo: `${nome}: ${d.label}`, label: d.label }
-}
-
 function Kpi({
   icon: Icon,
   label,
   valor,
   destaque,
+  onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
   valor: number
   destaque?: boolean
+  onClick?: () => void
 }) {
   return (
-    <Card className="flex items-center gap-3 rounded-xl border-neutral-200/80 bg-white p-3.5 shadow-sm">
+    <Card
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-3 rounded-xl border-neutral-200/80 bg-white p-3.5 shadow-sm transition-all',
+        onClick &&
+          'cursor-pointer hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-md',
+      )}
+    >
       <div
         className={cn(
           'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
@@ -323,7 +434,7 @@ function Painel({
   )
 }
 
-function SemDados({ altura = 200 }: { altura?: number }) {
+function SemDados({ altura = 220 }: { altura?: number }) {
   return (
     <div
       className="flex items-center justify-center text-xs text-neutral-300"
@@ -353,7 +464,7 @@ function Barras({
   const [hover, setHover] = React.useState<number | null>(null)
   if (dados.length === 0) return <SemDados />
   const cores = ramp(dados.length)
-  const altura = Math.max(180, dados.length * 34 + 24)
+  const altura = Math.max(190, dados.length * 42 + 24)
   return (
     <ResponsiveContainer width="100%" height={altura}>
       <BarChart data={dados} layout="vertical" margin={{ top: 2, right: 28, bottom: 2, left: 4 }}>
@@ -374,7 +485,7 @@ function Barras({
           contentStyle={tooltipStyle}
           labelStyle={{ fontSize: 11, color: '#64748b' }}
         />
-        <Bar dataKey="total" radius={[0, 4, 4, 0]} barSize={18}>
+        <Bar dataKey="total" radius={[0, 4, 4, 0]} barSize={30}>
           {dados.map((d, i) => (
             <Cell
               key={i}
@@ -403,7 +514,7 @@ function Colunas({
   if (dados.length === 0) return <SemDados />
   const cores = ramp(dados.length)
   return (
-    <ResponsiveContainer width="100%" height={232}>
+    <ResponsiveContainer width="100%" height={236}>
       <BarChart data={dados} margin={{ top: 6, right: 8, bottom: 44, left: -16 }}>
         <CartesianGrid vertical={false} stroke="#f3f4f6" />
         <XAxis
@@ -424,7 +535,7 @@ function Colunas({
           contentStyle={tooltipStyle}
           labelStyle={{ fontSize: 11, color: '#64748b' }}
         />
-        <Bar dataKey="total" radius={[4, 4, 0, 0]} barSize={26}>
+        <Bar dataKey="total" radius={[4, 4, 0, 0]} barSize={44}>
           {dados.map((d, i) => (
             <Cell
               key={i}
@@ -449,8 +560,7 @@ function Rosca({
   dados: { id: string | null; label: string; nivel: number | null; total: number }[]
   onPick: (d: Contagem) => void
 }) {
-  if (dados.length === 0) return <SemDados altura={232} />
-  // Tom mais escuro = maior severidade.
+  if (dados.length === 0) return <SemDados altura={236} />
   const tons = ['#cbd5e1', '#94a3b8', '#64748b', '#334155', '#0f172a']
   const cor = (nivel: number | null, i: number) =>
     nivel ? tons[Math.min(tons.length - 1, nivel - 1)] : SLATE[i % SLATE.length]
@@ -512,13 +622,18 @@ function DrillModal({
 
   React.useEffect(() => {
     let cancelled = false
-    // Reset ao trocar de filtro (mostra o loading enquanto recarrega).
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setItems(null)
     setErro(null)
     rncApi
-      .list({ [filtro.dim]: filtro.id ?? '__none__', pageSize: 100 })
-      .then((res) => !cancelled && setItems(res.items))
+      .list({ ...filtro.params, pageSize: 100 })
+      .then((res) => {
+        if (cancelled) return
+        const base = filtro.posFiltro
+          ? res.items.filter(filtro.posFiltro)
+          : res.items
+        setItems(base)
+      })
       .catch((err) => {
         if (cancelled) return
         setErro(err instanceof ApiError ? err.message : 'Falha ao carregar.')
@@ -527,7 +642,7 @@ function DrillModal({
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtro.dim, filtro.id])
+  }, [JSON.stringify(filtro.params)])
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
@@ -570,7 +685,6 @@ function DrillModal({
           </button>
         </header>
 
-        {/* Sub-drill por status (chips) */}
         {items && items.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 border-b border-neutral-100 px-5 py-2.5">
             <Chip ativo={statusSel === null} onClick={() => setStatusSel(null)}>
@@ -630,9 +744,7 @@ function DrillModal({
                     <td className="px-2 py-2 text-neutral-600">
                       {fmtDataBR(r.dataIdentificacao)}
                     </td>
-                    <td className="px-2 py-2 text-neutral-700">
-                      {r.fornecedor.codigo}
-                    </td>
+                    <td className="px-2 py-2 text-neutral-700">{r.fornecedor.codigo}</td>
                     <td className="px-2 py-2 text-neutral-700">
                       {r.tipoNaoConformidade.codigo}
                     </td>

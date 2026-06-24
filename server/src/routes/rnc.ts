@@ -114,6 +114,8 @@ rncRouter.get('/', async (req, res, next) => {
       origemId,
       severidadeId,
       status,
+      de,
+      ate,
       limit,
       page,
       pageSize,
@@ -122,6 +124,11 @@ rncRouter.get('/', async (req, res, next) => {
     if (fornecedorId) where.fornecedorId = fornecedorId
     if (tipoNaoConformidadeId) where.tipoNaoConformidadeId = tipoNaoConformidadeId
     if (filialId) where.filialId = filialId
+    if (de || ate) {
+      where.dataIdentificacao = {}
+      if (de) where.dataIdentificacao.gte = de
+      if (ate) where.dataIdentificacao.lt = ate
+    }
     // "__none__" filtra registros sem o vínculo (campo nulo).
     const opt = (v: string | undefined) =>
       v === '__none__' ? null : v || undefined

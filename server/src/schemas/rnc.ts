@@ -216,6 +216,9 @@ export const rncQuerySchema = z.object({
   origemId: z.string().optional(),
   severidadeId: z.string().optional(),
   status: rncStatusEnum.optional(),
+  // Período por data de identificação (drill-down do dashboard).
+  de: z.coerce.date().optional(),
+  ate: z.coerce.date().optional(),
   /** Quantos registros retornar quando usado como lookup ("últimas 3"). */
   limit: z.coerce.number().int().min(1).max(50).optional(),
   page: z.coerce.number().int().min(1).default(1),
