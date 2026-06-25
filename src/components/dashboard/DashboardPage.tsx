@@ -44,13 +44,95 @@ const ACENTO = '#4f46e5'
 const FANTASMA = '#e8edf3'
 const SLATE = ['#1e293b', '#334155', '#475569', '#64748b', '#94a3b8', '#cbd5e1']
 
-function ramp(n: number): string[] {
-  if (n <= 1) return [SLATE[1]]
-  return Array.from({ length: n }, (_, i) => {
-    const t = i / (n - 1)
-    const idx = Math.min(SLATE.length - 1, Math.round(t * (SLATE.length - 1)))
-    return SLATE[idx]
+// Índice da barra de destaque (maior volume). -1 quando tudo é zero.
+function indiceDestaque(dados: { total: number }[]): number {
+  let idx = -1
+  let max = 0
+  dados.forEach((d, i) => {
+    if (d.total > max) {
+      max = d.total
+      idx = i
+    }
   })
+  return idx
+}
+
+// Rótulo de coluna vertical: balão escuro no destaque, número discreto nos demais.
+function rotuloColuna(destaque: number) {
+  return function Rotulo(props: {
+    x?: number
+    y?: number
+    width?: number
+    value?: number
+    index?: number
+  }) {
+    const { x = 0, y = 0, width = 0, value = 0, index } = props
+    const cx = x + width / 2
+    if (index === destaque) {
+      const w = Math.max(34, String(value).length * 9 + 18)
+      return (
+        <g>
+          <rect x={cx - w / 2} y={y - 28} width={w} height={19} rx={6} fill="#0f172a" />
+          <text
+            x={cx}
+            y={y - 14.5}
+            textAnchor="middle"
+            fontSize={11}
+            fontWeight={700}
+            fill="#fff"
+          >
+            {value}
+          </text>
+        </g>
+      )
+    }
+    if (!value) return null
+    return (
+      <text x={cx} y={y - 5} textAnchor="middle" fontSize={10} fontWeight={600} fill="#94a3b8">
+        {value}
+      </text>
+    )
+  }
+}
+
+// Rótulo de barra horizontal: balão escuro no destaque, número discreto nos demais.
+function rotuloBarra(destaque: number) {
+  return function Rotulo(props: {
+    x?: number
+    y?: number
+    width?: number
+    height?: number
+    value?: number
+    index?: number
+  }) {
+    const { x = 0, y = 0, width = 0, height = 0, value = 0, index } = props
+    const ex = x + width
+    const ey = y + height / 2
+    if (index === destaque) {
+      const w = Math.max(30, String(value).length * 8 + 16)
+      return (
+        <g>
+          <rect x={ex + 5} y={ey - 9.5} width={w} height={19} rx={6} fill="#0f172a" />
+          <text
+            x={ex + 5 + w / 2}
+            y={ey + 3.5}
+            textAnchor="middle"
+            fontSize={11}
+            fontWeight={700}
+            fill="#fff"
+          >
+            {value}
+          </text>
+        </g>
+      )
+    }
+    if (!value) return null
+    return (
+      <text x={ex + 6} y={ey + 3.5} fontSize={10} fontWeight={600} fill="#94a3b8">
+        {value}
+      </text>
+    )
+  }
 }
 
 const STATUS_LABEL: Record<RncStatus, string> = {
@@ -533,50 +615,9 @@ function HeroEvolucao({
 }) {
   const [hover, setHover] = React.useState<number | null>(null)
   const totalPeriodo = dados.reduce((a, m) => a + m.total, 0)
-  // Mês de destaque = maior volume (empate → mais recente).
-  let destaque = -1
-  let maxV = -1
-  dados.forEach((m, i) => {
-    if (m.total >= maxV && m.total > 0) {
-      maxV = m.total
-      destaque = i
-    }
-  })
-
-  // Rótulo: balão no destaque, número discreto nos demais.
-  const Rotulo = (props: {
-    x?: number
-    y?: number
-    width?: number
-    value?: number
-    index?: number
-  }) => {
-    const { x = 0, y = 0, width = 0, value = 0, index } = props
-    const cx = x + width / 2
-    if (index === destaque) {
-      return (
-        <g>
-          <rect x={cx - 20} y={y - 28} width={40} height={19} rx={6} fill="#0f172a" />
-          <text
-            x={cx}
-            y={y - 14.5}
-            textAnchor="middle"
-            fontSize={11}
-            fontWeight={700}
-            fill="#fff"
-          >
-            {value}
-          </text>
-        </g>
-      )
-    }
-    if (!value) return null
-    return (
-      <text x={cx} y={y - 5} textAnchor="middle" fontSize={10} fontWeight={600} fill="#94a3b8">
-        {value}
-      </text>
-    )
-  }
+  // Mês de destaque = maior volume — mesmo padrão dos demais gráficos.
+  const destaque = indiceDestaque(dados)
+  const Rotulo = rotuloColuna(destaque)
 
   return (
     <Card className="flex h-full flex-col gap-1 rounded-2xl border-neutral-200/70 bg-white p-4 shadow-sm">
@@ -800,7 +841,7 @@ function AtividadeDiaria({ dados }: { dados: ContagemDia[] }) {
   )
 }
 
-/** Barras horizontais clicáveis (rótulos longos). */
+/** Barras horizontais clicáveis (rótulos longos) — mesmo padrão do herói. */
 function Barras({
   dados,
   onPick,
@@ -810,13 +851,14 @@ function Barras({
 }) {
   const [hover, setHover] = React.useState<number | null>(null)
   if (dados.length === 0) return <SemDados />
-  const cores = ramp(dados.length)
+  const destaque = indiceDestaque(dados)
+  const Rotulo = rotuloBarra(destaque)
   const altura = Math.max(190, dados.length * 42 + 24)
   return (
     <ResponsiveContainer width="100%" height={altura}>
-      <BarChart data={dados} layout="vertical" margin={{ top: 2, right: 28, bottom: 2, left: 4 }}>
+      <BarChart data={dados} layout="vertical" margin={{ top: 2, right: 46, bottom: 2, left: 4 }}>
         <CartesianGrid horizontal={false} stroke="#f3f4f6" />
-        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: '#cbd5e1' }} axisLine={false} tickLine={false} />
         <YAxis
           type="category"
           dataKey="label"
@@ -832,29 +874,25 @@ function Barras({
           contentStyle={tooltipStyle}
           labelStyle={{ fontSize: 11, color: '#64748b' }}
         />
-        <Bar dataKey="total" radius={[0, 4, 4, 0]} barSize={30}>
+        <Bar dataKey="total" radius={[0, 6, 6, 0]} barSize={30}>
           {dados.map((d, i) => (
             <Cell
               key={i}
               cursor="pointer"
-              fill={hover === i ? ACENTO : cores[i]}
+              fill={i === destaque || hover === i ? ACENTO : FANTASMA}
               onMouseEnter={() => setHover(i)}
               onMouseLeave={() => setHover(null)}
               onClick={() => onPick(d)}
             />
           ))}
-          <LabelList
-            dataKey="total"
-            position="right"
-            style={{ fontSize: 11, fontWeight: 600, fill: '#334155' }}
-          />
+          <LabelList dataKey="total" content={Rotulo} />
         </Bar>
       </BarChart>
     </ResponsiveContainer>
   )
 }
 
-/** Colunas verticais clicáveis. */
+/** Colunas verticais clicáveis — mesmo padrão do gráfico herói. */
 function Colunas({
   dados,
   onPick,
@@ -864,10 +902,11 @@ function Colunas({
 }) {
   const [hover, setHover] = React.useState<number | null>(null)
   if (dados.length === 0) return <SemDados />
-  const cores = ramp(dados.length)
+  const destaque = indiceDestaque(dados)
+  const Rotulo = rotuloColuna(destaque)
   return (
-    <ResponsiveContainer width="100%" height={236}>
-      <BarChart data={dados} margin={{ top: 18, right: 8, bottom: 44, left: -16 }}>
+    <ResponsiveContainer width="100%" height={244}>
+      <BarChart data={dados} margin={{ top: 30, right: 8, bottom: 44, left: -16 }}>
         <CartesianGrid vertical={false} stroke="#f3f4f6" />
         <XAxis
           dataKey="label"
@@ -880,29 +919,25 @@ function Colunas({
           tickLine={false}
           tickFormatter={(v: string) => curto(v, 14)}
         />
-        <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} />
+        <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#cbd5e1' }} axisLine={false} tickLine={false} />
         <Tooltip
           cursor={{ fill: '#f8fafc' }}
           formatter={(value) => [`${value} RNCs`, '']}
           contentStyle={tooltipStyle}
           labelStyle={{ fontSize: 11, color: '#64748b' }}
         />
-        <Bar dataKey="total" radius={[4, 4, 0, 0]} barSize={44}>
+        <Bar dataKey="total" radius={[6, 6, 0, 0]} barSize={44}>
           {dados.map((d, i) => (
             <Cell
               key={i}
               cursor="pointer"
-              fill={hover === i ? ACENTO : cores[i]}
+              fill={i === destaque || hover === i ? ACENTO : FANTASMA}
               onMouseEnter={() => setHover(i)}
               onMouseLeave={() => setHover(null)}
               onClick={() => onPick(d)}
             />
           ))}
-          <LabelList
-            dataKey="total"
-            position="top"
-            style={{ fontSize: 11, fontWeight: 600, fill: '#334155' }}
-          />
+          <LabelList dataKey="total" content={Rotulo} />
         </Bar>
       </BarChart>
     </ResponsiveContainer>
