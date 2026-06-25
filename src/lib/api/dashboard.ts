@@ -7,6 +7,14 @@ export type ContagemSeveridade = Contagem & {
 }
 export type ContagemStatus = { status: string; total: number }
 
+export type ContagemMes = { label: string; ano: number; total: number }
+export type ContagemDia = { label: string; total: number }
+export type ComparativoAnterior = {
+  total: number
+  abertas: number
+  encerradas: number
+}
+
 export type DashboardRnc = {
   total: number
   porStatus: ContagemStatus[]
@@ -17,6 +25,9 @@ export type DashboardRnc = {
   porDisposicao: Contagem[]
   porOrigem: Contagem[]
   porSeveridade: ContagemSeveridade[]
+  porMes: ContagemMes[]
+  porDia: ContagemDia[]
+  anterior: ComparativoAnterior | null
 }
 
 export const dashboardApi = {

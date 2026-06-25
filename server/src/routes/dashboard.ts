@@ -171,6 +171,63 @@ dashboardRouter.get('/rnc', async (req, res, next) => {
       total: r._count._all,
     }))
 
+    // ── Evolução mensal (últimos 12 meses) ────────────────────────
+    const mesesRaw = await prisma.$queryRaw<{ mes: Date; total: number }[]>`
+      SELECT date_trunc('month', "data_identificacao") AS mes, count(*)::int AS total
+      FROM "relatorios_nao_conformidade"
+      WHERE "data_identificacao" >= (date_trunc('month', now()) - interval '11 months')
+      GROUP BY mes ORDER BY mes
+    `
+    const mapMes = new Map(
+      mesesRaw.map((r) => [new Date(r.mes).toISOString().slice(0, 7), Number(r.total)]),
+    )
+    const MESES_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+    const agoraM = new Date()
+    const porMes: { label: string; total: number; ano: number }[] = []
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(agoraM.getFullYear(), agoraM.getMonth() - i, 1)
+      const chave = d.toISOString().slice(0, 7)
+      porMes.push({ label: MESES_PT[d.getMonth()], ano: d.getFullYear(), total: mapMes.get(chave) ?? 0 })
+    }
+
+    // ── Atividade diária (últimos 30 dias) ────────────────────────
+    const diasRaw = await prisma.$queryRaw<{ dia: Date; total: number }[]>`
+      SELECT date_trunc('day', "data_identificacao") AS dia, count(*)::int AS total
+      FROM "relatorios_nao_conformidade"
+      WHERE "data_identificacao" >= (date_trunc('day', now()) - interval '29 days')
+      GROUP BY dia ORDER BY dia
+    `
+    const mapDia = new Map(
+      diasRaw.map((r) => [new Date(r.dia).toISOString().slice(0, 10), Number(r.total)]),
+    )
+    const porDia: { label: string; total: number }[] = []
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const chave = d.toISOString().slice(0, 10)
+      porDia.push({ label: chave, total: mapDia.get(chave) ?? 0 })
+    }
+
+    // ── Comparação com o período anterior (quando há "de") ────────
+    let anterior: { total: number; abertas: number; encerradas: number } | null = null
+    if (de && !isNaN(de.getTime())) {
+      const fim = ate && !isNaN(ate.getTime()) ? ate : new Date()
+      const dur = fim.getTime() - de.getTime()
+      const prevDe = new Date(de.getTime() - dur)
+      const wPrev = { dataIdentificacao: { gte: prevDe, lt: de } }
+      const prevStatus = await prisma.relatorioNaoConformidade.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+        where: wPrev,
+      })
+      const pm = new Map(prevStatus.map((s) => [s.status as string, s._count._all]))
+      anterior = {
+        total: prevStatus.reduce((a, s) => a + s._count._all, 0),
+        abertas: (pm.get('OPEN') ?? 0) + (pm.get('IN_PROGRESS') ?? 0),
+        encerradas: pm.get('CLOSED') ?? 0,
+      }
+    }
+
     const ordena = (arr: Contagem[]) =>
       [...arr].sort((a, b) => b.total - a.total)
 
@@ -194,6 +251,9 @@ dashboardRouter.get('/rnc', async (req, res, next) => {
         await porRelacao('origemId', porOrigemRaw, labelOrigem),
       ),
       porSeveridade,
+      porMes,
+      porDia,
+      anterior,
     })
   } catch (err) {
     next(err)
