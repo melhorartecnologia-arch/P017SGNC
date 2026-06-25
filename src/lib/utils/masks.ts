@@ -30,3 +30,10 @@ export function maskTelefone(v: string): string {
     return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
 }
+
+/** Máscara de CEP progressiva: 00000-000. */
+export function maskCep(v: string): string {
+  const d = digitos(v).slice(0, 8)
+  if (d.length <= 5) return d
+  return `${d.slice(0, 5)}-${d.slice(5)}`
+}

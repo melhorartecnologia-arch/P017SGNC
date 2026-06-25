@@ -8,7 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { ApiError } from '@/lib/api/client'
 import type { Filial, FilialInput } from '@/lib/api/filiais'
 import { filiaisApi } from '@/lib/api/filiais'
-import { maskCnpj } from '@/lib/utils/masks'
+import { maskCnpj, maskCep } from '@/lib/utils/masks'
 
 type Props = {
   initial?: Filial | null
@@ -213,9 +213,10 @@ export function FilialForm({ initial, onSaved, onCancel }: Props) {
         <Field label="CEP *" error={fieldError('cep')} className="sm:col-span-3">
           <Input
             value={form.cep}
-            onChange={(e) => set('cep', e.target.value)}
+            onChange={(e) => set('cep', maskCep(e.target.value))}
             placeholder="00000-000"
-            maxLength={10}
+            inputMode="numeric"
+            maxLength={9}
             required
           />
         </Field>

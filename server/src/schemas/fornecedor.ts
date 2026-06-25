@@ -1,13 +1,23 @@
 import { z } from 'zod'
 import {
   cnpjFormatoValido,
+  cnpjValido,
   formatarCnpj,
   formatarTelefone,
   telefoneFormatoValido,
 } from '../lib/br-format.js'
 
-/** CNPJ: aceita com ou sem máscara, valida 14 dígitos e grava padronizado. */
-const cnpjField = z
+/** CNPJ (criação): valida 14 dígitos + dígitos verificadores e padroniza. */
+const cnpjFieldStrict = z
+  .string()
+  .trim()
+  .refine(cnpjFormatoValido, 'CNPJ deve conter 14 dígitos')
+  .refine(cnpjValido, 'CNPJ inválido (dígitos verificadores)')
+  .transform(formatarCnpj)
+
+/** CNPJ (edição): valida só o formato e padroniza — DV é checado na rota
+ *  para preservar registros antigos que já estavam fora do padrão. */
+const cnpjFieldFormato = z
   .string()
   .trim()
   .refine(cnpjFormatoValido, 'CNPJ deve conter 14 dígitos')
@@ -58,13 +68,17 @@ export const fornecedorCreateSchema = z.object({
     .transform((v) => v.toUpperCase()),
   razaoSocial: z.string().trim().min(2).max(160),
   nomeFantasia: z.string().trim().max(160).optional().nullable(),
-  cnpj: cnpjField,
+  cnpj: cnpjFieldStrict,
   ativo: z.boolean().optional().default(true),
   observacoes: z.string().trim().max(2000).optional().nullable(),
   contatos: z.array(contatoSchema).max(20, 'Máximo de 20 contatos').optional(),
 })
 
-export const fornecedorUpdateSchema = fornecedorCreateSchema.partial()
+// Na edição o CNPJ valida apenas o formato; os dígitos verificadores são
+// checados na rota somente quando o valor muda (preserva legados).
+export const fornecedorUpdateSchema = fornecedorCreateSchema
+  .partial()
+  .extend({ cnpj: cnpjFieldFormato.optional() })
 
 export const fornecedorQuerySchema = z.object({
   q: z.string().trim().optional(),

@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../db.js'
 import { HttpError } from '../middleware/error.js'
+import { cnpjValido, soDigitos } from '../lib/br-format.js'
 import {
   filialCreateSchema,
   filialQuerySchema,
@@ -63,6 +64,20 @@ filiaisRouter.post('/', async (req, res, next) => {
 filiaisRouter.patch('/:id', async (req, res, next) => {
   try {
     const data = filialUpdateSchema.parse(req.body)
+    // Valida os dígitos verificadores apenas se o CNPJ tiver mudado, para
+    // não bloquear a edição de filiais antigas com CNPJ fora do padrão.
+    if (data.cnpj) {
+      const atual = await prisma.filial.findUnique({
+        where: { id: req.params.id },
+        select: { cnpj: true },
+      })
+      if (!atual) throw new HttpError(404, 'Filial não encontrada')
+      if (soDigitos(data.cnpj) !== soDigitos(atual.cnpj) && !cnpjValido(data.cnpj)) {
+        throw new HttpError(400, 'Dados inválidos', {
+          fieldErrors: { cnpj: ['CNPJ inválido (dígitos verificadores)'] },
+        })
+      }
+    }
     const updated = await prisma.filial.update({
       where: { id: req.params.id },
       data,

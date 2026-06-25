@@ -14,6 +14,36 @@ export function cnpjFormatoValido(v: string): boolean {
   return soDigitos(v).length === 14
 }
 
+/** Valida os dígitos verificadores (DV) do CNPJ. */
+export function cnpjValido(v: string): boolean {
+  const d = soDigitos(v)
+  if (d.length !== 14) return false
+  if (/^(\d)\1{13}$/.test(d)) return false // rejeita sequências repetidas
+  // Calcula um dígito verificador sobre os primeiros `len` dígitos.
+  const calcDv = (len: number) => {
+    let soma = 0
+    let peso = len - 7
+    for (let i = 0; i < len; i++) {
+      soma += Number(d[i]) * peso--
+      if (peso < 2) peso = 9
+    }
+    const resto = soma % 11
+    return resto < 2 ? 0 : 11 - resto
+  }
+  return calcDv(12) === Number(d[12]) && calcDv(13) === Number(d[13])
+}
+
+/** CEP precisa ter exatamente 8 dígitos (validação de formato). */
+export function cepFormatoValido(v: string): boolean {
+  return soDigitos(v).length === 8
+}
+
+/** Formata um CEP na máscara 00000-000. */
+export function formatarCep(v: string): string {
+  const d = soDigitos(v).slice(0, 8)
+  return `${d.slice(0, 5)}-${d.slice(5)}`
+}
+
 /** Formata um CNPJ na máscara 00.000.000/0001-00. */
 export function formatarCnpj(v: string): string {
   const d = soDigitos(v).slice(0, 14)

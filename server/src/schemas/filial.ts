@@ -1,15 +1,36 @@
 import { z } from 'zod'
-import { cnpjFormatoValido, formatarCnpj } from '../lib/br-format.js'
+import {
+  cepFormatoValido,
+  cnpjFormatoValido,
+  cnpjValido,
+  formatarCep,
+  formatarCnpj,
+} from '../lib/br-format.js'
 
-const cepRegex = /^\d{5}-?\d{3}$/
 const ufRegex = /^[A-Z]{2}$/
 
-/** CNPJ: aceita com ou sem máscara, valida 14 dígitos e grava padronizado. */
-const cnpjField = z
+/** CNPJ (criação): valida 14 dígitos + dígitos verificadores e padroniza. */
+const cnpjFieldStrict = z
+  .string()
+  .trim()
+  .refine(cnpjFormatoValido, 'CNPJ deve conter 14 dígitos')
+  .refine(cnpjValido, 'CNPJ inválido (dígitos verificadores)')
+  .transform(formatarCnpj)
+
+/** CNPJ (edição): valida só o formato e padroniza — DV é checado na rota
+ *  para preservar registros antigos que já estavam fora do padrão. */
+const cnpjFieldFormato = z
   .string()
   .trim()
   .refine(cnpjFormatoValido, 'CNPJ deve conter 14 dígitos')
   .transform(formatarCnpj)
+
+/** CEP: aceita com ou sem máscara, valida 8 dígitos e grava padronizado. */
+const cepField = z
+  .string()
+  .trim()
+  .refine(cepFormatoValido, 'CEP deve conter 8 dígitos')
+  .transform(formatarCep)
 
 export const filialCreateSchema = z.object({
   codigo: z
@@ -20,7 +41,7 @@ export const filialCreateSchema = z.object({
     .transform((v) => v.toUpperCase()),
   nome: z.string().trim().min(2).max(120),
   razaoSocial: z.string().trim().min(2).max(160),
-  cnpj: cnpjField,
+  cnpj: cnpjFieldStrict,
   endereco: z.string().trim().min(2).max(200),
   numero: z.string().trim().max(20).optional().nullable(),
   complemento: z.string().trim().max(60).optional().nullable(),
@@ -31,12 +52,16 @@ export const filialCreateSchema = z.object({
     .trim()
     .transform((v) => v.toUpperCase())
     .pipe(z.string().regex(ufRegex, 'UF inválida')),
-  cep: z.string().trim().regex(cepRegex, 'CEP inválido'),
+  cep: cepField,
   ativo: z.boolean().optional().default(true),
   observacoes: z.string().trim().max(2000).optional().nullable(),
 })
 
-export const filialUpdateSchema = filialCreateSchema.partial()
+// Na edição o CNPJ valida apenas o formato; os dígitos verificadores são
+// checados na rota somente quando o valor muda (preserva legados).
+export const filialUpdateSchema = filialCreateSchema
+  .partial()
+  .extend({ cnpj: cnpjFieldFormato.optional() })
 
 export const filialQuerySchema = z.object({
   q: z.string().trim().optional(),
