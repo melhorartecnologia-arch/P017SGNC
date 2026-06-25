@@ -15,10 +15,18 @@ areasRouter.get('/', async (req, res, next) => {
     const { q, ativo, page, pageSize } = areaQuerySchema.parse(req.query)
     const where: Prisma.AreaWhereInput = {}
     if (q) {
-      where.OR = [
+      const or: Prisma.AreaWhereInput[] = [
         { codigo: { contains: q, mode: 'insensitive' } },
         { nome: { contains: q, mode: 'insensitive' } },
+        { descricao: { contains: q, mode: 'insensitive' } },
       ]
+      // Permite buscar pela situação textual ("ativa"/"inativa").
+      const t = q.toLowerCase()
+      if (t.length >= 2) {
+        if ('inativa'.startsWith(t) || 'inativo'.startsWith(t)) or.push({ ativo: false })
+        else if ('ativa'.startsWith(t) || 'ativo'.startsWith(t)) or.push({ ativo: true })
+      }
+      where.OR = or
     }
     if (ativo !== undefined) where.ativo = ativo === 'true'
 
