@@ -1,8 +1,15 @@
 import { z } from 'zod'
+import { cnpjFormatoValido, formatarCnpj } from '../lib/br-format.js'
 
-const cnpjRegex = /^\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}$/
 const cepRegex = /^\d{5}-?\d{3}$/
 const ufRegex = /^[A-Z]{2}$/
+
+/** CNPJ: aceita com ou sem máscara, valida 14 dígitos e grava padronizado. */
+const cnpjField = z
+  .string()
+  .trim()
+  .refine(cnpjFormatoValido, 'CNPJ deve conter 14 dígitos')
+  .transform(formatarCnpj)
 
 export const filialCreateSchema = z.object({
   codigo: z
@@ -13,10 +20,7 @@ export const filialCreateSchema = z.object({
     .transform((v) => v.toUpperCase()),
   nome: z.string().trim().min(2).max(120),
   razaoSocial: z.string().trim().min(2).max(160),
-  cnpj: z
-    .string()
-    .trim()
-    .regex(cnpjRegex, 'CNPJ inválido'),
+  cnpj: cnpjField,
   endereco: z.string().trim().min(2).max(200),
   numero: z.string().trim().max(20).optional().nullable(),
   complemento: z.string().trim().max(60).optional().nullable(),

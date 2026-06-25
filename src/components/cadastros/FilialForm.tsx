@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { ApiError } from '@/lib/api/client'
 import type { Filial, FilialInput } from '@/lib/api/filiais'
 import { filiaisApi } from '@/lib/api/filiais'
+import { maskCnpj } from '@/lib/utils/masks'
 
 type Props = {
   initial?: Filial | null
@@ -148,8 +149,9 @@ export function FilialForm({ initial, onSaved, onCancel }: Props) {
         <Field label="CNPJ *" error={fieldError('cnpj')} className="sm:col-span-4">
           <Input
             value={form.cnpj}
-            onChange={(e) => set('cnpj', e.target.value)}
+            onChange={(e) => set('cnpj', maskCnpj(e.target.value))}
             placeholder="00.000.000/0001-00"
+            inputMode="numeric"
             maxLength={18}
             required
           />

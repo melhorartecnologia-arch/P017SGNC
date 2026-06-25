@@ -14,6 +14,7 @@ import type {
 } from '@/lib/api/fornecedores'
 import { TIPO_LABEL, fornecedoresApi } from '@/lib/api/fornecedores'
 import { cn } from '@/lib/utils'
+import { maskCnpj, maskTelefone } from '@/lib/utils/masks'
 
 type Props = {
   initial?: Fornecedor | null
@@ -195,8 +196,9 @@ export function FornecedorForm({ initial, onSaved, onCancel }: Props) {
         <Field label="CNPJ *" error={fieldError('cnpj')} className="sm:col-span-4">
           <Input
             value={form.cnpj}
-            onChange={(e) => set('cnpj', e.target.value)}
+            onChange={(e) => set('cnpj', maskCnpj(e.target.value))}
             placeholder="00.000.000/0001-00"
+            inputMode="numeric"
             maxLength={18}
             required
           />
@@ -262,10 +264,19 @@ export function FornecedorForm({ initial, onSaved, onCancel }: Props) {
                   </Label>
                   <Input
                     value={c.valor}
-                    onChange={(e) => updateContato(c._key, 'valor', e.target.value)}
+                    onChange={(e) =>
+                      updateContato(
+                        c._key,
+                        'valor',
+                        c.tipo === 'EMAIL'
+                          ? e.target.value
+                          : maskTelefone(e.target.value),
+                      )
+                    }
                     type={c.tipo === 'EMAIL' ? 'email' : 'text'}
+                    inputMode={c.tipo === 'EMAIL' ? 'email' : 'tel'}
                     placeholder={PLACEHOLDERS[c.tipo]}
-                    maxLength={160}
+                    maxLength={c.tipo === 'EMAIL' ? 160 : 16}
                     required
                     className="mt-1"
                   />
