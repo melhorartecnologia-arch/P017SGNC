@@ -30,6 +30,7 @@ import type { ContatoInput, ContatoTipo, Fornecedor } from '@/lib/api/fornecedor
 import { fornecedoresApi } from '@/lib/api/fornecedores'
 import { cn } from '@/lib/utils'
 import { FornecedorForm } from './FornecedorForm'
+import { OrigemCadastroBadge } from './OrigemCadastroBadge'
 import { ExportXlsxButton } from './ExportXlsxButton'
 import { ImportXlsxButton } from './ImportXlsxButton'
 import { BulkDeleteToolbar } from './BulkDeleteToolbar'
@@ -264,6 +265,11 @@ export function FornecedorPage() {
                 width: 32,
               },
               { header: 'Situação', value: (f) => (f.ativo ? 'Ativo' : 'Inativo'), width: 10 },
+              {
+                header: 'Origem do cadastro',
+                value: (f) => (f.origemCadastro === 'PROTHEUS' ? 'Protheus' : 'Plataforma'),
+                width: 18,
+              },
               { header: 'Observações', value: (f) => f.observacoes ?? '', width: 40 },
             ]}
             total={total}
@@ -314,6 +320,7 @@ export function FornecedorPage() {
                 <th className="px-3 py-2.5 text-left font-medium">CNPJ</th>
                 <th className="px-3 py-2.5 text-left font-medium">Contatos</th>
                 <th className="px-3 py-2.5 text-center font-medium">Situação</th>
+                <th className="px-3 py-2.5 text-center font-medium">Origem</th>
                 <th className="w-24 px-3 py-2.5"></th>
               </tr>
             </thead>
@@ -345,6 +352,9 @@ export function FornecedorPage() {
                       <Skeleton className="mx-auto h-5 w-14" />
                     </td>
                     <td className="px-3 py-4">
+                      <Skeleton className="mx-auto h-5 w-20" />
+                    </td>
+                    <td className="px-3 py-4">
                       <div className="flex justify-end gap-1">
                         <Skeleton className="h-7 w-7 rounded-md" />
                         <Skeleton className="h-7 w-7 rounded-md" />
@@ -354,7 +364,7 @@ export function FornecedorPage() {
                 ))}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-3 py-10 text-center text-neutral-500">
+                  <td colSpan={8} className="px-3 py-10 text-center text-neutral-500">
                     Nenhum fornecedor cadastrado.
                   </td>
                 </tr>
@@ -420,6 +430,9 @@ export function FornecedorPage() {
                       >
                         {f.ativo ? 'Ativo' : 'Inativo'}
                       </span>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <OrigemCadastroBadge origem={f.origemCadastro} />
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center justify-end gap-1">

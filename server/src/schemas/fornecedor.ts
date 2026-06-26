@@ -71,6 +71,8 @@ export const fornecedorCreateSchema = z.object({
   cnpj: cnpjFieldStrict,
   ativo: z.boolean().optional().default(true),
   observacoes: z.string().trim().max(2000).optional().nullable(),
+  // Integração: a ETL do Protheus envia PROTHEUS; a plataforma usa o padrão.
+  origemCadastro: z.enum(['PROTHEUS', 'PLATAFORMA']).optional().default('PLATAFORMA'),
   contatos: z.array(contatoSchema).max(20, 'Máximo de 20 contatos').optional(),
 })
 

@@ -25,6 +25,7 @@ import { ApiError } from '@/lib/api/client'
 import type { Produto } from '@/lib/api/produtos'
 import { produtosApi } from '@/lib/api/produtos'
 import { ProdutoForm } from './ProdutoForm'
+import { OrigemCadastroBadge } from './OrigemCadastroBadge'
 import { ExportXlsxButton } from './ExportXlsxButton'
 import { ImportXlsxButton } from './ImportXlsxButton'
 import { BulkDeleteToolbar } from './BulkDeleteToolbar'
@@ -183,6 +184,11 @@ export function ProdutoPage() {
               { header: 'Descrição', value: (p) => p.descricao, width: 40 },
               { header: 'Unidade', value: (p) => p.unidadeMedida, width: 10 },
               { header: 'Situação', value: (p) => (p.ativo ? 'Ativo' : 'Inativo'), width: 10 },
+              {
+                header: 'Origem do cadastro',
+                value: (p) => (p.origemCadastro === 'PROTHEUS' ? 'Protheus' : 'Plataforma'),
+                width: 18,
+              },
             ]}
             total={total}
             fetchAll={() => fetchAllPaged((p) => produtosApi.list({ q: q.trim() || undefined, ...p }))}
@@ -231,6 +237,7 @@ export function ProdutoPage() {
                 <th className="px-3 py-2.5 text-left font-medium">Descrição</th>
                 <th className="px-3 py-2.5 text-center font-medium">Unidade</th>
                 <th className="px-3 py-2.5 text-center font-medium">Situação</th>
+                <th className="px-3 py-2.5 text-center font-medium">Origem</th>
                 <th className="w-24 px-3 py-2.5"></th>
               </tr>
             </thead>
@@ -257,6 +264,9 @@ export function ProdutoPage() {
                       <Skeleton className="mx-auto h-5 w-14" />
                     </td>
                     <td className="px-3 py-4">
+                      <Skeleton className="mx-auto h-5 w-20" />
+                    </td>
+                    <td className="px-3 py-4">
                       <div className="flex justify-end gap-1">
                         <Skeleton className="h-7 w-7 rounded-md" />
                         <Skeleton className="h-7 w-7 rounded-md" />
@@ -266,7 +276,7 @@ export function ProdutoPage() {
                 ))}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-10 text-center text-neutral-500">
+                  <td colSpan={7} className="px-3 py-10 text-center text-neutral-500">
                     Nenhum produto cadastrado.
                   </td>
                 </tr>
@@ -303,6 +313,9 @@ export function ProdutoPage() {
                       >
                         {p.ativo ? 'Ativo' : 'Inativo'}
                       </span>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <OrigemCadastroBadge origem={p.origemCadastro} />
                     </td>
                     <td className="px-3 py-3">
                       <div className="flex items-center justify-end gap-1">

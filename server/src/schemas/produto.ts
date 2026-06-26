@@ -15,6 +15,8 @@ export const produtoCreateSchema = z.object({
     .max(10, 'Unidade muito longa')
     .transform((v) => v.toUpperCase()),
   ativo: z.boolean().optional().default(true),
+  // Integração: a ETL do Protheus envia PROTHEUS; a plataforma usa o padrão.
+  origemCadastro: z.enum(['PROTHEUS', 'PLATAFORMA']).optional().default('PLATAFORMA'),
 })
 
 export const produtoUpdateSchema = produtoCreateSchema.partial()

@@ -1,16 +1,23 @@
 import { apiRequest } from './client'
 
+/** Origem do cadastro: integrado do ERP Protheus (ETL) ou criado na plataforma. */
+export type OrigemCadastro = 'PROTHEUS' | 'PLATAFORMA'
+
 export type Produto = {
   id: string
   codigo: string
   descricao: string
   unidadeMedida: string
   ativo: boolean
+  origemCadastro: OrigemCadastro
   createdAt: string
   updatedAt: string
 }
 
-export type ProdutoInput = Omit<Produto, 'id' | 'createdAt' | 'updatedAt'>
+export type ProdutoInput = Omit<
+  Produto,
+  'id' | 'createdAt' | 'updatedAt' | 'origemCadastro'
+>
 
 export type ProdutoListParams = {
   q?: string

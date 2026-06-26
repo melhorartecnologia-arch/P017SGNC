@@ -42,6 +42,7 @@ model Fornecedor {
   cnpj         String  @unique @db.VarChar(18)
   ativo        Boolean @default(true)
   observacoes  String? @db.Text
+  origemCadastro OrigemCadastro @default(PLATAFORMA) @map("origem_cadastro")
 
   contatos                  ContatoFornecedor[]
   relatoriosNaoConformidade RelatorioNaoConformidade[]
@@ -57,6 +58,12 @@ enum ContatoTipo {
   TELEFONE_FIXO
   WHATSAPP
   EMAIL
+}
+
+/// Origem do cadastro: integrado do ERP Protheus (ETL) ou criado na plataforma.
+enum OrigemCadastro {
+  PROTHEUS
+  PLATAFORMA
 }
 
 /// Contato vinculado a um fornecedor. Cada fornecedor pode ter vários.
@@ -168,6 +175,7 @@ model Produto {
   descricao      String  @db.VarChar(160)
   unidadeMedida  String  @map("unidade_medida") @db.VarChar(10)
   ativo          Boolean @default(true)
+  origemCadastro OrigemCadastro @default(PLATAFORMA) @map("origem_cadastro")
 
   tiposNaoConformidade      TipoNaoConformidade[]
   relatoriosNaoConformidade RelatorioNaoConformidade[]
