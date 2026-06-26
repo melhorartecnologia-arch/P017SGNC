@@ -255,6 +255,10 @@ model Filial {
   ativo       Boolean @default(true)
   observacoes String? @db.Text
 
+  // Numeração sequencial de RNC por filial: ponto de partida informado no
+  // cadastro (último número do controle atual). As novas RNCs continuam daqui.
+  rncNumeroInicial Int @default(0) @map("rnc_numero_inicial")
+
   aprovadores               Aprovador[]
   turnos                    TurnoTrabalho[]
   relatoriosNaoConformidade RelatorioNaoConformidade[]
@@ -333,6 +337,8 @@ enum RncStatus {
 model RelatorioNaoConformidade {
   id                    String    @id @default(uuid()) @db.Uuid
   numero                String    @unique @db.VarChar(40)
+  /// Sequência contínua da RNC dentro da filial (base da numeração).
+  sequencialFilial      Int?      @map("sequencial_filial")
   filialId              String    @map("filial_id") @db.Uuid
   fornecedorId          String    @map("fornecedor_id") @db.Uuid
   tipoNaoConformidadeId String    @map("tipo_nao_conformidade_id") @db.Uuid

@@ -30,6 +30,7 @@ const empty: FilialInput = {
   cep: '',
   ativo: true,
   observacoes: '',
+  rncNumeroInicial: 0,
 }
 
 function toInput(f: Filial): FilialInput {
@@ -47,6 +48,7 @@ function toInput(f: Filial): FilialInput {
     cep: f.cep,
     ativo: f.ativo,
     observacoes: f.observacoes ?? '',
+    rncNumeroInicial: f.rncNumeroInicial ?? 0,
   }
 }
 
@@ -225,6 +227,28 @@ export function FilialForm({ initial, onSaved, onCancel }: Props) {
       <div className="h-px bg-neutral-200" />
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-12">
+        <Field
+          label="Numeração inicial de RNC"
+          error={fieldError('rncNumeroInicial')}
+          className="sm:col-span-4"
+        >
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={String(form.rncNumeroInicial ?? 0)}
+            onChange={(e) =>
+              set('rncNumeroInicial', Math.max(0, Math.floor(Number(e.target.value) || 0)))
+            }
+            placeholder="0"
+          />
+        </Field>
+        <p className="self-end pb-2 text-xs text-neutral-500 sm:col-span-8">
+          Informe o <b>último número de RNC já usado</b> no controle atual desta
+          filial. As novas RNCs continuam a contagem a partir daí (ex.: informando
+          120, a próxima RNC será a 121). Deixe 0 para começar do início.
+        </p>
+
         <Field
           label="Observações"
           error={fieldError('observacoes')}

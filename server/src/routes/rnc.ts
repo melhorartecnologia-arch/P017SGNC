@@ -588,37 +588,41 @@ rncRouter.post('/', async (req, res, next) => {
 
     const filial = await prisma.filial.findUnique({
       where: { id: data.filialId },
-      select: { codigo: true },
+      select: { codigo: true, rncNumeroInicial: true },
     })
     if (!filial) throw new HttpError(400, 'Filial inválida')
 
     const ano4 = data.dataIdentificacao.getUTCFullYear()
     const mes2 = String(data.dataIdentificacao.getUTCMonth() + 1).padStart(2, '0')
     const ano2 = String(ano4).slice(-2)
-    const yearStart = new Date(Date.UTC(ano4, 0, 1))
-    const yearEnd = new Date(Date.UTC(ano4 + 1, 0, 1))
     const codigoFilial = filial.codigo.trim().toUpperCase()
 
     const { lotes, notasFiscais, ...rncData } = data
     const created = await prisma.$transaction(async (tx) => {
-      // Lock advisory por (filial, ano) — liberado ao fim da transação.
-      // Evita corrida quando dois POSTs caem na mesma combinação ao mesmo tempo.
+      // Lock advisory por filial — liberado ao fim da transação. Evita corrida
+      // quando dois POSTs da mesma filial chegam ao mesmo tempo.
       await tx.$executeRawUnsafe(
         'SELECT pg_advisory_xact_lock(hashtext($1)::bigint)',
-        `rnc:${data.filialId}:${ano4}`,
+        `rnc:${data.filialId}`,
       )
-      const jaExistem = await tx.relatorioNaoConformidade.count({
-        where: {
-          filialId: data.filialId,
-          dataIdentificacao: { gte: yearStart, lt: yearEnd },
-        },
+      // Numeração contínua por filial: parte do maior entre o número inicial
+      // informado no cadastro da filial (controle atual) e o último já usado.
+      const agg = await tx.relatorioNaoConformidade.aggregate({
+        where: { filialId: data.filialId },
+        _max: { sequencialFilial: true },
       })
+      const ultimo = Math.max(
+        filial.rncNumeroInicial ?? 0,
+        agg._max.sequencialFilial ?? 0,
+      )
+      const sequencial = ultimo + 1
       const numero =
-        codigoFilial + mes2 + ano2 + String(jaExistem + 1).padStart(3, '0')
+        codigoFilial + mes2 + ano2 + String(sequencial).padStart(3, '0')
       const novo = await tx.relatorioNaoConformidade.create({
         data: {
           ...rncData,
           numero,
+          sequencialFilial: sequencial,
           criadoPorId,
           lotes: {
             create: lotes.map((l) => ({
