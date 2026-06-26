@@ -61,6 +61,30 @@ function todayISO(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
+// Quantidades usam vírgula como separador decimal — o ponto não é aceito.
+// Mantém apenas dígitos e uma única vírgula.
+function sanitizarDecimal(v: string): string {
+  let s = v.replace(/[^\d,]/g, '')
+  const i = s.indexOf(',')
+  if (i !== -1) s = s.slice(0, i + 1) + s.slice(i + 1).replace(/,/g, '')
+  return s
+}
+
+// Campos inteiros (ex.: minutos): apenas dígitos, sem separadores.
+function sanitizarInteiro(v: string): string {
+  return v.replace(/\D/g, '')
+}
+
+// Converte o texto digitado (vírgula decimal) em número.
+function numeroDecimal(v: string): number {
+  return Number(v.trim().replace(',', '.'))
+}
+
+// Exibe um número vindo do backend usando vírgula como separador decimal.
+function exibeDecimal(n: number | null | undefined): string {
+  return n == null ? '' : String(n).replace('.', ',')
+}
+
 function formatDataBR(iso: string): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -217,14 +241,10 @@ export function RncWizard({
       setLotes(
         initial.lotes?.map((l) => ({
           numero: l.numero,
-          quantidade: l.quantidade != null ? String(l.quantidade) : '',
+          quantidade: exibeDecimal(l.quantidade),
         })) ?? [],
       )
-      setQuantidadeDefeito(
-        initial.quantidadeDefeito != null
-          ? String(initial.quantidadeDefeito)
-          : '',
-      )
+      setQuantidadeDefeito(exibeDecimal(initial.quantidadeDefeito))
       setTempoParadaMinutos(
         initial.tempoParadaMinutos != null
           ? String(initial.tempoParadaMinutos)
@@ -356,21 +376,21 @@ export function RncWizard({
   const lotesDuplicados =
     new Set(numerosDeLote).size !== numerosDeLote.length
   const totalLote = lotes.reduce((acc, l) => {
-    const n = parseFloat(l.quantidade)
+    const n = numeroDecimal(l.quantidade)
     return acc + (Number.isFinite(n) ? n : 0)
   }, 0)
 
   // Quantidade de lote, quando informada, deve ser maior que zero.
   const loteQtdInvalida = (quantidade: string) => {
     if (quantidade.trim() === '') return false
-    const n = parseFloat(quantidade)
+    const n = numeroDecimal(quantidade)
     return !Number.isFinite(n) || n <= 0
   }
   const lotesComQtdInvalida = lotes.some((l) => loteQtdInvalida(l.quantidade))
 
   // Qtd. com defeito: quando informada, deve ser > 0 e não pode exceder o
   // total dos lotes (quando houver quantidades informadas nos lotes).
-  const qtdDefeitoNum = parseFloat(quantidadeDefeito)
+  const qtdDefeitoNum = numeroDecimal(quantidadeDefeito)
   const qtdDefeitoInformada =
     quantidadeDefeito.trim() !== '' && Number.isFinite(qtdDefeitoNum)
   const qtdDefeitoZero = qtdDefeitoInformada && qtdDefeitoNum <= 0
@@ -399,9 +419,19 @@ export function RncWizard({
     .map((n) => n.numero.trim().toUpperCase())
   const notasDuplicadas =
     new Set(numerosNota).size !== numerosNota.length
+  // Validade e recebimento não podem ser anteriores à fabricação. As datas
+  // estão em YYYY-MM-DD, então a comparação textual é suficiente.
+  const validadeAntesFab = (n: { dataFabricacao: string; dataValidade: string }) =>
+    !!n.dataFabricacao && !!n.dataValidade && n.dataValidade < n.dataFabricacao
+  const recebAntesFab = (n: { dataFabricacao: string; dataRecebimento: string }) =>
+    !!n.dataFabricacao && !!n.dataRecebimento && n.dataRecebimento < n.dataFabricacao
+  const notasComDataInvalida = notasFiscais.some(
+    (n) => validadeAntesFab(n) || recebAntesFab(n),
+  )
   // Ao menos uma nota fiscal (com número) é obrigatória.
   const semNotaFiscal = numerosNota.length === 0
-  const notasInvalidas = notasFiscais.some(notaSemNumero) || notasDuplicadas
+  const notasInvalidas =
+    notasFiscais.some(notaSemNumero) || notasDuplicadas || notasComDataInvalida
 
   // Data de identificação não pode ser futura. Comparação por string
   // YYYY-MM-DD (mesmo formato de todayISO) é suficiente no cliente; a
@@ -501,7 +531,7 @@ export function RncWizard({
     const parseOptNum = (v: string) => {
       const t = v.trim()
       if (!t) return null
-      const n = Number(t)
+      const n = Number(t.replace(',', '.'))
       return Number.isFinite(n) ? n : null
     }
     const isoOrNull = (v: string) =>
@@ -935,13 +965,13 @@ export function RncWizard({
                             />
                             <Input
                               className={`col-span-4 ${qtdInvalida ? 'border-red-400' : ''}`}
-                              type="number"
+                              type="text"
                               inputMode="decimal"
-                              step="any"
-                              min={0}
                               value={l.quantidade}
                               onChange={(e) =>
-                                updateLoteRow(idx, { quantidade: e.target.value })
+                                updateLoteRow(idx, {
+                                  quantidade: sanitizarDecimal(e.target.value),
+                                })
                               }
                               placeholder={
                                 produto
@@ -1003,12 +1033,12 @@ export function RncWizard({
                   className="sm:col-span-6"
                 >
                   <Input
-                    type="number"
+                    type="text"
                     inputMode="decimal"
-                    step="any"
-                    min={0}
                     value={quantidadeDefeito}
-                    onChange={(e) => setQuantidadeDefeito(e.target.value)}
+                    onChange={(e) =>
+                      setQuantidadeDefeito(sanitizarDecimal(e.target.value))
+                    }
                     placeholder="0"
                     className={qtdDefeitoInvalida ? 'border-red-400' : ''}
                   />
@@ -1030,12 +1060,12 @@ export function RncWizard({
                   className="sm:col-span-6"
                 >
                   <Input
-                    type="number"
+                    type="text"
                     inputMode="numeric"
-                    step={1}
-                    min={0}
                     value={tempoParadaMinutos}
-                    onChange={(e) => setTempoParadaMinutos(e.target.value)}
+                    onChange={(e) =>
+                      setTempoParadaMinutos(sanitizarInteiro(e.target.value))
+                    }
                     placeholder="0"
                   />
                 </Field>
@@ -1068,6 +1098,8 @@ export function RncWizard({
                             x.numero.trim().toUpperCase() === numeroNorm,
                         )
                       const semNumero = notaSemNumero(n)
+                      const validadeInvalida = validadeAntesFab(n)
+                      const recebInvalida = recebAntesFab(n)
                       return (
                         <div
                           key={idx}
@@ -1113,12 +1145,14 @@ export function RncWizard({
                               <Input
                                 type="date"
                                 value={n.dataValidade}
+                                min={n.dataFabricacao || undefined}
                                 onChange={(e) =>
                                   updateNotaRow(idx, {
                                     dataValidade: e.target.value,
                                   })
                                 }
                                 disabled={saving}
+                                className={validadeInvalida ? 'border-red-400' : ''}
                               />
                             </Field>
                             <div className="flex items-end gap-2 sm:col-span-3">
@@ -1129,12 +1163,14 @@ export function RncWizard({
                                 <Input
                                   type="date"
                                   value={n.dataRecebimento}
+                                  min={n.dataFabricacao || undefined}
                                   onChange={(e) =>
                                     updateNotaRow(idx, {
                                       dataRecebimento: e.target.value,
                                     })
                                   }
                                   disabled={saving}
+                                  className={recebInvalida ? 'border-red-400' : ''}
                                 />
                               </Field>
                               <button
@@ -1157,6 +1193,18 @@ export function RncWizard({
                             <span className="text-xs text-red-600">
                               Informe o número da nota fiscal (ou remova a
                               linha).
+                            </span>
+                          )}
+                          {validadeInvalida && (
+                            <span className="text-xs text-red-600">
+                              A data de validade não pode ser anterior à data de
+                              fabricação.
+                            </span>
+                          )}
+                          {recebInvalida && (
+                            <span className="text-xs text-red-600">
+                              A data de recebimento não pode ser anterior à data
+                              de fabricação.
                             </span>
                           )}
                         </div>
@@ -1234,6 +1282,30 @@ export function RncWizard({
 
         {step === 4 && (
           <section className="flex flex-col gap-4">
+            <Section title="Origem da não conformidade">
+              <Field label="Origem" required>
+                <select
+                  className={cn(selectClass)}
+                  value={origemId}
+                  onChange={(e) => setOrigemId(e.target.value)}
+                  required
+                >
+                  <option value="" disabled>
+                    Selecione a origem
+                  </option>
+                  {origens.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.codigo} — {o.nome}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-neutral-500">
+                  Onde a não conformidade teve origem. Informe-a primeiro — os
+                  demais campos desta etapa derivam dela.
+                </span>
+              </Field>
+            </Section>
+
             <Section title="Disposição do material">
               <Field label="Disposição" required>
                 <select
@@ -1258,25 +1330,8 @@ export function RncWizard({
               </Field>
             </Section>
 
-            <Section title="Origem, severidade e descrição do defeito">
+            <Section title="Severidade e descrição do defeito">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Origem da não conformidade" required>
-                  <select
-                    className={cn(selectClass)}
-                    value={origemId}
-                    onChange={(e) => setOrigemId(e.target.value)}
-                    required
-                  >
-                    <option value="" disabled>
-                      Selecione a origem
-                    </option>
-                    {origens.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.codigo} — {o.nome}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
                 <Field label="Severidade" required>
                   <select
                     className={cn(selectClass)}

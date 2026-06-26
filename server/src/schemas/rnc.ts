@@ -166,16 +166,36 @@ const rncBaseSchema = z.object({
   // exige um número e as datas são opcionais.
   notasFiscais: z
     .array(
-      z.object({
-        numero: z
-          .string()
-          .trim()
-          .min(1, 'Nº da nota fiscal é obrigatório')
-          .max(40),
-        dataFabricacao: optionalDate('Data de fabricação inválida'),
-        dataValidade: optionalDate('Data de validade inválida'),
-        dataRecebimento: optionalDate('Data de recebimento inválida'),
-      }),
+      z
+        .object({
+          numero: z
+            .string()
+            .trim()
+            .min(1, 'Nº da nota fiscal é obrigatório')
+            .max(40),
+          dataFabricacao: optionalDate('Data de fabricação inválida'),
+          dataValidade: optionalDate('Data de validade inválida'),
+          dataRecebimento: optionalDate('Data de recebimento inválida'),
+        })
+        .superRefine((n, ctx) => {
+          // Validade e recebimento não podem ser anteriores à fabricação.
+          if (n.dataFabricacao) {
+            if (n.dataValidade && n.dataValidade < n.dataFabricacao) {
+              ctx.addIssue({
+                code: 'custom',
+                path: ['dataValidade'],
+                message: 'A data de validade não pode ser anterior à data de fabricação',
+              })
+            }
+            if (n.dataRecebimento && n.dataRecebimento < n.dataFabricacao) {
+              ctx.addIssue({
+                code: 'custom',
+                path: ['dataRecebimento'],
+                message: 'A data de recebimento não pode ser anterior à data de fabricação',
+              })
+            }
+          }
+        }),
     )
     .min(1, 'Informe ao menos uma nota fiscal')
     .max(50, 'Máximo de 50 notas fiscais por RNC')
