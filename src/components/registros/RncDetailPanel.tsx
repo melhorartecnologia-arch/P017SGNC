@@ -179,9 +179,10 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
 
   return (
     <>
+      {/* Clicar fora não fecha — evita descartar o que está sendo visto/feito.
+          Use o botão Fechar ou a tecla Esc. */}
       <div
         aria-hidden
-        onClick={onClose}
         className={cn(
           'fixed inset-0 z-40 bg-neutral-950/30 backdrop-blur-[2px] transition-opacity duration-300',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',

@@ -293,14 +293,8 @@ export function AssinaturaPage({ token }: { token: string }) {
       </div>
 
       {verPdf && (
-        <div
-          className="fixed inset-0 z-50 flex flex-col bg-neutral-950/70 p-3 backdrop-blur-sm sm:p-6"
-          onClick={() => setVerPdf(false)}
-        >
-          <div
-            className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-50 flex flex-col bg-neutral-950/70 p-3 backdrop-blur-sm sm:p-6">
+          <div className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
             <div className="flex items-center justify-between gap-2 border-b border-neutral-200 px-4 py-2.5">
               <div className="flex items-center gap-2">
                 <FileWarning className="h-4 w-4 text-neutral-500" />

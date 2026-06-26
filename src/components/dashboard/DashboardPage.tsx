@@ -1135,14 +1135,9 @@ function DrillModal({
   const visiveis = (items ?? []).filter((r) => !statusSel || r.status === statusSel)
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-neutral-950/40 p-4 backdrop-blur-[2px]"
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-neutral-950/40 p-4 backdrop-blur-[2px]">
+      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+
         <header className="flex items-start justify-between gap-3 border-b border-neutral-100 px-5 py-3.5">
           <div className="flex min-w-0 flex-col">
             <span className="text-[11px] font-medium uppercase tracking-wide text-neutral-400">
