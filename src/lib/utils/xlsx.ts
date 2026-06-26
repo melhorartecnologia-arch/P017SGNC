@@ -53,6 +53,25 @@ export function joinCodigos(items: { codigo: string }[] | null | undefined): str
   return items.map((i) => i.codigo).join(', ')
 }
 
+/**
+ * Divide uma célula com vários códigos em uma lista normalizada.
+ * Aceita vírgula, ponto-e-vírgula, barra, pipe ou quebra de linha como
+ * separadores; ignora vazios, normaliza para maiúsculas e remove repetidos.
+ */
+export function splitCodigos(value: string | null | undefined): string[] {
+  if (!value) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const parte of String(value).split(/[,;/|\n\r]+/)) {
+    const c = parte.trim().toUpperCase()
+    if (c && !seen.has(c)) {
+      seen.add(c)
+      out.push(c)
+    }
+  }
+  return out
+}
+
 /** Formata uma data ISO (vinda do backend) como dd/mm/aaaa hh:mm. */
 export function formatDateBR(iso: string | null | undefined): string {
   if (!iso) return ''
