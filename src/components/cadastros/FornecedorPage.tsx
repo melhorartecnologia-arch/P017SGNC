@@ -26,7 +26,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ApiError } from '@/lib/api/client'
-import type { ContatoTipo, Fornecedor } from '@/lib/api/fornecedores'
+import type { ContatoInput, ContatoTipo, Fornecedor } from '@/lib/api/fornecedores'
 import { fornecedoresApi } from '@/lib/api/fornecedores'
 import { cn } from '@/lib/utils'
 import { FornecedorForm } from './FornecedorForm'
@@ -35,7 +35,7 @@ import { ImportXlsxButton } from './ImportXlsxButton'
 import { BulkDeleteToolbar } from './BulkDeleteToolbar'
 import { DEFAULT_PAGE_SIZE, Pagination } from './Pagination'
 import { useBulkSelection } from '@/lib/hooks/useBulkSelection'
-import { fetchAllPaged, parseAtivo, pick } from '@/lib/utils/xlsx'
+import { fetchAllPaged, parseAtivo, pick, splitLista } from '@/lib/utils/xlsx'
 
 const TIPO_ICON: Record<ContatoTipo, React.ComponentType<{ className?: string }>> = {
   TELEFONE_FIXO: Phone,
@@ -175,20 +175,55 @@ export function FornecedorPage() {
               { header: 'Razão social', required: true },
               { header: 'Nome fantasia' },
               { header: 'CNPJ', required: true },
+              {
+                header: 'Telefones fixos',
+                help: 'opcional — um ou mais, separados por ; (ex.: (24) 3333-4444; (24) 3333-5555)',
+              },
+              {
+                header: 'WhatsApps',
+                help: 'opcional — um ou mais, separados por ; (ex.: (24) 99999-8888)',
+              },
+              {
+                header: 'E-mails',
+                help: 'opcional — um ou mais, separados por ; (ex.: compras@empresa.com; fiscal@empresa.com)',
+              },
               { header: 'Situação', help: 'Ativo / Inativo (padrão Ativo)' },
               { header: 'Observações' },
             ]}
             notes={[
-              'Contatos do fornecedor não são importados pela planilha — adicione-os editando o fornecedor depois.',
+              'Os contatos são importados pelas colunas Telefones fixos, WhatsApps e E-mails — cada uma aceita vários valores separados por ponto-e-vírgula.',
+              'O primeiro contato informado (na ordem telefone fixo → WhatsApp → e-mail) é marcado como principal.',
             ]}
-            mapRow={(row) => ({
-              codigo: pick(row, 'Código'),
-              razaoSocial: pick(row, 'Razão social'),
-              nomeFantasia: pick(row, 'Nome fantasia') || null,
-              cnpj: pick(row, 'CNPJ'),
-              ativo: parseAtivo(pick(row, 'Situação')),
-              observacoes: pick(row, 'Observações') || null,
-            })}
+            mapRow={(row) => {
+              // Monta os contatos a partir das colunas de cada tipo clicável.
+              const contatos: ContatoInput[] = [
+                ...splitLista(pick(row, 'Telefones fixos')).map((valor) => ({
+                  tipo: 'TELEFONE_FIXO' as ContatoTipo,
+                  valor,
+                  principal: false,
+                })),
+                ...splitLista(pick(row, 'WhatsApps')).map((valor) => ({
+                  tipo: 'WHATSAPP' as ContatoTipo,
+                  valor,
+                  principal: false,
+                })),
+                ...splitLista(pick(row, 'E-mails')).map((valor) => ({
+                  tipo: 'EMAIL' as ContatoTipo,
+                  valor,
+                  principal: false,
+                })),
+              ]
+              if (contatos.length > 0) contatos[0].principal = true
+              return {
+                codigo: pick(row, 'Código'),
+                razaoSocial: pick(row, 'Razão social'),
+                nomeFantasia: pick(row, 'Nome fantasia') || null,
+                cnpj: pick(row, 'CNPJ'),
+                ativo: parseAtivo(pick(row, 'Situação')),
+                observacoes: pick(row, 'Observações') || null,
+                contatos,
+              }
+            }}
             importOne={(input) => fornecedoresApi.create(input)}
             onDone={refresh}
           />
@@ -202,18 +237,31 @@ export function FornecedorPage() {
               { header: 'Nome fantasia', value: (f) => f.nomeFantasia ?? '', width: 28 },
               { header: 'CNPJ', value: (f) => f.cnpj, width: 22 },
               {
-                header: 'Contatos principais',
+                header: 'Telefones fixos',
                 value: (f) =>
                   f.contatos
-                    .filter((c) => c.principal)
-                    .map((c) => `${c.tipo}: ${c.valor}`)
+                    .filter((c) => c.tipo === 'TELEFONE_FIXO')
+                    .map((c) => c.valor)
                     .join('; '),
-                width: 36,
+                width: 28,
               },
               {
-                header: 'Total de contatos',
-                value: (f) => f.contatos.length,
-                width: 14,
+                header: 'WhatsApps',
+                value: (f) =>
+                  f.contatos
+                    .filter((c) => c.tipo === 'WHATSAPP')
+                    .map((c) => c.valor)
+                    .join('; '),
+                width: 24,
+              },
+              {
+                header: 'E-mails',
+                value: (f) =>
+                  f.contatos
+                    .filter((c) => c.tipo === 'EMAIL')
+                    .map((c) => c.valor)
+                    .join('; '),
+                width: 32,
               },
               { header: 'Situação', value: (f) => (f.ativo ? 'Ativo' : 'Inativo'), width: 10 },
               { header: 'Observações', value: (f) => f.observacoes ?? '', width: 40 },

@@ -72,6 +72,26 @@ export function splitCodigos(value: string | null | undefined): string[] {
   return out
 }
 
+/**
+ * Divide uma célula com vários valores (telefones, e-mails…) em uma lista,
+ * preservando o conteúdo original (sem maiúsculas). Aceita vírgula,
+ * ponto-e-vírgula ou quebra de linha; ignora vazios e duplicados.
+ */
+export function splitLista(value: string | null | undefined): string[] {
+  if (!value) return []
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const parte of String(value).split(/[;,\n\r]+/)) {
+    const v = parte.trim()
+    const chave = v.toLowerCase()
+    if (v && !seen.has(chave)) {
+      seen.add(chave)
+      out.push(v)
+    }
+  }
+  return out
+}
+
 /** Formata uma data ISO (vinda do backend) como dd/mm/aaaa hh:mm. */
 export function formatDateBR(iso: string | null | undefined): string {
   if (!iso) return ''
