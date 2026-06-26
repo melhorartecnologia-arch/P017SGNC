@@ -286,33 +286,33 @@ export function AreaPage() {
                     key={a.id}
                     className="border-b border-neutral-200 last:border-b-0 hover:bg-neutral-50/60"
                   >
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 align-top">
                       <Checkbox
                         checked={selection.isSelected(a.id)}
                         onCheckedChange={() => selection.toggle(a.id)}
                         aria-label="Selecionar"
                       />
                     </td>
-                    <td className="px-3 py-3 font-medium text-neutral-900">
-                      <span className="block truncate" title={a.codigo}>
+                    <td className="px-3 py-3 align-top font-medium text-neutral-900">
+                      <span className="block whitespace-normal break-words">
                         {a.codigo}
                       </span>
                     </td>
-                    <td className="px-3 py-3 font-medium text-neutral-900">
-                      <span className="block truncate" title={a.nome}>
+                    <td className="px-3 py-3 align-top font-medium text-neutral-900">
+                      <span className="block whitespace-normal break-words">
                         {a.nome}
                       </span>
                     </td>
-                    <td className="px-3 py-3 text-neutral-700">
+                    <td className="px-3 py-3 align-top text-neutral-700">
                       {a.descricao ? (
-                        <span className="block truncate" title={a.descricao}>
+                        <span className="block whitespace-normal break-words">
                           {a.descricao}
                         </span>
                       ) : (
                         <span className="text-neutral-400">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-center">
+                    <td className="px-3 py-3 text-center align-top">
                       <span
                         className={
                           a.ativo
@@ -323,7 +323,7 @@ export function AreaPage() {
                         {a.ativo ? 'Ativa' : 'Inativa'}
                       </span>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 align-top">
                       <div className="flex items-center justify-end gap-1">
                         <Button
                           variant="ghost"
