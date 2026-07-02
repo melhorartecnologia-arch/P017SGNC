@@ -58,15 +58,20 @@ function indiceDestaque(dados: { total: number }[]): number {
 }
 
 // Rótulo de coluna vertical: balão escuro no destaque, número discreto nos demais.
+// O recharts tipa as coordenadas como string | number — normalizamos aqui.
 function rotuloColuna(destaque: number) {
   return function Rotulo(props: {
-    x?: number
-    y?: number
-    width?: number
-    value?: number
+    x?: string | number
+    y?: string | number
+    width?: string | number
+    value?: unknown
     index?: number
   }) {
-    const { x = 0, y = 0, width = 0, value = 0, index } = props
+    const x = Number(props.x ?? 0)
+    const y = Number(props.y ?? 0)
+    const width = Number(props.width ?? 0)
+    const value = Number(props.value ?? 0)
+    const { index } = props
     const cx = x + width / 2
     if (index === destaque) {
       const w = Math.max(34, String(value).length * 9 + 18)
@@ -96,16 +101,22 @@ function rotuloColuna(destaque: number) {
 }
 
 // Rótulo de barra horizontal: balão escuro no destaque, número discreto nos demais.
+// O recharts tipa as coordenadas como string | number — normalizamos aqui.
 function rotuloBarra(destaque: number) {
   return function Rotulo(props: {
-    x?: number
-    y?: number
-    width?: number
-    height?: number
-    value?: number
+    x?: string | number
+    y?: string | number
+    width?: string | number
+    height?: string | number
+    value?: unknown
     index?: number
   }) {
-    const { x = 0, y = 0, width = 0, height = 0, value = 0, index } = props
+    const x = Number(props.x ?? 0)
+    const y = Number(props.y ?? 0)
+    const width = Number(props.width ?? 0)
+    const height = Number(props.height ?? 0)
+    const value = Number(props.value ?? 0)
+    const { index } = props
     const ex = x + width
     const ey = y + height / 2
     if (index === destaque) {

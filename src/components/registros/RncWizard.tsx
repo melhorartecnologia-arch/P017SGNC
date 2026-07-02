@@ -213,6 +213,7 @@ export function RncWizard({
         cnpj: initial.fornecedor.cnpj,
         ativo: true,
         observacoes: null,
+        origemCadastro: 'PLATAFORMA',
         contatos: [],
         createdAt: '',
         updatedAt: '',
@@ -233,6 +234,7 @@ export function RncWizard({
               descricao: initial.produto.descricao,
               unidadeMedida: initial.produto.unidadeMedida,
               ativo: true,
+              origemCadastro: 'PLATAFORMA' as const,
               createdAt: '',
               updatedAt: '',
             }
