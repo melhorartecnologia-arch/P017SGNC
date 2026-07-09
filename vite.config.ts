@@ -5,20 +5,34 @@ import { execSync } from 'node:child_process'
 
 // Padrão de versionamento: v<ano>.<mês>.<dia>-<hora><min>-<hash do commit>
 // (ex.: v2026.06.26-1432-3bb3f45). Gerado no build a partir do último
-// commit; a data/hora vem do fuso do committer (extraída direto do ISO,
-// sem depender do fuso da máquina de build).
+// commit. A data/hora é sempre convertida para o horário de Brasília
+// (America/Sao_Paulo), independentemente do fuso da máquina de build.
 function versaoDoGit(): { codigo: string; dataHora: string } {
   try {
     const saida = execSync('git log -1 --format="%h|%cI"', {
       encoding: 'utf8',
     }).trim()
     const [hash, iso] = saida.split('|')
-    const dia = iso.slice(0, 10) // AAAA-MM-DD
-    const hora = iso.slice(11, 16) // HH:MM
-    const [a, m, d] = dia.split('-')
+    // %cI traz o instante do commit com o fuso do committer; new Date o
+    // interpreta como instante absoluto e o Intl o exibe em Brasília.
+    const partes = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).formatToParts(new Date(iso))
+    const p = (t: string) => partes.find((x) => x.type === t)?.value ?? ''
+    const a = p('year')
+    const m = p('month')
+    const d = p('day')
+    const hora = p('hour')
+    const min = p('minute')
     return {
-      codigo: `v${a}.${m}.${d}-${hora.replace(':', '')}-${hash}`,
-      dataHora: `${d}/${m}/${a} ${hora}`,
+      codigo: `v${a}.${m}.${d}-${hora}${min}-${hash}`,
+      dataHora: `${d}/${m}/${a} ${hora}:${min}`,
     }
   } catch {
     return { codigo: 'dev', dataHora: '' }
