@@ -28,6 +28,14 @@ export type DashboardRnc = {
   porMes: ContagemMes[]
   porDia: ContagemDia[]
   anterior: ComparativoAnterior | null
+  /** Horas de parada: soma dos minutos de parada das RNCs no período. */
+  paradaTotalMinutos: number
+  /** Nº de RNCs com tempo de parada informado. */
+  paradaRncs: number
+  /** Minutos de parada agrupados (total = minutos). */
+  paradaPorFilial: Contagem[]
+  paradaPorTipo: Contagem[]
+  paradaTopFornecedores: Contagem[]
 }
 
 export const dashboardApi = {

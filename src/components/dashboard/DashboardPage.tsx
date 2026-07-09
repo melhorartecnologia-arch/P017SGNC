@@ -13,6 +13,8 @@ import {
   Activity,
   ArrowUpRight,
   ChevronDown,
+  CalendarRange,
+  Timer,
 } from 'lucide-react'
 import {
   BarChart,
@@ -182,6 +184,9 @@ const PERIODOS = [
 ] as const
 type PeriodoKey = (typeof PERIODOS)[number]['key']
 
+// 'custom' = período flexível definido por datas quaisquer (de/até).
+type Modo = PeriodoKey | 'custom'
+
 function rangeDe(key: PeriodoKey): { de?: string; ate?: string } {
   const now = new Date()
   const dias = (n: number) => new Date(now.getTime() - n * 86400000).toISOString()
@@ -190,6 +195,24 @@ function rangeDe(key: PeriodoKey): { de?: string; ate?: string } {
   if (key === '90d') return { de: dias(90) }
   if (key === 'ano') return { de: new Date(now.getFullYear(), 0, 1).toISOString() }
   return {}
+}
+
+// Range efetivo: presets ou intervalo personalizado (qualquer data).
+function rangeAtual(
+  modo: Modo,
+  de: string,
+  ate: string,
+): { de?: string; ate?: string } {
+  if (modo !== 'custom') return rangeDe(modo)
+  const r: { de?: string; ate?: string } = {}
+  if (de) r.de = new Date(`${de}T00:00:00`).toISOString()
+  if (ate) {
+    // inclui o dia final inteiro (backend filtra por "< ate").
+    const d = new Date(`${ate}T00:00:00`)
+    d.setDate(d.getDate() + 1)
+    r.ate = d.toISOString()
+  }
+  return r
 }
 
 type Filtro = {
@@ -204,17 +227,22 @@ export function DashboardPage() {
   const [loading, setLoading] = React.useState(true)
   const [atualizando, setAtualizando] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [periodoKey, setPeriodoKey] = React.useState<PeriodoKey>('tudo')
+  const [periodoKey, setPeriodoKey] = React.useState<Modo>('tudo')
+  const [customDe, setCustomDe] = React.useState('')
+  const [customAte, setCustomAte] = React.useState('')
   const [filtro, setFiltro] = React.useState<Filtro | null>(null)
   const [viewing, setViewing] = React.useState<Rnc | null>(null)
 
-  const periodo = React.useMemo(() => rangeDe(periodoKey), [periodoKey])
+  const periodo = React.useMemo(
+    () => rangeAtual(periodoKey, customDe, customAte),
+    [periodoKey, customDe, customAte],
+  )
 
   React.useEffect(() => {
     let cancelled = false
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAtualizando(true)
-    const range = rangeDe(periodoKey)
+    const range = rangeAtual(periodoKey, customDe, customAte)
     Promise.all([
       dashboardApi.rnc(range),
       rncApi.list({ ...range, pageSize: 60 }).then((r) => r.items),
@@ -238,7 +266,7 @@ export function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [periodoKey])
+  }, [periodoKey, customDe, customAte])
 
   // Abre o drill mesclando o período corrente nos parâmetros.
   const drill = (
@@ -275,6 +303,21 @@ export function DashboardPage() {
   const pctEncerradas = total ? Math.round((encerradas / total) * 100) : 0
   const ant = data.anterior
 
+  // ── Horas de parada ──────────────────────────────────────────────
+  const paradaMin = data.paradaTotalMinutos
+  const paradaHoras = Math.round(paradaMin / 60)
+  const paradaHorasDec = Math.round((paradaMin / 60) * 10) / 10
+  const paradaMediaH = data.paradaRncs
+    ? Math.round((paradaMin / data.paradaRncs / 60) * 10) / 10
+    : 0
+  // Converte os minutos agregados em horas (1 casa) para os gráficos.
+  const emHoras = (arr: Contagem[]) =>
+    arr.map((d) => ({ ...d, total: Math.round((d.total / 60) * 10) / 10 }))
+  const paradaFilialH = emHoras(data.paradaPorFilial)
+  const paradaTipoH = emHoras(data.paradaPorTipo)
+  const paradaFornH = emHoras(data.paradaTopFornecedores)
+  const comParada = (r: Rnc) => (r.tempoParadaMinutos ?? 0) > 0
+
   return (
     <div className="flex flex-col gap-5 bg-neutral-50/60 p-4 md:p-6">
       {/* Cabeçalho + seletor de período */}
@@ -290,32 +333,78 @@ export function DashboardPage() {
                 : 'Nenhuma RNC no período selecionado'}
             </p>
           </div>
-          <div className="flex items-center gap-1.5">
-            {atualizando && (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-300" />
-            )}
-            <div className="flex items-center gap-1 rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm">
-              {PERIODOS.map((p) => (
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex items-center gap-1.5">
+              {atualizando && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-300" />
+              )}
+              <div className="flex items-center gap-1 rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm">
+                {PERIODOS.map((p) => (
+                  <button
+                    key={p.key}
+                    onClick={() => setPeriodoKey(p.key)}
+                    className={cn(
+                      'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                      periodoKey === p.key
+                        ? 'bg-neutral-900 text-white'
+                        : 'text-neutral-500 hover:bg-neutral-100',
+                    )}
+                  >
+                    {p.label}
+                  </button>
+                ))}
                 <button
-                  key={p.key}
-                  onClick={() => setPeriodoKey(p.key)}
+                  onClick={() => setPeriodoKey('custom')}
                   className={cn(
-                    'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                    periodoKey === p.key
+                    'inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                    periodoKey === 'custom'
                       ? 'bg-neutral-900 text-white'
                       : 'text-neutral-500 hover:bg-neutral-100',
                   )}
                 >
-                  {p.label}
+                  <CalendarRange className="h-3.5 w-3.5" />
+                  Personalizado
                 </button>
-              ))}
+              </div>
             </div>
+            {periodoKey === 'custom' && (
+              <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2 py-1 shadow-sm">
+                <span className="text-[11px] text-neutral-400">De</span>
+                <input
+                  type="date"
+                  value={customDe}
+                  max={customAte || undefined}
+                  onChange={(e) => setCustomDe(e.target.value)}
+                  className="rounded-md border border-neutral-200 px-1.5 py-0.5 text-xs text-neutral-700 outline-none focus:border-neutral-400"
+                />
+                <span className="text-[11px] text-neutral-400">até</span>
+                <input
+                  type="date"
+                  value={customAte}
+                  min={customDe || undefined}
+                  onChange={(e) => setCustomAte(e.target.value)}
+                  className="rounded-md border border-neutral-200 px-1.5 py-0.5 text-xs text-neutral-700 outline-none focus:border-neutral-400"
+                />
+                {(customDe || customAte) && (
+                  <button
+                    onClick={() => {
+                      setCustomDe('')
+                      setCustomAte('')
+                    }}
+                    className="rounded-md p-0.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+                    aria-label="Limpar datas"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </header>
 
       {/* KPIs interativos com badge colorida + comparativo de período */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi
           icon={FileWarning}
           tom="indigo"
@@ -361,6 +450,14 @@ export function DashboardPage() {
           bomQuandoSobe
           onClick={() => drill('RNCs encerradas', { status: 'CLOSED' })}
         />
+        <Kpi
+          icon={Timer}
+          tom="sky"
+          label="Horas de parada"
+          valor={paradaHoras}
+          bomQuandoSobe={false}
+          onClick={() => drill('RNCs com parada de produção', {}, comParada)}
+        />
       </div>
 
       {/* Linha herói: evolução mensal (2/3) + severidade resumida (1/3) */}
@@ -385,6 +482,55 @@ export function DashboardPage() {
 
       {/* Atividade diária (estilo "código de barras") */}
       <AtividadeDiaria dados={data.porDia} />
+
+      {/* Horas de parada — impacto operacional das RNCs */}
+      <Secao titulo="Horas de parada">
+        <ParadasResumo
+          totalHoras={paradaHorasDec}
+          rncsComParada={data.paradaRncs}
+          mediaHoras={paradaMediaH}
+          totalRnc={total}
+          onClick={() => drill('RNCs com parada de produção', {}, comParada)}
+        />
+        <Painel titulo="Por filial (horas)" icon={Timer}>
+          <Colunas
+            dados={paradaFilialH}
+            sufixo="h"
+            onPick={(d) =>
+              drill(`Paradas · Filial: ${d.label}`, { filialId: d.id ?? '__none__' }, comParada)
+            }
+          />
+        </Painel>
+      </Secao>
+
+      <Secao titulo="Horas de parada por natureza">
+        <Painel titulo="Por tipo de não conformidade (horas)">
+          <Colunas
+            dados={paradaTipoH}
+            sufixo="h"
+            onPick={(d) =>
+              drill(
+                `Paradas · Tipo: ${d.label}`,
+                { tipoNaoConformidadeId: d.id ?? '__none__' },
+                comParada,
+              )
+            }
+          />
+        </Painel>
+        <Painel titulo="Top 5 fornecedores por horas de parada" icon={Truck}>
+          <Barras
+            dados={paradaFornH}
+            sufixo="h"
+            onPick={(d) =>
+              drill(
+                `Paradas · Fornecedor: ${d.label}`,
+                { fornecedorId: d.id ?? '__none__' },
+                comParada,
+              )
+            }
+          />
+        </Painel>
+      </Secao>
 
       <Secao titulo="Distribuição">
         <Painel titulo="Por filial">
@@ -475,6 +621,7 @@ const TONS_BADGE: Record<string, string> = {
   amber: 'bg-amber-50 text-amber-600',
   rose: 'bg-rose-50 text-rose-600',
   emerald: 'bg-emerald-50 text-emerald-600',
+  sky: 'bg-sky-50 text-sky-600',
 }
 
 function Kpi({
@@ -594,6 +741,64 @@ function Painel({
       </div>
       {children}
     </Card>
+  )
+}
+
+// Resumo das horas de parada: total, RNCs afetadas, média e % das RNCs.
+function ParadasResumo({
+  totalHoras,
+  rncsComParada,
+  mediaHoras,
+  totalRnc,
+  onClick,
+}: {
+  totalHoras: number
+  rncsComParada: number
+  mediaHoras: number
+  totalRnc: number
+  onClick?: () => void
+}) {
+  const pct = totalRnc ? Math.round((rncsComParada / totalRnc) * 100) : 0
+  return (
+    <Card
+      onClick={onClick}
+      className={cn(
+        'flex flex-col justify-between gap-3 rounded-2xl border-neutral-200/70 bg-white p-4 shadow-sm transition-all',
+        onClick &&
+          'cursor-pointer hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-md',
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-50 text-sky-600">
+          <Timer className="h-4.5 w-4.5" />
+        </div>
+        <h2 className="text-[13px] font-semibold text-neutral-800">
+          Total de paradas no período
+        </h2>
+      </div>
+      <div className="flex items-end gap-1.5">
+        <span className="text-3xl font-semibold tracking-tight text-neutral-900 tabular-nums">
+          {totalHoras.toLocaleString('pt-BR')}
+        </span>
+        <span className="pb-1 text-sm font-medium text-neutral-400">horas</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <MetricaParada k="RNCs c/ parada" v={String(rncsComParada)} />
+        <MetricaParada k="Média/RNC" v={`${mediaHoras} h`} />
+        <MetricaParada k="% das RNCs" v={`${pct}%`} />
+      </div>
+    </Card>
+  )
+}
+
+function MetricaParada({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-lg bg-neutral-50 px-2.5 py-2">
+      <span className="text-base font-semibold tracking-tight text-neutral-900 tabular-nums">
+        {v}
+      </span>
+      <span className="text-[10.5px] uppercase tracking-wide text-neutral-400">{k}</span>
+    </div>
   )
 }
 
@@ -856,9 +1061,11 @@ function AtividadeDiaria({ dados }: { dados: ContagemDia[] }) {
 function Barras({
   dados,
   onPick,
+  sufixo = 'RNCs',
 }: {
   dados: Contagem[]
   onPick: (d: Contagem) => void
+  sufixo?: string
 }) {
   const [hover, setHover] = React.useState<number | null>(null)
   if (dados.length === 0) return <SemDados />
@@ -869,7 +1076,7 @@ function Barras({
     <ResponsiveContainer width="100%" height={altura}>
       <BarChart data={dados} layout="vertical" margin={{ top: 2, right: 46, bottom: 2, left: 4 }}>
         <CartesianGrid horizontal={false} stroke="#f3f4f6" />
-        <XAxis type="number" allowDecimals={false} tick={{ fontSize: 10, fill: '#cbd5e1' }} axisLine={false} tickLine={false} />
+        <XAxis type="number" tick={{ fontSize: 10, fill: '#cbd5e1' }} axisLine={false} tickLine={false} />
         <YAxis
           type="category"
           dataKey="label"
@@ -881,7 +1088,7 @@ function Barras({
         />
         <Tooltip
           cursor={{ fill: '#f8fafc' }}
-          formatter={(value) => [`${value} RNCs`, '']}
+          formatter={(value) => [`${value} ${sufixo}`, '']}
           contentStyle={tooltipStyle}
           labelStyle={{ fontSize: 11, color: '#64748b' }}
         />
@@ -907,9 +1114,11 @@ function Barras({
 function Colunas({
   dados,
   onPick,
+  sufixo = 'RNCs',
 }: {
   dados: Contagem[]
   onPick: (d: Contagem) => void
+  sufixo?: string
 }) {
   const [hover, setHover] = React.useState<number | null>(null)
   if (dados.length === 0) return <SemDados />
@@ -930,10 +1139,10 @@ function Colunas({
           tickLine={false}
           tickFormatter={(v: string) => curto(v, 14)}
         />
-        <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: '#cbd5e1' }} axisLine={false} tickLine={false} />
+        <YAxis tick={{ fontSize: 10, fill: '#cbd5e1' }} axisLine={false} tickLine={false} />
         <Tooltip
           cursor={{ fill: '#f8fafc' }}
-          formatter={(value) => [`${value} RNCs`, '']}
+          formatter={(value) => [`${value} ${sufixo}`, '']}
           contentStyle={tooltipStyle}
           labelStyle={{ fontSize: 11, color: '#64748b' }}
         />

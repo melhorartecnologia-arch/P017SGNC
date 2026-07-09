@@ -28,6 +28,28 @@ async function porRelacao<T extends { _count: number }>(
   })
 }
 
+/** Igual a porRelacao, mas somando um campo numérico (ex.: minutos de parada). */
+async function porRelacaoSoma(
+  groupField: string,
+  somaField: string,
+  rows: { [k: string]: unknown }[],
+  resolveLabels: (ids: string[]) => Promise<Map<string, string>>,
+): Promise<Contagem[]> {
+  const ids = rows
+    .map((r) => r[groupField] as string | null)
+    .filter((v): v is string => !!v)
+  const labels = await resolveLabels(ids)
+  return rows.map((r) => {
+    const id = (r[groupField] as string | null) ?? null
+    const soma = (r._sum as Record<string, number | null>)?.[somaField] ?? 0
+    return {
+      id,
+      label: id ? (labels.get(id) ?? '—') : 'Não informado',
+      total: soma ?? 0,
+    }
+  })
+}
+
 dashboardRouter.get('/rnc', async (req, res, next) => {
   try {
     // Filtro de período por data de identificação.
@@ -40,6 +62,9 @@ dashboardRouter.get('/rnc', async (req, res, next) => {
       if (ate && !isNaN(ate.getTime())) wP.dataIdentificacao.lt = ate
     }
 
+    // Filtro de paradas: RNCs com tempo de parada informado (> 0).
+    const wParada = { tempoParadaMinutos: { gt: 0 }, ...wP }
+
     const [
       total,
       porStatusRaw,
@@ -50,6 +75,10 @@ dashboardRouter.get('/rnc', async (req, res, next) => {
       porDisposicaoRaw,
       porOrigemRaw,
       porSeveridadeRaw,
+      paradaAgg,
+      paradaFilialRaw,
+      paradaTipoRaw,
+      paradaFornecedorRaw,
     ] = await Promise.all([
       prisma.relatorioNaoConformidade.count({ where: wP }),
       prisma.relatorioNaoConformidade.groupBy({
@@ -95,6 +124,29 @@ dashboardRouter.get('/rnc', async (req, res, next) => {
         by: ['severidadeId'],
         _count: { _all: true },
         where: wP,
+      }),
+      // ── Horas de parada ──────────────────────────────────────────
+      prisma.relatorioNaoConformidade.aggregate({
+        _sum: { tempoParadaMinutos: true },
+        _count: { tempoParadaMinutos: true },
+        where: wParada,
+      }),
+      prisma.relatorioNaoConformidade.groupBy({
+        by: ['filialId'],
+        _sum: { tempoParadaMinutos: true },
+        where: wParada,
+      }),
+      prisma.relatorioNaoConformidade.groupBy({
+        by: ['tipoNaoConformidadeId'],
+        _sum: { tempoParadaMinutos: true },
+        where: wParada,
+      }),
+      prisma.relatorioNaoConformidade.groupBy({
+        by: ['fornecedorId'],
+        _sum: { tempoParadaMinutos: true },
+        where: wParada,
+        orderBy: { _sum: { tempoParadaMinutos: 'desc' } },
+        take: 5,
       }),
     ])
 
@@ -231,6 +283,22 @@ dashboardRouter.get('/rnc', async (req, res, next) => {
     const ordena = (arr: Contagem[]) =>
       [...arr].sort((a, b) => b.total - a.total)
 
+    // ── Horas de parada (agregações) ──────────────────────────────
+    const paradaTotalMinutos = paradaAgg._sum.tempoParadaMinutos ?? 0
+    const paradaRncs = paradaAgg._count.tempoParadaMinutos ?? 0
+    const paradaPorFilial = ordena(
+      await porRelacaoSoma('filialId', 'tempoParadaMinutos', paradaFilialRaw, labelFilial),
+    )
+    const paradaPorTipo = ordena(
+      await porRelacaoSoma('tipoNaoConformidadeId', 'tempoParadaMinutos', paradaTipoRaw, labelTipo),
+    )
+    const paradaTopFornecedores = await porRelacaoSoma(
+      'fornecedorId',
+      'tempoParadaMinutos',
+      paradaFornecedorRaw,
+      labelFornecedor,
+    )
+
     res.json({
       total,
       porStatus,
@@ -254,6 +322,11 @@ dashboardRouter.get('/rnc', async (req, res, next) => {
       porMes,
       porDia,
       anterior,
+      paradaTotalMinutos,
+      paradaRncs,
+      paradaPorFilial,
+      paradaPorTipo,
+      paradaTopFornecedores,
     })
   } catch (err) {
     next(err)
