@@ -427,8 +427,11 @@ export function RncWizard({
     !!n.dataFabricacao && !!n.dataValidade && n.dataValidade < n.dataFabricacao
   const recebAntesFab = (n: { dataFabricacao: string; dataRecebimento: string }) =>
     !!n.dataFabricacao && !!n.dataRecebimento && n.dataRecebimento < n.dataFabricacao
+  // Data de fabricação não pode ser futura (no máximo a data atual).
+  const fabricacaoFutura = (n: { dataFabricacao: string }) =>
+    !!n.dataFabricacao && n.dataFabricacao > todayISO()
   const notasComDataInvalida = notasFiscais.some(
-    (n) => validadeAntesFab(n) || recebAntesFab(n),
+    (n) => validadeAntesFab(n) || recebAntesFab(n) || fabricacaoFutura(n),
   )
   // Ao menos uma nota fiscal (com número) é obrigatória.
   const semNotaFiscal = numerosNota.length === 0
@@ -450,16 +453,19 @@ export function RncWizard({
     qtdDefeitoInformada &&
     !qtdDefeitoInvalida
   const notasValid = !semNotaFiscal && !notasInvalidas
-  const step3Valid = materialValid && notasValid
+  const materialNotasValid = materialValid && notasValid
   const subStep3Valid =
-    subStep3 === 1 ? materialValid : subStep3 === 2 ? notasValid : step3Valid
-  // Etapa 4: todos os campos são obrigatórios.
-  const step4Valid =
+    subStep3 === 1 ? materialValid : subStep3 === 2 ? notasValid : materialNotasValid
+  // Etapa 3 (Disposição & defeito): todos os campos são obrigatórios. A
+  // origem é definida aqui, antes de Material & transporte, pois direciona
+  // a necessidade dos dados de transporte.
+  const disposicaoValid =
     !!disposicaoId &&
     !!origemId &&
     !!severidadeId &&
     descricaoDefeito.trim() !== ''
-  const stepFinalValid = step1Valid && step2Valid && step3Valid && step4Valid
+  const stepFinalValid =
+    step1Valid && step2Valid && disposicaoValid && materialNotasValid
 
   const addLoteRow = () => {
     if (lotes.length >= 50) return
@@ -590,13 +596,19 @@ export function RncWizard({
       setStep(2)
       return
     }
+    // Etapa 3 = Disposição & defeito (vem antes de Material & transporte).
     if (step === 2 && step2Valid) {
       setStep(3)
+      return
+    }
+    if (step === 3 && disposicaoValid) {
+      setStep(4)
       setSubStep3(1)
       return
     }
-    if (step === 3) {
-      // Avança pelas sub-etapas; só sai da etapa 3 a partir da última.
+    // Etapa 4 = Material & transporte, com sub-etapas.
+    if (step === 4) {
+      // Avança pelas sub-etapas; só grava e vai para Fotos a partir da última.
       if (subStep3 === 1 && materialValid) {
         // Notas fiscais são obrigatórias: ao entrar na sub-etapa, já abre
         // uma linha em branco para preencher (evita o estado vazio).
@@ -617,43 +629,43 @@ export function RncWizard({
         setSubStep3(3)
         return
       }
-      if (subStep3 === 3 && step3Valid) {
-        setStep(4)
+      if (subStep3 === 3 && stepFinalValid) {
+        setSaving(true)
+        try {
+          const persisted = await persistRnc()
+          if (persisted) {
+            toast.success(
+              savedRnc ? 'Alterações salvas' : 'Rascunho do RNC salvo',
+              { description: `Nº ${persisted.numero}` },
+            )
+            setStep(5)
+          }
+        } catch (err) {
+          const message =
+            err instanceof ApiError ? err.message : 'Falha ao salvar.'
+          setError(message)
+          toast.error('Não foi possível salvar', { description: message })
+        } finally {
+          setSaving(false)
+        }
       }
       return
-    }
-    if (step === 4 && stepFinalValid) {
-      setSaving(true)
-      try {
-        const persisted = await persistRnc()
-        if (persisted) {
-          toast.success(
-            savedRnc ? 'Alterações salvas' : 'Rascunho do RNC salvo',
-            { description: `Nº ${persisted.numero}` },
-          )
-          setStep(5)
-        }
-      } catch (err) {
-        const message =
-          err instanceof ApiError ? err.message : 'Falha ao salvar.'
-        setError(message)
-        toast.error('Não foi possível salvar', { description: message })
-      } finally {
-        setSaving(false)
-      }
     }
   }
 
   const goBack = () => {
     setError(null)
     if (step === 2) setStep(1)
-    else if (step === 3) {
+    else if (step === 3) setStep(2)
+    else if (step === 4) {
+      // Material & transporte: volta pelas sub-etapas e, na primeira,
+      // retorna para Disposição & defeito.
       if (subStep3 > 1) setSubStep3((subStep3 - 1) as 1 | 2)
-      else setStep(2)
-    } else if (step === 4) {
-      setStep(3)
+      else setStep(3)
+    } else if (step === 5) {
+      setStep(4)
       setSubStep3(3)
-    } else if (step === 5) setStep(4)
+    }
   }
 
   const handleConcluir = () => {
@@ -683,9 +695,9 @@ export function RncWizard({
           <ChevronRight className="h-3 w-3 text-neutral-400" />
           <StepBadge active={step === 2} done={step > 2} index={2} label="Fornecedor & histórico" />
           <ChevronRight className="h-3 w-3 text-neutral-400" />
-          <StepBadge active={step === 3} done={step > 3} index={3} label="Material & transporte" />
+          <StepBadge active={step === 3} done={step > 3} index={3} label="Disposição & defeito" />
           <ChevronRight className="h-3 w-3 text-neutral-400" />
-          <StepBadge active={step === 4} done={step > 4} index={4} label="Disposição & defeito" />
+          <StepBadge active={step === 4} done={step > 4} index={4} label="Material & transporte" />
           <ChevronRight className="h-3 w-3 text-neutral-400" />
           <StepBadge active={step === 5} done={false} index={5} label="Fotos" />
         </div>
@@ -879,9 +891,9 @@ export function RncWizard({
           </section>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <section className="flex flex-col gap-4">
-            {/* Mini-stepper das sub-etapas da etapa 3 */}
+            {/* Mini-stepper das sub-etapas de Material & transporte */}
             <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
               <SubStepBadge
                 active={subStep3 === 1}
@@ -1102,6 +1114,7 @@ export function RncWizard({
                       const semNumero = notaSemNumero(n)
                       const validadeInvalida = validadeAntesFab(n)
                       const recebInvalida = recebAntesFab(n)
+                      const fabFutura = fabricacaoFutura(n)
                       return (
                         <div
                           key={idx}
@@ -1132,12 +1145,14 @@ export function RncWizard({
                               <Input
                                 type="date"
                                 value={n.dataFabricacao}
+                                max={todayISO()}
                                 onChange={(e) =>
                                   updateNotaRow(idx, {
                                     dataFabricacao: e.target.value,
                                   })
                                 }
                                 disabled={saving}
+                                className={fabFutura ? 'border-red-400' : ''}
                               />
                             </Field>
                             <Field
@@ -1207,6 +1222,12 @@ export function RncWizard({
                             <span className="text-xs text-red-600">
                               A data de recebimento não pode ser anterior à data
                               de fabricação.
+                            </span>
+                          )}
+                          {fabFutura && (
+                            <span className="text-xs text-red-600">
+                              A data de fabricação não pode ser futura (no máximo
+                              a data atual).
                             </span>
                           )}
                         </div>
@@ -1282,7 +1303,7 @@ export function RncWizard({
           </section>
         )}
 
-        {step === 4 && (
+        {step === 3 && (
           <section className="flex flex-col gap-4">
             <Section title="Origem da não conformidade">
               <Field label="Origem" required>
@@ -1466,7 +1487,7 @@ export function RncWizard({
                 Cancelar
               </Button>
             )}
-            {step < 4 && (
+            {(step < 4 || (step === 4 && subStep3 < 3)) && (
               <Button
                 onClick={goNext}
                 disabled={
@@ -1475,15 +1496,15 @@ export function RncWizard({
                     : step === 2
                       ? !step2Valid
                       : step === 3
-                        ? !subStep3Valid
-                        : false
+                        ? !disposicaoValid
+                        : !subStep3Valid
                 }
               >
                 Próxima etapa
                 <ChevronRight className="h-4 w-4" />
               </Button>
             )}
-            {step === 4 && (
+            {step === 4 && subStep3 === 3 && (
               <Button onClick={goNext} disabled={!stepFinalValid || saving}>
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                 {savedRnc ? 'Salvar e ir para fotos' : 'Salvar rascunho e adicionar fotos'}

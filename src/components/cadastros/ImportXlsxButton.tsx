@@ -10,6 +10,36 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { downloadTemplate, readXlsxRows } from '@/lib/utils/xlsx'
+import { ApiError } from '@/lib/api/client'
+
+/**
+ * Extrai uma mensagem acionável do erro. Para erros de validação da API,
+ * mostra o detalhe por campo (ex.: "CNPJ deve conter 14 dígitos") em vez
+ * do genérico "Dados inválidos".
+ */
+function mensagemDoErro(err: unknown): string {
+  if (err instanceof ApiError) {
+    const body = err.details as
+      | {
+          details?: {
+            fieldErrors?: Record<string, string[]>
+            formErrors?: string[]
+          }
+        }
+      | undefined
+    const partes: string[] = []
+    const fe = body?.details?.fieldErrors
+    if (fe) {
+      for (const [campo, msgs] of Object.entries(fe)) {
+        if (msgs && msgs.length) partes.push(`${campo}: ${msgs[0]}`)
+      }
+    }
+    const form = body?.details?.formErrors
+    if (form && form.length) partes.push(...form)
+    return partes.length ? partes.join('; ') : err.message
+  }
+  return err instanceof Error ? err.message : 'Erro desconhecido'
+}
 
 export type ImportColumn = {
   /** Cabeçalho exato esperado na planilha. */
@@ -122,9 +152,7 @@ export function ImportXlsxButton<TInput>({
         await importOne(input)
         ok += 1
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : 'Erro desconhecido'
-        errs.push({ rowIndex: i, message })
+        errs.push({ rowIndex: i, message: mensagemDoErro(err) })
       } finally {
         setProgress({ done: i + 1, total: rows.length })
         setSuccesses(ok)

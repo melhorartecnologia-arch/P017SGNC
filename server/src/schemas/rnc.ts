@@ -180,6 +180,15 @@ const rncBaseSchema = z.object({
         .superRefine((n, ctx) => {
           // Validade e recebimento não podem ser anteriores à fabricação.
           if (n.dataFabricacao) {
+            // Fabricação não pode ser futura (no máximo o dia atual, pelo
+            // relógio do servidor — evita datas adulteradas no cliente).
+            if (diaOperacao(n.dataFabricacao) > diaOperacao(new Date())) {
+              ctx.addIssue({
+                code: 'custom',
+                path: ['dataFabricacao'],
+                message: 'A data de fabricação não pode ser futura (no máximo a data atual)',
+              })
+            }
             if (n.dataValidade && n.dataValidade < n.dataFabricacao) {
               ctx.addIssue({
                 code: 'custom',
