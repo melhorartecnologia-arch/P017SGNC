@@ -1,5 +1,19 @@
 import { env } from '../env.js'
 
+/**
+ * URL base pública usada nos links dos e-mails. Quando APP_BASE_URL foi
+ * configurada para produção, ela é autoritativa; caso contrário, usa a URL
+ * derivada da requisição (via nginx). Só cai no default local em último caso
+ * (ex.: e-mails do agendador sem requisição e sem APP_BASE_URL configurada).
+ */
+function resolverBaseUrl(override?: string): string {
+  const configurada = env.APP_BASE_URL.replace(/\/$/, '')
+  const ehLocal = /localhost|127\.0\.0\.1|0\.0\.0\.0/.test(configurada)
+  if (configurada && !ehLocal) return configurada
+  if (override) return override.replace(/\/$/, '')
+  return configurada
+}
+
 export type DadosEmailAssinatura = {
   numero: string
   filialNome: string
@@ -16,6 +30,8 @@ export type DadosEmailAssinatura = {
   tipo?: 'solicitacao' | 'lembrete' | 'escalonamento'
   /** Texto do prazo (ex.: "12h") para o aviso de expiração. */
   prazoTexto?: string | null
+  /** URL pública do app (derivada da requisição) para os links do e-mail. */
+  baseUrl?: string
 }
 
 function fmtData(d: Date): string {
@@ -32,7 +48,7 @@ function escapeHtml(s: string): string {
 
 /** Monta assunto, texto e HTML do e-mail de solicitação de assinatura. */
 export function montarEmailAssinatura(d: DadosEmailAssinatura) {
-  const base = env.APP_BASE_URL.replace(/\/$/, '')
+  const base = resolverBaseUrl(d.baseUrl)
   const linkAssinar = `${base}/?assinar=${encodeURIComponent(d.token)}`
   const linkPdf = `${base}/api/assinatura/${encodeURIComponent(d.token)}/pdf`
   const tipo = d.tipo ?? 'solicitacao'
@@ -164,11 +180,13 @@ export type DadosEmailConclusao = {
   dataIdentificacao: Date
   emitenteNome: string | null
   assinaturas: AssinaturaResumo[]
+  /** URL pública do app (derivada da requisição) para os links do e-mail. */
+  baseUrl?: string
 }
 
 /** E-mail de conclusão: todas as assinaturas da RNC foram realizadas. */
 export function montarEmailConclusao(d: DadosEmailConclusao) {
-  const base = env.APP_BASE_URL.replace(/\/$/, '')
+  const base = resolverBaseUrl(d.baseUrl)
   const subject = `RNC ${d.numero} — assinaturas concluídas`
 
   const linhasResumo = d.assinaturas.map((a) => {

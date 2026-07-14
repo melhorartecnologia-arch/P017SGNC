@@ -94,6 +94,7 @@ export async function enviarWorkflowAprovador(
   ap: AprovadorRow,
   tipo: 'solicitacao' | 'lembrete' | 'escalonamento',
   horasSla?: number | null,
+  baseUrl?: string,
 ): Promise<{ ok: boolean; erro?: string }> {
   const token = ap.tokenAssinatura ?? randomBytes(24).toString('hex')
   const senha =
@@ -136,6 +137,7 @@ export async function enviarWorkflowAprovador(
       senha,
       tipo,
       prazoTexto,
+      baseUrl,
     })
     try {
       await transporte.transporter.sendMail({
@@ -196,6 +198,7 @@ async function escalonarRncInterno(
   rnc: RncInfo,
   modo: 'todos' | 'proximo',
   horasSla: number | null,
+  baseUrl?: string,
 ): Promise<{ novos: number; falhas: string[]; havendoCandidatos: boolean }> {
   const candidatos = await candidatosPorArea(prisma, rnc.filialId, rnc.turnoId)
   const todos = await prisma.rncAprovador.findMany({
@@ -268,6 +271,7 @@ async function escalonarRncInterno(
         criado,
         'escalonamento',
         horasSla,
+        baseUrl,
       )
       if (r.ok) novos++
       else if (r.erro) falhas.push(r.erro)
@@ -406,6 +410,7 @@ export type ResultadoEscalonamentoManual = {
 export async function escalonarManual(
   prisma: PrismaClient,
   rncId: string,
+  baseUrl?: string,
 ): Promise<ResultadoEscalonamentoManual> {
   const rnc = await prisma.relatorioNaoConformidade.findUnique({
     where: { id: rncId },
@@ -444,6 +449,7 @@ export async function escalonarManual(
     rnc,
     'proximo',
     horas,
+    baseUrl,
   )
   return {
     novos,
@@ -465,6 +471,7 @@ export type ResultadoLembreteManual = {
 export async function enviarLembreteManual(
   prisma: PrismaClient,
   rncId: string,
+  baseUrl?: string,
 ): Promise<ResultadoLembreteManual> {
   const rnc = await prisma.relatorioNaoConformidade.findUnique({
     where: { id: rncId },
@@ -508,6 +515,7 @@ export async function enviarLembreteManual(
       ap,
       'lembrete',
       horas,
+      baseUrl,
     )
     if (r.ok) {
       await prisma.rncAprovador.update({
@@ -531,6 +539,7 @@ export async function enviarLembreteManual(
 export async function finalizarSeConcluida(
   prisma: PrismaClient,
   rncId: string,
+  baseUrl?: string,
 ): Promise<boolean> {
   const rnc = await prisma.relatorioNaoConformidade.findUnique({
     where: { id: rncId },
@@ -579,6 +588,7 @@ export async function finalizarSeConcluida(
   if (!transporte) return true // concluída, mas sem SMTP para notificar
 
   const { subject, text, html } = montarEmailConclusao({
+    baseUrl,
     numero: rnc.numero,
     filialNome: rnc.filial?.nome ?? '',
     fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',

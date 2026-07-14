@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { Router, type Request } from 'express'
 import { Prisma } from '@prisma/client'
 import multer from 'multer'
 import path from 'node:path'
@@ -27,6 +27,19 @@ import {
 } from '../lib/rnc-workflow.js'
 
 export const rncRouter = Router()
+
+/**
+ * URL pública do app a partir da requisição (respeitando o proxy/nginx).
+ * Usada nos links dos e-mails de assinatura para não cair em localhost
+ * quando APP_BASE_URL não estiver configurada no servidor.
+ */
+function baseUrlPublica(req: Request): string {
+  const fwdProto = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim()
+  const fwdHost = (req.headers['x-forwarded-host'] as string | undefined)?.split(',')[0]?.trim()
+  const proto = fwdProto || req.protocol || 'https'
+  const host = fwdHost || req.get('host') || ''
+  return host ? `${proto}://${host}` : ''
+}
 
 const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'rnc-fotos')
 mkdirSync(UPLOAD_DIR, { recursive: true })
@@ -284,7 +297,7 @@ rncRouter.patch('/:rncId/aprovadores/:id', async (req, res, next) => {
       data: { assinadoEm: assinado ? new Date() : null },
     })
     // Se foi a última assinatura, notifica a conclusão a todos.
-    if (assinado) await finalizarSeConcluida(prisma, alvo.rncId)
+    if (assinado) await finalizarSeConcluida(prisma, alvo.rncId, baseUrlPublica(req))
     const rnc = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
       where: { id: req.params.rncId },
       include: includeRefs,
@@ -364,6 +377,7 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
         ap,
         'solicitacao',
         horasSla,
+        baseUrlPublica(req),
       )
       if (r.ok) enviados.push(ap.email ?? ap.nome)
       else falhas.push({ email: ap.email ?? ap.nome, erro: r.erro ?? 'erro' })
@@ -435,7 +449,7 @@ rncRouter.post('/:id/lembrete', async (req, res, next) => {
       )
     }
     const { enviados, falhas, semSmtp, semPendentes } =
-      await enviarLembreteManual(prisma, rnc.id)
+      await enviarLembreteManual(prisma, rnc.id, baseUrlPublica(req))
     if (semSmtp) {
       throw new HttpError(
         400,
@@ -477,7 +491,7 @@ rncRouter.post('/:id/escalonar', async (req, res, next) => {
         'Envie a RNC para assinatura antes de escalonar.',
       )
     }
-    const r = await escalonarManual(prisma, rnc.id)
+    const r = await escalonarManual(prisma, rnc.id, baseUrlPublica(req))
     if (r.semSmtp) {
       throw new HttpError(
         400,

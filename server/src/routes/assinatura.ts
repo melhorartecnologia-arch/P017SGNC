@@ -1,4 +1,4 @@
-import { Router } from 'express'
+import { Router, type Request } from 'express'
 import { z } from 'zod'
 import { UAParser } from 'ua-parser-js'
 import { prisma } from '../db.js'
@@ -27,6 +27,15 @@ function ipOrigem(req: import('express').Request): string {
   const xff = req.headers['x-forwarded-for']
   if (typeof xff === 'string' && xff.length > 0) return xff.split(',')[0].trim()
   return req.ip ?? req.socket.remoteAddress ?? ''
+}
+
+/** URL pública do app a partir da requisição (respeitando o proxy/nginx). */
+function baseUrlPublica(req: Request): string {
+  const fwdProto = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim()
+  const fwdHost = (req.headers['x-forwarded-host'] as string | undefined)?.split(',')[0]?.trim()
+  const proto = fwdProto || req.protocol || 'https'
+  const host = fwdHost || req.get('host') || ''
+  return host ? `${proto}://${host}` : ''
 }
 
 /**
@@ -176,7 +185,7 @@ assinaturaRouter.post('/:token/assinar', async (req, res, next) => {
       select: { assinadoEm: true },
     })
     // Se esta foi a última assinatura, notifica a conclusão a todos.
-    await finalizarSeConcluida(prisma, ap.rncId)
+    await finalizarSeConcluida(prisma, ap.rncId, baseUrlPublica(req))
     res.json({ ok: true, assinadoEm: atualizado.assinadoEm })
   } catch (err) {
     next(err)
