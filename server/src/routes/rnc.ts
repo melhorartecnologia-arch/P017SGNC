@@ -620,18 +620,33 @@ rncRouter.post('/', async (req, res, next) => {
         `rnc:${data.filialId}`,
       )
       // Numeração contínua por filial: parte do maior entre o número inicial
-      // informado no cadastro da filial (controle atual) e o último já usado.
+      // informado no cadastro da filial (controle atual), o último sequencial
+      // já usado e a própria quantidade de RNCs da filial (este piso cobre
+      // registros legados sem sequencial preenchido).
       const agg = await tx.relatorioNaoConformidade.aggregate({
         where: { filialId: data.filialId },
         _max: { sequencialFilial: true },
+        _count: { _all: true },
       })
-      const ultimo = Math.max(
-        filial.rncNumeroInicial ?? 0,
-        agg._max.sequencialFilial ?? 0,
-      )
-      const sequencial = ultimo + 1
-      const numero =
+      let sequencial =
+        Math.max(
+          filial.rncNumeroInicial ?? 0,
+          agg._max.sequencialFilial ?? 0,
+          agg._count._all ?? 0,
+        ) + 1
+      let numero =
         codigoFilial + mes2 + ano2 + String(sequencial).padStart(3, '0')
+      // Garante a unicidade do número mesmo diante de numerações legadas ou
+      // inconsistências: avança o sequencial até encontrar um número livre.
+      // Seguro sob o lock advisory por filial (sem concorrência aqui).
+      for (let i = 0; i < 5000; i++) {
+        const conflito = await tx.relatorioNaoConformidade.count({
+          where: { numero },
+        })
+        if (conflito === 0) break
+        sequencial += 1
+        numero = codigoFilial + mes2 + ano2 + String(sequencial).padStart(3, '0')
+      }
       const novo = await tx.relatorioNaoConformidade.create({
         data: {
           ...rncData,
