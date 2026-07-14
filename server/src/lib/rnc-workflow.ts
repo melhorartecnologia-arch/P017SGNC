@@ -77,8 +77,14 @@ export async function horasRespostaRnc(db: Db): Promise<number | null> {
   return politica?.horasResposta ?? null
 }
 
+// Formata um prazo em horas fracionárias como "2h", "30min" ou "1h30min".
 function fmtHoras(horas: number): string {
-  return horas % 1 === 0 ? `${horas}h` : `${horas.toFixed(1)}h`
+  const totalMin = Math.round(horas * 60)
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  if (h > 0 && m > 0) return `${h}h${String(m).padStart(2, '0')}min`
+  if (h > 0) return `${h}h`
+  return `${m}min`
 }
 
 /**

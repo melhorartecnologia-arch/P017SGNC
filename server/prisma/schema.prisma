@@ -130,7 +130,8 @@ model TipoRelatorio {
 model PoliticaResposta {
   id              String  @id @default(uuid()) @db.Uuid
   tipoRelatorioId String  @unique @map("tipo_relatorio_id") @db.Uuid
-  horasResposta   Int     @map("horas_resposta")
+  /// Prazo de resposta em horas (fracionárias: 1.5 = 1h30). Aceita minutos.
+  horasResposta   Float   @map("horas_resposta")
   descricao       String? @db.Text
   ativo           Boolean @default(true)
 

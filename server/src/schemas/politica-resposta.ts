@@ -2,11 +2,11 @@ import { z } from 'zod'
 
 export const politicaCreateSchema = z.object({
   tipoRelatorioId: z.string().uuid('Tipo de relatório inválido'),
+  // Prazo em horas fracionárias (1.5 = 1h30). Mínimo de 1 minuto.
   horasResposta: z.coerce
-    .number({ invalid_type_error: 'Horas inválidas' })
-    .int('Use um número inteiro de horas')
-    .min(1, 'Mínimo de 1 hora')
-    .max(8760, 'Máximo de 8760 horas (1 ano)'),
+    .number({ invalid_type_error: 'Prazo inválido' })
+    .max(8760, 'Máximo de 8760 horas (1 ano)')
+    .refine((v) => v >= 1 / 60 - 1e-9, 'Mínimo de 1 minuto'),
   descricao: z.string().trim().max(2000).optional().nullable(),
   ativo: z.boolean().optional().default(true),
 })
