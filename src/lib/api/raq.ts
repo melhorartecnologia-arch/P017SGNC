@@ -114,4 +114,10 @@ export const raqApi = {
 
   update: (id: string, input: Partial<RaqCreateInput>) =>
     apiRequest<Raq>(`/raq/${id}`, { method: 'PATCH', body: input }),
+
+  /** Reenvio manual ao fornecedor quando o envio automático falhou. */
+  enviarFornecedor: (id: string) =>
+    apiRequest<{ raq: Raq; email: string }>(`/raq/${id}/enviar-fornecedor`, {
+      method: 'POST',
+    }),
 }

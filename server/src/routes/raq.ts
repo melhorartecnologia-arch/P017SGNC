@@ -4,6 +4,7 @@ import { prisma } from '../db.js'
 import { HttpError } from '../middleware/error.js'
 import { raqCreateSchema, raqQuerySchema, raqUpdateSchema } from '../schemas/raq.js'
 import { montarMatrizAprovadores } from '../lib/rnc-aprovadores.js'
+import { enviarRaqAoFornecedor } from '../lib/rnc-workflow.js'
 import { includeRefs } from './rnc.js'
 
 /**
@@ -265,6 +266,48 @@ raqRouter.patch('/:id', async (req, res, next) => {
       return salvo
     })
     res.json(updated)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * Reenvio manual do RAQ assinado ao fornecedor — para quando o envio
+ * automático da conclusão falhou (SMTP fora, contato sem e-mail).
+ * Recusa se o RAQ ainda não está concluído ou se já foi enviado.
+ */
+raqRouter.post('/:id/enviar-fornecedor', async (req, res, next) => {
+  try {
+    const raq = await prisma.relatorioNaoConformidade.findUnique({
+      where: { id: req.params.id },
+      select: {
+        tipoDocumento: true,
+        assinaturasConcluidasEm: true,
+        enviadoFornecedorEm: true,
+      },
+    })
+    if (!raq || raq.tipoDocumento !== 'RAQ') {
+      throw new HttpError(404, 'RAQ não encontrado')
+    }
+    if (!raq.assinaturasConcluidasEm) {
+      throw new HttpError(
+        409,
+        'O RAQ só é enviado ao fornecedor depois de todas as assinaturas.',
+      )
+    }
+    if (raq.enviadoFornecedorEm) {
+      throw new HttpError(409, 'O RAQ já foi enviado ao fornecedor.')
+    }
+
+    const r = await enviarRaqAoFornecedor(prisma, req.params.id)
+    if (!r.enviado) {
+      throw new HttpError(400, r.motivo ?? 'Não foi possível enviar o RAQ.')
+    }
+    const atualizado = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
+      where: { id: req.params.id },
+      include: includeRefsRaq,
+    })
+    res.json({ raq: atualizado, email: r.email })
   } catch (err) {
     next(err)
   }

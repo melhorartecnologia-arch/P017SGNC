@@ -172,6 +172,25 @@ export function RaqDetailPanel({ raq, onClose, onEdit, onUpdated }: Props) {
     }
   }
 
+  const [reenviando, setReenviando] = React.useState(false)
+  const handleEnviarFornecedor = async () => {
+    if (!raq) return
+    setReenviando(true)
+    try {
+      const { raq: atualizado, email } = await raqApi.enviarFornecedor(raq.id)
+      onUpdated?.(atualizado)
+      toast.success('RAQ enviado ao fornecedor', {
+        description: `PDF assinado enviado a ${email}.`,
+      })
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao enviar ao fornecedor.'
+      toast.error('Não foi possível enviar', { description: message })
+    } finally {
+      setReenviando(false)
+    }
+  }
+
   const handlePdf = async () => {
     if (!raq) return
     setBaixando(true)
@@ -333,13 +352,33 @@ export function RaqDetailPanel({ raq, onClose, onEdit, onUpdated }: Props) {
                     </span>
                   </div>
                 ) : (
-                  <div className="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600">
-                    <MailWarning className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
-                    <span>
-                      Concluídas todas as assinaturas, o PDF assinado vai
-                      automaticamente por e-mail ao contato do fornecedor e o
-                      RAQ é encerrado.
-                    </span>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600">
+                      <MailWarning className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                      <span>
+                        Concluídas todas as assinaturas, o PDF assinado vai
+                        automaticamente por e-mail ao contato do fornecedor e o
+                        RAQ é encerrado.
+                      </span>
+                    </div>
+                    {raq.assinaturasConcluidasEm && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 w-fit gap-1.5"
+                        onClick={handleEnviarFornecedor}
+                        disabled={reenviando}
+                        title="O envio automático falhou? Envie agora o PDF assinado ao contato do fornecedor."
+                      >
+                        {reenviando ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Send className="h-3.5 w-3.5" />
+                        )}
+                        Enviar ao fornecedor agora
+                      </Button>
+                    )}
                   </div>
                 )}
               </Section>
