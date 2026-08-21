@@ -117,6 +117,7 @@ model TipoRelatorio {
   origens     OrigemNaoConformidade[]
   disposicoes DisposicaoMaterial[]
   politica    PoliticaResposta?
+  aprovadores Aprovador[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -267,6 +268,8 @@ model Filial {
   // Numeração sequencial de RNC por filial: ponto de partida informado no
   // cadastro (último número do controle atual). As novas RNCs continuam daqui.
   rncNumeroInicial Int @default(0) @map("rnc_numero_inicial")
+  /// Sequencial inicial dos RAQs da filial (sistemas com histórico prévio).
+  raqNumeroInicial Int @default(0) @map("raq_numero_inicial")
 
   aprovadores               Aprovador[]
   turnos                    TurnoTrabalho[]
@@ -318,6 +321,10 @@ model Aprovador {
   /// das assinaturas. Só os marcados recebem esse fluxo.
   recebeRespostaFornecedor Boolean @default(false) @map("recebe_resposta_fornecedor")
 
+  /// Tipos de relatório que este aprovador assina. Sem nenhum vínculo,
+  /// assina todos os tipos — mesmo padrão da restrição de turno.
+  tiposRelatorio TipoRelatorio[]
+
   filial Filial         @relation(fields: [filialId], references: [id], onDelete: Restrict)
   area   Area           @relation(fields: [areaId], references: [id], onDelete: Restrict)
   turno  TurnoTrabalho? @relation(fields: [turnoId], references: [id], onDelete: SetNull)
@@ -332,6 +339,15 @@ model Aprovador {
   @@index([areaId])
   @@index([filialId, areaId])
   @@map("aprovadores")
+}
+
+/// Tipo de documento gravado na tabela de relatórios. O RAQ (Relatório
+/// de Alerta de Qualidade) compartilha a estrutura e o workflow de
+/// assinatura da RNC, mas tem campos e conclusão próprios: assinado,
+/// vai por e-mail ao fornecedor e encerra — sem ciência/resposta.
+enum TipoDocumento {
+  RNC
+  RAQ
 }
 
 /// Resposta do fornecedor à RNC concluída (ciência).
@@ -416,11 +432,14 @@ enum RncStatus {
 model RelatorioNaoConformidade {
   id                    String    @id @default(uuid()) @db.Uuid
   numero                String    @unique @db.VarChar(40)
-  /// Sequência contínua da RNC dentro da filial (base da numeração).
+  /// RNC ou RAQ — cada tipo tem numeração, formulário e conclusão próprios.
+  tipoDocumento         TipoDocumento @default(RNC) @map("tipo_documento")
+  /// Sequência contínua do documento dentro da filial (por tipo).
   sequencialFilial      Int?      @map("sequencial_filial")
   filialId              String    @map("filial_id") @db.Uuid
   fornecedorId          String    @map("fornecedor_id") @db.Uuid
-  tipoNaoConformidadeId String    @map("tipo_nao_conformidade_id") @db.Uuid
+  /// Obrigatório na RNC; o RAQ não classifica por tipo de NC.
+  tipoNaoConformidadeId String?   @map("tipo_nao_conformidade_id") @db.Uuid
   turnoId               String?   @map("turno_id") @db.Uuid
   disposicaoMaterialId  String?   @map("disposicao_material_id") @db.Uuid
   origemId              String?   @map("origem_id") @db.Uuid
@@ -522,6 +541,18 @@ model RelatorioNaoConformidade {
   quantidadeDefeito  Float?    @map("quantidade_defeito")
   tempoParadaMinutos Int?      @map("tempo_parada_minutos")
 
+  // Campos próprios do RAQ (Relatório de Alerta de Qualidade).
+  titulo                    String?  @db.VarChar(200)
+  reincidente               Boolean?
+  reincidenteVezes          Int?     @map("reincidente_vezes")
+  observacoesComplementares String?  @map("observacoes_complementares") @db.Text
+  /// Conclusão do RAQ: quando e para quem o PDF assinado foi enviado.
+  enviadoFornecedorEm   DateTime? @map("enviado_fornecedor_em")
+  enviadoFornecedorPara String?   @map("enviado_fornecedor_para") @db.VarChar(160)
+  /// RAQs relacionados (reincidência): vínculo entre documentos.
+  raqRelacionados   RelatorioNaoConformidade[] @relation("RaqRelacionados")
+  raqRelacionadoDe  RelatorioNaoConformidade[] @relation("RaqRelacionados")
+
   // Transporte
   transportador  String? @db.VarChar(160)
   placaCavalo    String? @map("placa_cavalo") @db.VarChar(10)
@@ -531,7 +562,7 @@ model RelatorioNaoConformidade {
 
   filial              Filial                 @relation(fields: [filialId], references: [id], onDelete: Restrict)
   fornecedor          Fornecedor             @relation(fields: [fornecedorId], references: [id], onDelete: Restrict)
-  tipoNaoConformidade TipoNaoConformidade    @relation(fields: [tipoNaoConformidadeId], references: [id], onDelete: Restrict)
+  tipoNaoConformidade TipoNaoConformidade?   @relation(fields: [tipoNaoConformidadeId], references: [id], onDelete: Restrict)
   turno               TurnoTrabalho?         @relation(fields: [turnoId], references: [id], onDelete: SetNull)
   disposicaoMaterial  DisposicaoMaterial?    @relation(fields: [disposicaoMaterialId], references: [id], onDelete: SetNull)
   origem              OrigemNaoConformidade? @relation(fields: [origemId], references: [id], onDelete: SetNull)
@@ -557,6 +588,7 @@ model RelatorioNaoConformidade {
   @@index([severidadeId])
   @@index([produtoId])
   @@index([status])
+  @@index([tipoDocumento])
   @@map("relatorios_nao_conformidade")
 }
 

@@ -1,10 +1,23 @@
 import PDFDocument from 'pdfkit'
 
-/** Dados necessários para montar o PDF de uma RNC. */
+/** Dados necessários para montar o PDF de uma RNC (ou RAQ). */
 export type RncPdfData = {
   numero: string
   dataIdentificacao: Date
   status: string
+  createdAt?: Date
+  // Campos próprios do RAQ.
+  titulo?: string | null
+  reincidente?: boolean | null
+  reincidenteVezes?: number | null
+  observacoesComplementares?: string | null
+  raqRelacionados?: {
+    numero: string
+    titulo: string | null
+    createdAt: Date
+    produto: { codigo: string; descricao: string } | null
+    lotes: { numero: string }[]
+  }[]
   descricaoDefeito: string | null
   quantidadeDefeito: number | null
   tempoParadaMinutos: number | null
@@ -205,7 +218,15 @@ function blocoTexto(
   est.y += altura
 }
 
-function cabecalho(doc: Doc, est: Estado, rnc: RncPdfData) {
+function cabecalho(
+  doc: Doc,
+  est: Estado,
+  rnc: RncPdfData,
+  docMeta: { titulo: string; codigo: string } = {
+    titulo: 'RELATÓRIO DE NÃO CONFORMIDADE (RNC)',
+    codigo: 'FOR.IND.CQA.012',
+  },
+) {
   const h = 46
   // Moldura do cabeçalho
   doc.rect(LEFT, est.y, CONTENT_W, h).strokeColor(COR_BORDA).lineWidth(0.8).stroke()
@@ -214,7 +235,7 @@ function cabecalho(doc: Doc, est: Estado, rnc: RncPdfData) {
     .fillColor(COR_VALOR)
     .font('Helvetica-Bold')
     .fontSize(13)
-    .text('RELATÓRIO DE NÃO CONFORMIDADE (RNC)', LEFT + 8, est.y + 10, {
+    .text(docMeta.titulo, LEFT + 8, est.y + 10, {
       width: CONTENT_W - 170,
       align: 'center',
     })
@@ -230,7 +251,7 @@ function cabecalho(doc: Doc, est: Estado, rnc: RncPdfData) {
   const mx = RIGHT - 150
   doc.moveTo(mx, est.y).lineTo(mx, est.y + h).strokeColor(COR_BORDA).stroke()
   const meta = [
-    ['DOCUMENTO', 'FOR.IND.CQA.012'],
+    ['DOCUMENTO', docMeta.codigo],
     ['VERSÃO', '.003'],
     ['EMISSÃO', '23/12/2025'],
   ]
@@ -577,6 +598,207 @@ export function montarRncPdf(
       'Controle de Qualidade',
       'Gestão Controle de Qualidade',
       'Gerente da Área',
+    ].map((papel) => ({ papel, nome: '', assinadoEm: null }))
+  }
+
+  for (let i = 0; i < entradas.length; i += 2) {
+    const a = entradas[i]
+    const b = entradas[i + 1]
+    const rowH = Math.max(alturaCaixa(a), b ? alturaCaixa(b) : 0)
+    novaPaginaSeNecessario(doc, est, rowH + 4)
+    caixaAssinatura(doc, LEFT, est.y, colW, rowH, a)
+    if (b) caixaAssinatura(doc, LEFT + colW + 8, est.y, colW, rowH, b)
+    est.y += rowH + 4
+  }
+}
+
+/**
+ * Monta o PDF do RAQ (Relatório de Alerta de Qualidade) no layout do
+ * formulário FOR.IND.CQA.023. Não chama doc.end() — quem chama controla
+ * o stream.
+ */
+export function montarRaqPdf(doc: Doc, raq: RncPdfData, fotos: RncPdfFoto[]) {
+  const est: Estado = { y: MARGIN }
+
+  cabecalho(doc, est, raq, {
+    titulo: 'RELATÓRIO DE ALERTA DE QUALIDADE (RAQ)',
+    codigo: 'FOR.IND.CQA.023',
+  })
+
+  // 1. Identificação
+  tituloSecao(doc, est, '1. Identificação do RAQ')
+  linhaCampos(doc, est, [
+    { label: 'Unidade', valor: raq.filial ? `${raq.filial.codigo} — ${raq.filial.nome}` : '', flex: 2 },
+    { label: 'Número sequencial', valor: raq.numero, flex: 1.2 },
+    { label: 'Situação', valor: fmtStatus(raq.status), flex: 1 },
+  ])
+  linhaCampos(doc, est, [
+    { label: 'Título da RAQ', valor: raq.titulo ?? '', flex: 3 },
+    { label: 'Data de emissão', valor: fmtData(raq.createdAt ?? null), flex: 1 },
+  ])
+
+  // 2. RAQ's relacionados (reincidência)
+  tituloSecao(doc, est, "2. RAQ's Relacionados")
+  linhaCampos(
+    doc,
+    est,
+    [
+      { label: 'Reincidente', valor: raq.reincidente == null ? '' : raq.reincidente ? 'SIM' : 'NÃO', flex: 1 },
+      { label: 'Se sim, quantas vezes?', valor: raq.reincidenteVezes != null ? String(raq.reincidenteVezes) : '', flex: 1 },
+    ],
+    22,
+  )
+  const relacionados = raq.raqRelacionados ?? []
+  for (let i = 0; i < 3; i++) {
+    const rel = relacionados[i]
+    linhaCampos(
+      doc,
+      est,
+      [
+        { label: `RAQ relacionado ${i + 1} — número`, valor: rel?.numero ?? '', flex: 1.4 },
+        { label: 'Título', valor: rel?.titulo ?? '', flex: 2 },
+        { label: 'Data de emissão', valor: fmtData(rel?.createdAt ?? null), flex: 1 },
+        { label: 'Item', valor: rel?.produto ? rel.produto.codigo : '', flex: 0.9 },
+        { label: 'Lote', valor: rel?.lotes?.[0]?.numero ?? '', flex: 0.9 },
+      ],
+      22,
+    )
+  }
+
+  // 3. Dados do fornecedor e material
+  tituloSecao(doc, est, '3. Dados do Fornecedor e Material')
+  linhaCampos(doc, est, [
+    { label: 'Fornecedor', valor: raq.fornecedor ? `${raq.fornecedor.codigo} — ${raq.fornecedor.razaoSocial}` : '', flex: 2 },
+    { label: 'CNPJ', valor: raq.fornecedor?.cnpj ?? '', flex: 1 },
+  ])
+  const lote = raq.lotes[0]
+  linhaCampos(doc, est, [
+    { label: 'Item (produto)', valor: raq.produto ? `${raq.produto.codigo} — ${raq.produto.descricao}` : '', flex: 2.4 },
+    { label: 'Lote', valor: lote?.numero ?? '', flex: 1 },
+  ])
+  linhaCampos(doc, est, [
+    { label: 'Quantidade do lote', valor: lote?.quantidade != null ? num(lote.quantidade) : '', flex: 1 },
+    { label: 'Quantidade com defeito', valor: num(raq.quantidadeDefeito), flex: 1 },
+    { label: 'Tempo de parada', valor: raq.tempoParadaMinutos != null ? `${num(raq.tempoParadaMinutos)} min` : '', flex: 1 },
+    { label: 'Número NF', valor: raq.notasFiscais[0]?.numero ?? '', flex: 1 },
+  ])
+  const nf = raq.notasFiscais[0]
+  linhaCampos(doc, est, [
+    { label: 'Data de fabricação', valor: fmtData(nf?.dataFabricacao), flex: 1 },
+    { label: 'Data de validade', valor: fmtData(nf?.dataValidade), flex: 1 },
+    { label: 'Data de recebimento', valor: fmtData(nf?.dataRecebimento), flex: 1 },
+    { label: 'Data da ocorrência', valor: fmtData(raq.dataIdentificacao), flex: 1 },
+  ])
+  linhaCampos(doc, est, [
+    { label: 'Transportadora', valor: raq.transportador ?? '', flex: 2 },
+    { label: 'Placa do cavalo', valor: raq.placaCavalo ?? '', flex: 1 },
+    { label: 'Placa da carreta', valor: raq.placaCarreta ?? '', flex: 1 },
+  ])
+  linhaCampos(doc, est, [
+    { label: 'Nome do motorista', valor: raq.nomeMotorista ?? '', flex: 2 },
+    { label: 'Documento do motorista', valor: raq.cnhMotorista ?? '', flex: 1 },
+  ])
+
+  // 4. Disposição do material
+  tituloSecao(doc, est, '4. Disposição do Material')
+  blocoTexto(
+    doc,
+    est,
+    'Disposição',
+    raq.disposicaoMaterial ? `${raq.disposicaoMaterial.codigo} — ${raq.disposicaoMaterial.descricao}` : '',
+    30,
+  )
+
+  // 5. Dados da não conformidade
+  tituloSecao(doc, est, '5. Dados da Não Conformidade')
+  linhaCampos(doc, est, [
+    { label: 'Origem da NC', valor: raq.origem ? `${raq.origem.codigo} — ${raq.origem.nome}` : '', flex: 1 },
+    { label: 'Severidade', valor: raq.severidade ? `Nível ${raq.severidade.nivel} — ${raq.severidade.nome}` : '', flex: 1 },
+  ])
+  blocoTexto(
+    doc,
+    est,
+    'Defeito / problema identificado (descrição da ocorrência)',
+    raq.descricaoDefeito ?? '',
+    72,
+  )
+
+  // Fotos da ocorrência (até 4)
+  tituloSecao(doc, est, 'Fotos da Ocorrência')
+  const fotosUsaveis = fotos.filter((f) =>
+    ['image/jpeg', 'image/jpg', 'image/png'].includes(f.mimeType),
+  )
+  const celW = CONTENT_W / 2
+  const celH = 120
+  for (let i = 0; i < 4; i += 2) {
+    novaPaginaSeNecessario(doc, est, celH)
+    for (let j = 0; j < 2; j++) {
+      const idx = i + j
+      const x = LEFT + j * celW
+      doc.rect(x, est.y, celW, celH).strokeColor(COR_BORDA).lineWidth(0.6).stroke()
+      doc
+        .fillColor(COR_LABEL)
+        .font('Helvetica-Bold')
+        .fontSize(6)
+        .text(`FOTO 0${idx + 1}`, x + 4, est.y + 3)
+      const foto = fotosUsaveis[idx]
+      if (foto) {
+        try {
+          doc.image(foto.buffer, x + 6, est.y + 14, {
+            fit: [celW - 12, celH - 32],
+            align: 'center',
+            valign: 'center',
+          })
+        } catch {
+          // imagem inválida — ignora
+        }
+        doc
+          .fillColor(COR_VALOR)
+          .font('Helvetica')
+          .fontSize(7)
+          .text(foto.legenda ?? '', x + 4, est.y + celH - 14, {
+            width: celW - 8,
+            ellipsis: true,
+          })
+      }
+    }
+    est.y += celH
+  }
+
+  linhaCampos(doc, est, [
+    { label: 'Emitente', valor: raq.criadoPor ? `${raq.criadoPor.nome} (${raq.criadoPor.email})` : '' },
+  ], 22)
+  blocoTexto(
+    doc,
+    est,
+    'Observações complementares',
+    raq.observacoesComplementares ?? '',
+    40,
+  )
+
+  // 6. Assinaturas — aprovadores configurados para o tipo RAQ.
+  tituloSecao(doc, est, '6. Assinaturas')
+  const colW = (CONTENT_W - 8) / 2
+
+  let entradas: AssinaturaEntrada[]
+  if (raq.aprovadores.length > 0) {
+    entradas = raq.aprovadores.map((a) => ({
+      papel: a.areaNome + (a.cargo ? ` — ${a.cargo}` : ''),
+      nome: a.nome,
+      assinadoEm: a.assinadoEm,
+      ip: a.assinaturaIp,
+      navegador: a.assinaturaNavegador,
+      so: a.assinaturaSo,
+      dispositivo: a.assinaturaDispositivo,
+      lat: a.assinaturaLatitude,
+      lng: a.assinaturaLongitude,
+      precisao: a.assinaturaPrecisao,
+    }))
+  } else {
+    // Sem matriz: papéis padrão do formulário, em branco.
+    entradas = [
+      'Controle de Qualidade',
+      'Gestão Controle de Qualidade',
     ].map((papel) => ({ papel, nome: '', assinadoEm: null }))
   }
 

@@ -3,13 +3,27 @@ import PDFDocument from 'pdfkit'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { prisma } from '../db.js'
-import { montarRncPdf, type RncPdfData, type RncPdfFoto } from './rnc-pdf.js'
+import {
+  montarRncPdf,
+  montarRaqPdf,
+  type RncPdfData,
+  type RncPdfFoto,
+} from './rnc-pdf.js'
 import { selecionarAprovadores } from './rnc-aprovadores.js'
 
 const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'rnc-fotos')
 const IMAGENS_PDF = ['image/jpeg', 'image/jpg', 'image/png']
 
 const pdfInclude = {
+  raqRelacionados: {
+    select: {
+      numero: true,
+      titulo: true,
+      createdAt: true,
+      produto: { select: { codigo: true, descricao: true } },
+      lotes: { select: { numero: true }, orderBy: { createdAt: 'asc' } },
+    },
+  },
   filial: { select: { id: true, codigo: true, nome: true } },
   fornecedor: { select: { id: true, codigo: true, razaoSocial: true, cnpj: true } },
   tipoNaoConformidade: { select: { id: true, codigo: true, descricao: true } },
@@ -47,20 +61,18 @@ const pdfInclude = {
 } as const
 
 /**
- * Gera o PDF da RNC e o envia na resposta. `disposition` controla se o
- * navegador baixa ('attachment') ou exibe embutido ('inline'). Retorna
- * false quando a RNC não existe (o chamador trata o 404).
+ * Carrega o documento com tudo que o PDF precisa (fotos em buffer e a
+ * matriz calculada quando ausente). Retorna null se não existir.
  */
-export async function streamRncPdf(
-  rncId: string,
-  res: Response,
-  disposition: 'attachment' | 'inline' = 'attachment',
-): Promise<boolean> {
+async function carregarParaPdf(rncId: string): Promise<{
+  rnc: RncPdfData & { id: string; numero: string; tipoDocumento: string }
+  fotos: RncPdfFoto[]
+} | null> {
   const rnc = await prisma.relatorioNaoConformidade.findUnique({
     where: { id: rncId },
     include: pdfInclude,
   })
-  if (!rnc) return false
+  if (!rnc) return null
 
   const fotos: RncPdfFoto[] = []
   for (const f of rnc.fotos) {
@@ -73,52 +85,114 @@ export async function streamRncPdf(
     }
   }
 
-  // RNCs antigos sem matriz: calcula na hora (sem persistir).
+  // Documentos antigos sem matriz: calcula na hora (sem persistir).
   let aprovadores = rnc.aprovadores
   if (aprovadores.length === 0) {
-    aprovadores = (await selecionarAprovadores(prisma, rnc.filialId, rnc.turnoId)).map(
-      (a) => ({
-        aprovadorId: a.aprovadorId,
-        areaNome: a.areaNome,
-        nome: a.nome,
-        cargo: a.cargo,
-        email: a.email,
-        nivel: a.nivel,
-        assinadoEm: null,
-        assinaturaIp: null,
-        assinaturaNavegador: null,
-        assinaturaSo: null,
-        assinaturaDispositivo: null,
-        assinaturaLatitude: null,
-        assinaturaLongitude: null,
-        assinaturaPrecisao: null,
-      }),
-    )
+    aprovadores = (
+      await selecionarAprovadores(
+        prisma,
+        rnc.filialId,
+        rnc.turnoId,
+        rnc.tipoDocumento,
+      )
+    ).map((a) => ({
+      aprovadorId: a.aprovadorId,
+      areaNome: a.areaNome,
+      nome: a.nome,
+      cargo: a.cargo,
+      email: a.email,
+      nivel: a.nivel,
+      assinadoEm: null,
+      assinaturaIp: null,
+      assinaturaNavegador: null,
+      assinaturaSo: null,
+      assinaturaDispositivo: null,
+      assinaturaLatitude: null,
+      assinaturaLongitude: null,
+      assinaturaPrecisao: null,
+    }))
   }
 
-  res.setHeader('Content-Type', 'application/pdf')
-  res.setHeader(
-    'Content-Disposition',
-    `${disposition}; filename="RNC-${rnc.numero}.pdf"`,
-  )
+  return {
+    rnc: { ...rnc, aprovadores } as unknown as RncPdfData & {
+      id: string
+      numero: string
+      tipoDocumento: string
+    },
+    fotos,
+  }
+}
 
-  // Propriedades do arquivo em português (aparecem na aba do navegador e
-  // em "Propriedades do documento" no leitor de PDF).
-  const doc = new PDFDocument({
+/** Cria o PDFDocument com as propriedades do tipo (RNC ou RAQ). */
+function criarDocumento(numero: string, tipoDocumento: string) {
+  const raq = tipoDocumento === 'RAQ'
+  return new PDFDocument({
     size: 'A4',
     margin: 28,
     lang: 'pt-BR',
     info: {
-      Title: `RNC ${rnc.numero} — Relatório de Não Conformidade`,
+      Title: raq
+        ? `RAQ ${numero} — Relatório de Alerta de Qualidade`
+        : `RNC ${numero} — Relatório de Não Conformidade`,
       Author: 'SGNC — Cervejaria Cidade Imperial',
-      Subject: 'Relatório de Não Conformidade (FOR.IND.CQA.012)',
+      Subject: raq
+        ? 'Relatório de Alerta de Qualidade (FOR.IND.CQA.023)'
+        : 'Relatório de Não Conformidade (FOR.IND.CQA.012)',
       Creator: 'SGNC — Sistema de Gestão de Não Conformidade',
       Producer: 'SGNC — Cervejaria Cidade Imperial',
-      Keywords: 'RNC, não conformidade, qualidade',
+      Keywords: raq
+        ? 'RAQ, alerta de qualidade, qualidade'
+        : 'RNC, não conformidade, qualidade',
     },
   })
+}
+
+/**
+ * Gera o PDF do documento (RNC ou RAQ) e o envia na resposta.
+ * `disposition` controla se o navegador baixa ('attachment') ou exibe
+ * embutido ('inline'). Retorna false quando o documento não existe.
+ */
+export async function streamRncPdf(
+  rncId: string,
+  res: Response,
+  disposition: 'attachment' | 'inline' = 'attachment',
+): Promise<boolean> {
+  const carga = await carregarParaPdf(rncId)
+  if (!carga) return false
+  const { rnc, fotos } = carga
+
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader(
+    'Content-Disposition',
+    `${disposition}; filename="${rnc.tipoDocumento}-${rnc.numero}.pdf"`,
+  )
+
+  const doc = criarDocumento(rnc.numero, rnc.tipoDocumento)
   doc.pipe(res)
-  montarRncPdf(doc, { ...rnc, aprovadores } as unknown as RncPdfData, fotos)
+  if (rnc.tipoDocumento === 'RAQ') montarRaqPdf(doc, rnc, fotos)
+  else montarRncPdf(doc, rnc, fotos)
   doc.end()
   return true
+}
+
+/**
+ * Gera o PDF do documento em memória (para anexos de e-mail). Retorna
+ * null quando o documento não existe.
+ */
+export async function gerarPdfBuffer(rncId: string): Promise<Buffer | null> {
+  const carga = await carregarParaPdf(rncId)
+  if (!carga) return null
+  const { rnc, fotos } = carga
+
+  const doc = criarDocumento(rnc.numero, rnc.tipoDocumento)
+  const chunks: Buffer[] = []
+  const pronto = new Promise<Buffer>((resolve, reject) => {
+    doc.on('data', (c: Buffer) => chunks.push(c))
+    doc.on('end', () => resolve(Buffer.concat(chunks)))
+    doc.on('error', reject)
+  })
+  if (rnc.tipoDocumento === 'RAQ') montarRaqPdf(doc, rnc, fotos)
+  else montarRncPdf(doc, rnc, fotos)
+  doc.end()
+  return pronto
 }

@@ -40,6 +40,14 @@ export const aprovadorCreateSchema = z
       .or(z.literal('').transform(() => null)),
     ativo: z.boolean().optional().default(true),
     observacoes: z.string().trim().max(2000).optional().nullable(),
+    /**
+     * Tipos de relatório que o aprovador assina. Lista vazia (ou ausente)
+     * = sem restrição: assina todos os tipos, como a restrição de turno.
+     */
+    tiposRelatorioIds: z
+      .array(z.string().uuid('Tipo de relatório inválido'))
+      .max(20)
+      .optional(),
   })
 
 export const aprovadorUpdateSchema = aprovadorCreateSchema.partial()

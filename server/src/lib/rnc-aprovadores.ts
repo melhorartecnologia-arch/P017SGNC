@@ -14,20 +14,33 @@ export type AprovadorSelecionado = {
 }
 
 /**
- * Candidatos elegíveis a aprovar a RNC, agrupados por área e ordenados
- * dentro da área (match de turno primeiro, depois menor nível).
+ * Candidatos elegíveis a aprovar o documento, agrupados por área e
+ * ordenados dentro da área (match de turno primeiro, depois menor nível).
  *
  * Regra de turno: aprovador com restrição de turno só é elegível quando
- * a RNC é do turno correspondente; sem restrição (turno nulo) vale para
- * todos.
+ * o documento é do turno correspondente; sem restrição (turno nulo) vale
+ * para todos. Regra de tipo: aprovador vinculado a tipos de relatório só
+ * assina os tipos vinculados; sem vínculo, assina todos.
  */
 export async function candidatosPorArea(
   db: Db,
   filialId: string,
   turnoId: string | null,
+  tipoCodigo: string = 'RNC',
 ): Promise<Map<string, AprovadorSelecionado[]>> {
   const candidatos = await db.aprovador.findMany({
-    where: { filialId, ativo: true },
+    where: {
+      filialId,
+      ativo: true,
+      OR: [
+        { tiposRelatorio: { none: {} } },
+        {
+          tiposRelatorio: {
+            some: { codigo: { equals: tipoCodigo, mode: 'insensitive' } },
+          },
+        },
+      ],
+    },
     select: {
       id: true,
       areaId: true,
@@ -82,8 +95,9 @@ export async function selecionarAprovadores(
   db: Db,
   filialId: string,
   turnoId: string | null,
+  tipoCodigo: string = 'RNC',
 ): Promise<AprovadorSelecionado[]> {
-  const porArea = await candidatosPorArea(db, filialId, turnoId)
+  const porArea = await candidatosPorArea(db, filialId, turnoId, tipoCodigo)
   const escolhidos: AprovadorSelecionado[] = []
   for (const lista of porArea.values()) {
     if (lista[0]) escolhidos.push(lista[0])
@@ -98,8 +112,9 @@ export async function montarMatrizAprovadores(
   rncId: string,
   filialId: string,
   turnoId: string | null,
+  tipoCodigo: string = 'RNC',
 ): Promise<void> {
-  const escolhidos = await selecionarAprovadores(tx, filialId, turnoId)
+  const escolhidos = await selecionarAprovadores(tx, filialId, turnoId, tipoCodigo)
   await tx.rncAprovador.deleteMany({ where: { rncId } })
   if (escolhidos.length > 0) {
     await tx.rncAprovador.createMany({

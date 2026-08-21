@@ -59,7 +59,7 @@ export function AssinaturaPage({ token }: { token: string }) {
         setError(
           err instanceof ApiError
             ? err.message
-            : 'Não foi possível carregar a RNC.',
+            : 'Não foi possível carregar o documento.',
         )
       })
       .finally(() => {
@@ -139,12 +139,12 @@ export function AssinaturaPage({ token }: { token: string }) {
 
         <div className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
           <h1 className="text-xl font-semibold tracking-tight text-neutral-900">
-            RNC {rnc.numero}
+            {rnc.tipoDocumento ?? 'RNC'} {rnc.numero}
           </h1>
           <p className="mt-1 text-sm text-neutral-600">
             Olá, <b>{aprovador.nome}</b>. Você é o aprovador da área{' '}
             <b>{aprovador.areaNome}</b>
-            {aprovador.cargo ? ` (${aprovador.cargo})` : ''} para esta RNC.
+            {aprovador.cargo ? ` (${aprovador.cargo})` : ''} para este documento.
           </p>
 
           <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
@@ -256,7 +256,7 @@ export function AssinaturaPage({ token }: { token: string }) {
                     ) : (
                       <Check className="h-4 w-4" />
                     )}
-                    Assinar esta RNC
+                    Assinar {rnc.tipoDocumento === 'RAQ' ? 'este RAQ' : 'esta RNC'}
                   </Button>
                 </div>
                 {erroAssinatura && (
@@ -299,7 +299,7 @@ export function AssinaturaPage({ token }: { token: string }) {
               <div className="flex items-center gap-2">
                 <FileWarning className="h-4 w-4 text-neutral-500" />
                 <span className="text-sm font-semibold text-neutral-900">
-                  RNC {rnc.numero}
+                  {rnc.tipoDocumento ?? 'RNC'} {rnc.numero}
                 </span>
               </div>
               <div className="flex items-center gap-1">
@@ -321,7 +321,7 @@ export function AssinaturaPage({ token }: { token: string }) {
               </div>
             </div>
             <iframe
-              title={`RNC ${rnc.numero}`}
+              title={`${rnc.tipoDocumento ?? 'RNC'} ${rnc.numero}`}
               src={assinaturaApi.pdfUrl(token, true)}
               className="h-full w-full flex-1 bg-neutral-100"
             />

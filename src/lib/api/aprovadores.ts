@@ -15,6 +15,8 @@ export type Aprovador = {
   /** Recebe as respostas do fornecedor (aceite/recusa) por e-mail. */
   recebeRespostaFornecedor: boolean
   observacoes: string | null
+  /** Tipos de relatório que assina. Vazio = assina todos os tipos. */
+  tiposRelatorio: { id: string; codigo: string; descricao: string }[]
   filial: { id: string; codigo: string; nome: string }
   area: { id: string; codigo: string; nome: string }
   turno: { id: string; codigo: string; nome: string; filialId: string } | null
@@ -35,6 +37,8 @@ export type AprovadorInput = {
   ativo?: boolean
   recebeRespostaFornecedor?: boolean
   observacoes?: string | null
+  /** Ids dos tipos de relatório que assina. Vazio = todos. */
+  tiposRelatorioIds?: string[]
 }
 
 export type AprovadorListParams = {

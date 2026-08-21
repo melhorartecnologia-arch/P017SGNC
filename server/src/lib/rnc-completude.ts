@@ -35,3 +35,39 @@ export function pendenciasParaAssinatura(rnc: RncParaValidar): string[] {
   if (!rnc.fotos || rnc.fotos.length === 0) faltando.push('Fotos da ocorrência')
   return faltando
 }
+
+/** Campos obrigatórios do RAQ + ao menos uma foto para envio à assinatura. */
+export type RaqParaValidar = {
+  filialId: string | null
+  fornecedorId: string | null
+  titulo?: string | null
+  produtoId: string | null
+  disposicaoMaterialId: string | null
+  origemId: string | null
+  severidadeId: string | null
+  descricaoDefeito: string | null
+  quantidadeDefeito: number | null
+  lotes: unknown[]
+  notasFiscais: unknown[]
+  fotos: unknown[]
+}
+
+/** Pendências do RAQ; vazio significa pronto para assinatura. */
+export function pendenciasParaAssinaturaRaq(raq: RaqParaValidar): string[] {
+  const faltando: string[] = []
+  if (!raq.filialId) faltando.push('Unidade (filial)')
+  if (!raq.titulo || !raq.titulo.trim()) faltando.push('Título do RAQ')
+  if (!raq.fornecedorId) faltando.push('Fornecedor')
+  if (!raq.produtoId) faltando.push('Produto')
+  if (!raq.lotes || raq.lotes.length === 0) faltando.push('Lote')
+  if (raq.quantidadeDefeito == null) faltando.push('Quantidade com defeito')
+  if (!raq.notasFiscais || raq.notasFiscais.length === 0)
+    faltando.push('Nota fiscal')
+  if (!raq.disposicaoMaterialId) faltando.push('Disposição do material')
+  if (!raq.origemId) faltando.push('Origem da não conformidade')
+  if (!raq.severidadeId) faltando.push('Severidade')
+  if (!raq.descricaoDefeito || !raq.descricaoDefeito.trim())
+    faltando.push('Descrição da ocorrência')
+  if (!raq.fotos || raq.fotos.length === 0) faltando.push('Fotos da ocorrência')
+  return faltando
+}

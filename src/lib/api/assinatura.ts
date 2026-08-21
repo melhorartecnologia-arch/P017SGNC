@@ -9,6 +9,9 @@ export type AssinaturaResumo = {
   }
   rnc: {
     numero: string
+    /** RNC ou RAQ — muda os rótulos da tela. */
+    tipoDocumento: 'RNC' | 'RAQ'
+    titulo: string | null
     status: string
     dataIdentificacao: string
     descricaoDefeito: string | null

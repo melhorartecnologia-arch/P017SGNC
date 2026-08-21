@@ -55,7 +55,11 @@ dashboardRouter.get('/rnc', async (req, res, next) => {
     // Filtro de período por data de identificação.
     const de = typeof req.query.de === 'string' ? new Date(req.query.de) : null
     const ate = typeof req.query.ate === 'string' ? new Date(req.query.ate) : null
-    const wP: { dataIdentificacao?: { gte?: Date; lt?: Date } } = {}
+    // Só RNCs: os RAQs compartilham a tabela, mas não entram no painel.
+    const wP: {
+      tipoDocumento: 'RNC'
+      dataIdentificacao?: { gte?: Date; lt?: Date }
+    } = { tipoDocumento: 'RNC' }
     if ((de && !isNaN(de.getTime())) || (ate && !isNaN(ate.getTime()))) {
       wP.dataIdentificacao = {}
       if (de && !isNaN(de.getTime())) wP.dataIdentificacao.gte = de
@@ -227,7 +231,8 @@ dashboardRouter.get('/rnc', async (req, res, next) => {
     const mesesRaw = await prisma.$queryRaw<{ mes: Date; total: number }[]>`
       SELECT date_trunc('month', "data_identificacao") AS mes, count(*)::int AS total
       FROM "relatorios_nao_conformidade"
-      WHERE "data_identificacao" >= (date_trunc('month', now()) - interval '11 months')
+      WHERE "tipo_documento" = 'RNC'
+        AND "data_identificacao" >= (date_trunc('month', now()) - interval '11 months')
       GROUP BY mes ORDER BY mes
     `
     const mapMes = new Map(
@@ -246,7 +251,8 @@ dashboardRouter.get('/rnc', async (req, res, next) => {
     const diasRaw = await prisma.$queryRaw<{ dia: Date; total: number }[]>`
       SELECT date_trunc('day', "data_identificacao") AS dia, count(*)::int AS total
       FROM "relatorios_nao_conformidade"
-      WHERE "data_identificacao" >= (date_trunc('day', now()) - interval '29 days')
+      WHERE "tipo_documento" = 'RNC'
+        AND "data_identificacao" >= (date_trunc('day', now()) - interval '29 days')
       GROUP BY dia ORDER BY dia
     `
     const mapDia = new Map(
@@ -266,7 +272,10 @@ dashboardRouter.get('/rnc', async (req, res, next) => {
       const fim = ate && !isNaN(ate.getTime()) ? ate : new Date()
       const dur = fim.getTime() - de.getTime()
       const prevDe = new Date(de.getTime() - dur)
-      const wPrev = { dataIdentificacao: { gte: prevDe, lt: de } }
+      const wPrev = {
+        tipoDocumento: 'RNC' as const,
+        dataIdentificacao: { gte: prevDe, lt: de },
+      }
       const prevStatus = await prisma.relatorioNaoConformidade.groupBy({
         by: ['status'],
         _count: { _all: true },

@@ -32,6 +32,10 @@ export type DadosEmailAssinatura = {
   prazoTexto?: string | null
   /** URL pública do app (derivada da requisição) para os links do e-mail. */
   baseUrl?: string
+  /** RNC (padrão) ou RAQ — muda os rótulos do e-mail. */
+  docTipo?: 'RNC' | 'RAQ'
+  /** Título do documento (RAQ). */
+  titulo?: string | null
 }
 
 function fmtData(d: Date): string {
@@ -60,26 +64,31 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
   const linkAssinar = `${base}/?assinar=${encodeURIComponent(d.token)}`
   const linkPdf = `${base}/api/assinatura/${encodeURIComponent(d.token)}/pdf`
   const tipo = d.tipo ?? 'solicitacao'
+  // Rótulos por tipo de documento: "a RNC" / "o RAQ".
+  const doc = d.docTipo ?? 'RNC'
+  const oDoc = doc === 'RAQ' ? 'o RAQ' : 'a RNC'
+  const escalonadoDoc = doc === 'RAQ' ? 'Este RAQ foi escalonado' : 'Esta RNC foi escalonada'
+  const assinadoDoc = doc === 'RAQ' ? 'assinado' : 'assinada'
 
   const subject =
     tipo === 'lembrete'
-      ? `LEMBRETE — RNC ${d.numero}: prazo de assinatura expirando (${d.areaNome})`
+      ? `LEMBRETE — ${doc} ${d.numero}: prazo de assinatura expirando (${d.areaNome})`
       : tipo === 'escalonamento'
-        ? `ESCALONAMENTO — RNC ${d.numero} aguardando sua assinatura (${d.areaNome})`
-        : `RNC ${d.numero} — solicitação de assinatura (${d.areaNome})`
+        ? `ESCALONAMENTO — ${doc} ${d.numero} aguardando sua assinatura (${d.areaNome})`
+        : `${doc} ${d.numero} — solicitação de assinatura (${d.areaNome})`
 
   // Aviso conforme o tipo (lembrete/escalonamento).
   const aviso =
     tipo === 'lembrete'
-      ? `ATENÇÃO: o prazo${d.prazoTexto ? ` de ${d.prazoTexto}` : ''} para assinatura está expirando. Caso não seja assinada a tempo, a RNC será escalonada para o nível superior da sua área.`
+      ? `ATENÇÃO: o prazo${d.prazoTexto ? ` de ${d.prazoTexto}` : ''} para assinatura está expirando. Caso não seja ${assinadoDoc} a tempo, ${oDoc} será ${doc === 'RAQ' ? 'escalonado' : 'escalonada'} para o nível superior da sua área.`
       : tipo === 'escalonamento'
-        ? `Esta RNC foi escalonada para você porque o prazo de assinatura do nível anterior expirou sem assinatura.`
+        ? `${escalonadoDoc} para você porque o prazo de assinatura do nível anterior expirou sem assinatura.`
         : ''
 
   const intro =
     tipo === 'solicitacao'
-      ? `Você foi indicado(a) como aprovador da área "${d.areaNome}" para a RNC abaixo e sua assinatura é necessária.`
-      : `Sua assinatura da área "${d.areaNome}" para a RNC abaixo ainda está pendente.`
+      ? `Você foi indicado(a) como aprovador da área "${d.areaNome}" para ${oDoc} abaixo e sua assinatura é necessária.`
+      : `Sua assinatura da área "${d.areaNome}" para ${oDoc} abaixo ainda está pendente.`
 
   const linhas = [
     `Olá, ${d.aprovadorNome}.`,
@@ -88,10 +97,11 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
     aviso ? '' : '',
     intro,
     '',
-    `RNC: ${d.numero}`,
+    `${doc}: ${d.numero}`,
+    d.titulo ? `Título: ${d.titulo}` : '',
     `Unidade: ${d.filialNome}`,
     `Fornecedor: ${d.fornecedorNome}`,
-    `Tipo de não conformidade: ${d.tipoNc}`,
+    d.tipoNc ? `Tipo de não conformidade: ${d.tipoNc}` : '',
     d.severidade ? `Severidade: ${d.severidade}` : '',
     `Data da ocorrência: ${fmtData(d.dataIdentificacao)}`,
     d.descricaoDefeito ? `Defeito: ${d.descricaoDefeito}` : '',
@@ -100,7 +110,7 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
     '(informe esta senha na plataforma para confirmar a assinatura)',
     '',
     `Acessar e assinar pela plataforma: ${linkAssinar}`,
-    `Baixar a RNC em PDF: ${linkPdf}`,
+    `Baixar ${oDoc} em PDF: ${linkPdf}`,
     '',
     'Mensagem automática do SGNC — Sistema de Gestão de Não Conformidade.',
   ].filter((l) => l !== '')
@@ -109,10 +119,10 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
 
   const tituloHtml =
     tipo === 'lembrete'
-      ? `Lembrete de assinatura — RNC ${escapeHtml(d.numero)}`
+      ? `Lembrete de assinatura — ${doc} ${escapeHtml(d.numero)}`
       : tipo === 'escalonamento'
-        ? `Escalonamento — RNC ${escapeHtml(d.numero)}`
-        : `Solicitação de assinatura — RNC ${escapeHtml(d.numero)}`
+        ? `Escalonamento — ${doc} ${escapeHtml(d.numero)}`
+        : `Solicitação de assinatura — ${doc} ${escapeHtml(d.numero)}`
 
   const avisoHtml = aviso
     ? `<div style="margin:0 0 14px;padding:10px 14px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:13px">${escapeHtml(aviso)}</div>`
@@ -126,10 +136,11 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
     <p>Olá, <b>${escapeHtml(d.aprovadorNome)}</b>. ${escapeHtml(intro)}</p>
     <table style="border-collapse:collapse;width:100%;font-size:14px;margin:12px 0">
       ${[
-        ['RNC', d.numero],
+        [doc, d.numero],
+        ...(d.titulo ? [['Título', d.titulo]] : []),
         ['Unidade', d.filialNome],
         ['Fornecedor', d.fornecedorNome],
-        ['Tipo de NC', d.tipoNc],
+        ...(d.tipoNc ? [['Tipo de NC', d.tipoNc]] : []),
         ...(d.severidade ? [['Severidade', d.severidade]] : []),
         ['Data da ocorrência', fmtData(d.dataIdentificacao)],
         ...(d.descricaoDefeito ? [['Defeito', d.descricaoDefeito]] : []),
@@ -151,10 +162,10 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
     </div>
     <p style="margin:20px 0">
       <a href="${linkAssinar}" style="background:#111827;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;display:inline-block">
-        Acessar e assinar a RNC
+        Acessar e assinar ${oDoc.replace('o RAQ', 'o RAQ').replace('a RNC', 'a RNC')}
       </a>
     </p>
-    <p style="font-size:13px"><a href="${linkPdf}" style="color:#2563eb">Baixar a RNC em PDF</a></p>
+    <p style="font-size:13px"><a href="${linkPdf}" style="color:#2563eb">Baixar ${oDoc} em PDF</a></p>
     <p style="color:#9ca3af;font-size:12px;margin-top:24px">Mensagem automática do SGNC.</p>
   </div>`
 
@@ -190,12 +201,18 @@ export type DadosEmailConclusao = {
   assinaturas: AssinaturaResumo[]
   /** URL pública do app (derivada da requisição) para os links do e-mail. */
   baseUrl?: string
+  /** RNC (padrão) ou RAQ — muda os rótulos do e-mail. */
+  docTipo?: 'RNC' | 'RAQ'
+  /** Título do documento (RAQ). */
+  titulo?: string | null
 }
 
-/** E-mail de conclusão: todas as assinaturas da RNC foram realizadas. */
+/** E-mail de conclusão: todas as assinaturas do documento foram realizadas. */
 export function montarEmailConclusao(d: DadosEmailConclusao) {
   const base = resolverBaseUrl(d.baseUrl)
-  const subject = `RNC ${d.numero} — assinaturas concluídas`
+  const doc = d.docTipo ?? 'RNC'
+  const daDoc = doc === 'RAQ' ? 'do RAQ' : 'da RNC'
+  const subject = `${doc} ${d.numero} — assinaturas concluídas`
 
   const linhasResumo = d.assinaturas.map((a) => {
     const local =
@@ -212,11 +229,12 @@ export function montarEmailConclusao(d: DadosEmailConclusao) {
   })
 
   const text = [
-    `As assinaturas da RNC ${d.numero} foram concluídas.`,
+    `As assinaturas ${daDoc} ${d.numero} foram concluídas.`,
     '',
+    d.titulo ? `Título: ${d.titulo}` : '',
     `Unidade: ${d.filialNome}`,
     `Fornecedor: ${d.fornecedorNome}`,
-    `Tipo de não conformidade: ${d.tipoNc}`,
+    d.tipoNc ? `Tipo de não conformidade: ${d.tipoNc}` : '',
     d.severidade ? `Severidade: ${d.severidade}` : '',
     `Data da ocorrência: ${fmtData(d.dataIdentificacao)}`,
     d.emitenteNome ? `Emitente: ${d.emitenteNome}` : '',
@@ -250,10 +268,10 @@ export function montarEmailConclusao(d: DadosEmailConclusao) {
 
   const html = `
   <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:680px;margin:0 auto">
-    <h2 style="margin:0 0 4px">Assinaturas concluídas — RNC ${escapeHtml(d.numero)}</h2>
+    <h2 style="margin:0 0 4px">Assinaturas concluídas — ${doc} ${escapeHtml(d.numero)}</h2>
     <p style="color:#6b7280;margin:0 0 12px">Sistema de Gestão de Não Conformidade</p>
     <div style="margin:0 0 14px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#15803d;font-size:14px">
-      Todas as assinaturas previstas para esta RNC foram realizadas.
+      Todas as assinaturas previstas para ${doc === 'RAQ' ? 'este RAQ' : 'esta RNC'} foram realizadas.
     </div>
     <table style="border-collapse:collapse;width:100%;font-size:13px;margin:0 0 14px">
       ${[
@@ -1290,6 +1308,70 @@ export function montarEmailEficaciaVerificada(
       <a href="${linkPagina}" style="background:#111827;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
         Consultar na plataforma
       </a>
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
+// ── RAQ: envio do documento assinado ao fornecedor ─────────────────
+
+export type DadosEmailRaqFornecedor = {
+  numero: string
+  titulo: string | null
+  filialNome: string
+  fornecedorNome: string
+  contatoNome: string | null
+  severidade: string | null
+  dataIdentificacao: Date
+  descricaoDefeito: string | null
+}
+
+/**
+ * Alerta de qualidade assinado, enviado ao contato do fornecedor com o
+ * PDF anexo. É a etapa final do RAQ: comunicação, sem resposta esperada.
+ */
+export function montarEmailRaqFornecedor(d: DadosEmailRaqFornecedor) {
+  const subject = `Alerta de Qualidade ${d.numero}${d.titulo ? ` — ${d.titulo}` : ''}`
+
+  const text = [
+    `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
+    '',
+    `Segue em anexo o Relatório de Alerta de Qualidade ${d.numero}, emitido por ${d.filialNome} e assinado pelos responsáveis.`,
+    '',
+    d.titulo ? `Título: ${d.titulo}` : '',
+    d.severidade ? `Severidade: ${d.severidade}` : '',
+    `Data da ocorrência: ${fmtData(d.dataIdentificacao)}`,
+    d.descricaoDefeito ? `Ocorrência: ${d.descricaoDefeito}` : '',
+    '',
+    'Este comunicado é um alerta de qualidade: analise o conteúdo do documento e adote as providências internas cabíveis.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const item = (k: string, v: string) =>
+    v
+      ? `<tr><td style="padding:4px 10px 4px 0;color:#6b7280;font-size:13px">${escapeHtml(k)}</td><td style="padding:4px 0;color:#111827;font-size:13px"><b>${escapeHtml(v)}</b></td></tr>`
+      : ''
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">Alerta de Qualidade — RAQ ${escapeHtml(d.numero)}</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, segue em anexo o
+      Relatório de Alerta de Qualidade emitido por <b>${escapeHtml(d.filialNome)}</b> para
+      <b>${escapeHtml(d.fornecedorNome)}</b>, já assinado pelos responsáveis.
+    </p>
+    <table style="border-collapse:collapse;margin-bottom:18px">
+      ${item('Título', d.titulo ?? '')}
+      ${item('Severidade', d.severidade ?? '')}
+      ${item('Data da ocorrência', fmtData(d.dataIdentificacao))}
+      ${item('Ocorrência', d.descricaoDefeito ?? '')}
+    </table>
+    <p style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;padding:10px 12px;border-radius:6px;font-size:13px;margin:0">
+      Este comunicado é um <b>alerta de qualidade</b>: analise o documento em anexo e adote
+      as providências internas cabíveis.
     </p>
     <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
   </div>`

@@ -55,6 +55,7 @@ const includeRefs = {
   filial: { select: { id: true, codigo: true, nome: true } },
   area: { select: { id: true, codigo: true, nome: true } },
   turno: { select: { id: true, codigo: true, nome: true, filialId: true } },
+  tiposRelatorio: { select: { id: true, codigo: true, descricao: true } },
 } as const
 
 function mapConflict(err: unknown) {
@@ -142,11 +143,16 @@ aprovadoresRouter.get('/:id', async (req, res, next) => {
 
 aprovadoresRouter.post('/', async (req, res, next) => {
   try {
-    const data = aprovadorCreateSchema.parse(req.body)
+    const { tiposRelatorioIds, ...data } = aprovadorCreateSchema.parse(req.body)
     await exigirAdminParaMarcacao(req)
     await ensureTurnoBelongsToFilial(data.turnoId, data.filialId)
     const created = await prisma.aprovador.create({
-      data,
+      data: {
+        ...data,
+        ...(tiposRelatorioIds && tiposRelatorioIds.length > 0
+          ? { tiposRelatorio: { connect: tiposRelatorioIds.map((id) => ({ id })) } }
+          : {}),
+      },
       include: includeRefs,
     })
     res.status(201).json(created)
@@ -157,7 +163,7 @@ aprovadoresRouter.post('/', async (req, res, next) => {
 
 aprovadoresRouter.patch('/:id', async (req, res, next) => {
   try {
-    const data = aprovadorUpdateSchema.parse(req.body)
+    const { tiposRelatorioIds, ...data } = aprovadorUpdateSchema.parse(req.body)
     await exigirAdminParaMarcacao(req, req.params.id)
     // Para validar o turno na atualização precisamos da filial atual (ou a nova).
     let filialId = data.filialId
@@ -171,7 +177,12 @@ aprovadoresRouter.patch('/:id', async (req, res, next) => {
     await ensureTurnoBelongsToFilial(data.turnoId, filialId)
     const updated = await prisma.aprovador.update({
       where: { id: req.params.id },
-      data,
+      data: {
+        ...data,
+        ...(tiposRelatorioIds !== undefined
+          ? { tiposRelatorio: { set: tiposRelatorioIds.map((id) => ({ id })) } }
+          : {}),
+      },
       include: includeRefs,
     })
     res.json(updated)

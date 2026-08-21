@@ -1,8 +1,16 @@
 import { randomBytes, randomInt } from 'node:crypto'
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { criarTransporteSmtp, type Transporte } from './smtp.js'
-import { montarEmailAssinatura, montarEmailConclusao } from './rnc-email.js'
-import { enviarCienciaFornecedor } from './rnc-ciencia.js'
+import {
+  montarEmailAssinatura,
+  montarEmailConclusao,
+  montarEmailRaqFornecedor,
+} from './rnc-email.js'
+import {
+  enviarCienciaFornecedor,
+  escolherEmailFornecedor,
+} from './rnc-ciencia.js'
+import { gerarPdfBuffer } from './rnc-pdf-loader.js'
 import { candidatosPorArea } from './rnc-aprovadores.js'
 import {
   criarContextoWa,
@@ -39,6 +47,8 @@ function fmtTempoRestante(deadline: Date): string {
 const rncInfoSelect = {
   id: true,
   numero: true,
+  tipoDocumento: true,
+  titulo: true,
   status: true,
   dataIdentificacao: true,
   descricaoDefeito: true,
@@ -66,12 +76,18 @@ type AprovadorRow = {
   senhaAssinatura: string | null
 }
 
-/** Horas de resposta (SLA) da Política de Resposta do tipo "RNC". */
-export async function horasRespostaRnc(db: Db): Promise<number | null> {
+/**
+ * Horas de resposta (SLA) da Política de Resposta do tipo de relatório
+ * do documento — 'RNC' por padrão; 'RAQ' usa a política do tipo RAQ.
+ */
+export async function horasRespostaRnc(
+  db: Db,
+  tipoCodigo: string = 'RNC',
+): Promise<number | null> {
   const politica = await db.politicaResposta.findFirst({
     where: {
       ativo: true,
-      tipoRelatorio: { codigo: { equals: 'RNC', mode: 'insensitive' } },
+      tipoRelatorio: { codigo: { equals: tipoCodigo, mode: 'insensitive' } },
     },
     select: { horasResposta: true },
   })
@@ -128,6 +144,8 @@ export async function enviarWorkflowAprovador(
   if (ap.email) {
     const { subject, text, html } = montarEmailAssinatura({
       numero: rnc.numero,
+      docTipo: rnc.tipoDocumento,
+      titulo: rnc.titulo,
       filialNome: rnc.filial?.nome ?? '',
       fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
       tipoNc: rnc.tipoNaoConformidade
@@ -207,7 +225,12 @@ async function escalonarRncInterno(
   horasSla: number | null,
   baseUrl?: string,
 ): Promise<{ novos: number; falhas: string[]; havendoCandidatos: boolean }> {
-  const candidatos = await candidatosPorArea(prisma, rnc.filialId, rnc.turnoId)
+  const candidatos = await candidatosPorArea(
+    prisma,
+    rnc.filialId,
+    rnc.turnoId,
+    rnc.tipoDocumento,
+  )
   const todos = await prisma.rncAprovador.findMany({
     where: { rncId: rnc.id },
     select: { areaId: true, aprovadorId: true, assinadoEm: true, nivel: true },
@@ -309,18 +332,20 @@ export async function processarWorkflows(
     rncsProcessadas: 0,
   }
 
-  const horas = await horasRespostaRnc(prisma)
-  if (!horas || horas <= 0) return out // Sem SLA configurado.
+  // Um prazo por tipo de documento: RNC e RAQ têm políticas próprias.
+  const horasPorTipo: Record<string, number | null> = {
+    RNC: await horasRespostaRnc(prisma, 'RNC'),
+    RAQ: await horasRespostaRnc(prisma, 'RAQ'),
+  }
+  if (!Object.values(horasPorTipo).some((h) => h && h > 0)) return out
 
   const transporte = await criarTransporteSmtp()
   if (!transporte) return out // SMTP não configurado.
 
   const wa = criarContextoWa()
   const agora = Date.now()
-  const limiteLembrete = horas * 0.5 * 3600_000
-  const limiteEscalona = horas * 3600_000
 
-  // RNCs já enviadas e ainda em aberto (não encerradas/canceladas).
+  // Documentos já enviados e ainda em aberto (não encerrados/cancelados).
   const rncs = await prisma.relatorioNaoConformidade.findMany({
     where: {
       assinaturaEnviadaEm: { not: null },
@@ -330,6 +355,10 @@ export async function processarWorkflows(
   })
 
   for (const rnc of rncs) {
+    const horas = horasPorTipo[rnc.tipoDocumento]
+    if (!horas || horas <= 0) continue // Tipo sem SLA configurado.
+    const limiteLembrete = horas * 0.5 * 3600_000
+    const limiteEscalona = horas * 3600_000
     const enviadaEm = rnc.assinaturaEnviadaEm!.getTime()
     const decorrido = agora - enviadaEm
     let mexeu = false
@@ -447,7 +476,7 @@ export async function escalonarManual(
       semCandidatos: false,
     }
 
-  const horas = await horasRespostaRnc(prisma)
+  const horas = await horasRespostaRnc(prisma, rnc.tipoDocumento)
   const wa = criarContextoWa()
   const { novos, falhas, havendoCandidatos } = await escalonarRncInterno(
     prisma,
@@ -553,6 +582,8 @@ export async function finalizarSeConcluida(
     select: {
       id: true,
       numero: true,
+      tipoDocumento: true,
+      titulo: true,
       dataIdentificacao: true,
       status: true,
       assinaturasConcluidasEm: true,
@@ -597,6 +628,8 @@ export async function finalizarSeConcluida(
   const { subject, text, html } = montarEmailConclusao({
     baseUrl,
     numero: rnc.numero,
+    docTipo: rnc.tipoDocumento,
+    titulo: rnc.titulo,
     filialNome: rnc.filial?.nome ?? '',
     fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
     tipoNc: rnc.tipoNaoConformidade
@@ -658,7 +691,18 @@ export async function finalizarSeConcluida(
     }
   }
 
-  // Com as assinaturas concluídas, o documento segue para a ciência do
+  if (rnc.tipoDocumento === 'RAQ') {
+    // RAQ: o fluxo termina aqui — o documento assinado vai por e-mail ao
+    // contato do fornecedor, sem ciência nem resposta esperada.
+    try {
+      await enviarRaqAoFornecedor(prisma, rnc.id)
+    } catch {
+      // best-effort: o RAQ já está concluído
+    }
+    return true
+  }
+
+  // Com as assinaturas concluídas, a RNC segue para a ciência do
   // fornecedor (aceitar ou recusar/questionar, com prazo). Best-effort: a
   // conclusão da RNC não depende do sucesso deste envio.
   try {
@@ -667,4 +711,98 @@ export async function finalizarSeConcluida(
     // ignora: a ciência pode ser reenviada depois
   }
   return true
+}
+
+/**
+ * Etapa final do RAQ: envia o documento assinado, em PDF anexo, ao
+ * contato de e-mail do fornecedor e registra o envio. Idempotente.
+ */
+export async function enviarRaqAoFornecedor(
+  prisma: PrismaClient,
+  raqId: string,
+): Promise<{ enviado: boolean; motivo?: string; email?: string }> {
+  const raq = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: raqId },
+    select: {
+      id: true,
+      numero: true,
+      titulo: true,
+      dataIdentificacao: true,
+      descricaoDefeito: true,
+      enviadoFornecedorEm: true,
+      filial: { select: { nome: true } },
+      severidade: { select: { nivel: true, nome: true } },
+      fornecedor: {
+        select: {
+          razaoSocial: true,
+          contatos: {
+            select: { tipo: true, valor: true, nome: true, principal: true },
+          },
+        },
+      },
+    },
+  })
+  if (!raq) return { enviado: false, motivo: 'RAQ não encontrado' }
+  if (raq.enviadoFornecedorEm) {
+    return { enviado: false, motivo: 'RAQ já enviado ao fornecedor' }
+  }
+
+  const contato = escolherEmailFornecedor(raq.fornecedor?.contatos ?? [])
+  if (!contato) {
+    return {
+      enviado: false,
+      motivo:
+        'Fornecedor sem contato de e-mail cadastrado — o RAQ não pôde ser enviado.',
+    }
+  }
+
+  const transporte = await criarTransporteSmtp()
+  if (!transporte) return { enviado: false, motivo: 'SMTP não configurado' }
+
+  const pdf = await gerarPdfBuffer(raq.id)
+  const { subject, text, html } = montarEmailRaqFornecedor({
+    numero: raq.numero,
+    titulo: raq.titulo,
+    filialNome: raq.filial?.nome ?? '',
+    fornecedorNome: raq.fornecedor?.razaoSocial ?? '',
+    contatoNome: contato.nome,
+    severidade: raq.severidade
+      ? `Nível ${raq.severidade.nivel} — ${raq.severidade.nome}`
+      : null,
+    dataIdentificacao: raq.dataIdentificacao,
+    descricaoDefeito: raq.descricaoDefeito,
+  })
+
+  try {
+    await transporte.transporter.sendMail({
+      from: transporte.remetente,
+      to: contato.email,
+      subject,
+      text,
+      html,
+      attachments: pdf
+        ? [
+            {
+              filename: `RAQ-${raq.numero}.pdf`,
+              content: pdf,
+              contentType: 'application/pdf',
+            },
+          ]
+        : [],
+    })
+  } catch (err) {
+    return {
+      enviado: false,
+      motivo: err instanceof Error ? err.message : 'Falha no envio do e-mail',
+    }
+  }
+
+  await prisma.relatorioNaoConformidade.update({
+    where: { id: raq.id },
+    data: {
+      enviadoFornecedorEm: new Date(),
+      enviadoFornecedorPara: contato.email,
+    },
+  })
+  return { enviado: true, email: contato.email }
 }

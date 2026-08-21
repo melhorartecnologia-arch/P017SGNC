@@ -15,7 +15,10 @@ import {
 } from '../schemas/rnc.js'
 import { montarMatrizAprovadores } from '../lib/rnc-aprovadores.js'
 import { streamRncPdf } from '../lib/rnc-pdf-loader.js'
-import { pendenciasParaAssinatura } from '../lib/rnc-completude.js'
+import {
+  pendenciasParaAssinatura,
+  pendenciasParaAssinaturaRaq,
+} from '../lib/rnc-completude.js'
 import { criarTransporteSmtp } from '../lib/smtp.js'
 import { criarContextoWa } from '../lib/wa.js'
 import {
@@ -74,7 +77,7 @@ const ordemCausasIshikawa: Prisma.RncIshikawaCausaOrderByWithRelationInput[] = [
   { ordem: 'asc' },
 ]
 
-const includeRefs = {
+export const includeRefs = {
   filial: { select: { id: true, codigo: true, nome: true } },
   fornecedor: { select: { id: true, codigo: true, razaoSocial: true, cnpj: true } },
   tipoNaoConformidade: {
@@ -225,7 +228,10 @@ rncRouter.get('/', async (req, res, next) => {
       page,
       pageSize,
     } = rncQuerySchema.parse(req.query)
-    const where: Prisma.RelatorioNaoConformidadeWhereInput = {}
+    const where: Prisma.RelatorioNaoConformidadeWhereInput = {
+      // RAQs compartilham a tabela, mas têm lista própria em /api/raq.
+      tipoDocumento: 'RNC',
+    }
     if (fornecedorId) where.fornecedorId = fornecedorId
     if (tipoNaoConformidadeId) where.tipoNaoConformidadeId = tipoNaoConformidadeId
     if (filialId) where.filialId = filialId
@@ -457,7 +463,10 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
     })
     if (!rnc) throw new HttpError(404, 'Relatório não encontrado')
 
-    const pendencias = pendenciasParaAssinatura(rnc)
+    const pendencias =
+      rnc.tipoDocumento === 'RAQ'
+        ? pendenciasParaAssinaturaRaq(rnc)
+        : pendenciasParaAssinatura(rnc)
     if (pendencias.length > 0) {
       throw new HttpError(
         400,
@@ -482,7 +491,7 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
     }
 
     const wa = criarContextoWa()
-    const horasSla = await horasRespostaRnc(prisma)
+    const horasSla = await horasRespostaRnc(prisma, rnc.tipoDocumento)
     const enviados: string[] = []
     const falhas: { email: string; erro: string }[] = []
     for (const ap of destinatarios) {
@@ -1130,6 +1139,15 @@ rncRouter.post('/', async (req, res, next) => {
 
 rncRouter.patch('/:id', async (req, res, next) => {
   try {
+    // RAQs são editados em /api/raq — o schema e a matriz daqui são da RNC.
+    const tipoDoc = await prisma.relatorioNaoConformidade.findUnique({
+      where: { id: req.params.id },
+      select: { tipoDocumento: true },
+    })
+    if (!tipoDoc) throw new HttpError(404, 'Relatório não encontrado')
+    if (tipoDoc.tipoDocumento !== 'RNC') {
+      throw new HttpError(404, 'Relatório não encontrado')
+    }
     const { lotes, notasFiscais, ...rest } = rncUpdateSchema.parse(req.body)
 
     // O schema valida quantidadeDefeito × lotes quando ambos vêm no

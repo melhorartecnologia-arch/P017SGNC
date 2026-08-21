@@ -25,6 +25,7 @@ import { tiposNaoConformidadeRouter } from './routes/tipos-nao-conformidade.js'
 import { turnosTrabalhoRouter } from './routes/turnos-trabalho.js'
 import { politicasRespostaRouter } from './routes/politicas-resposta.js'
 import { rncRouter } from './routes/rnc.js'
+import { raqRouter } from './routes/raq.js'
 import { iaRouter } from './routes/ia.js'
 import { configuracoesRouter } from './routes/configuracoes.js'
 import { dashboardRouter } from './routes/dashboard.js'
@@ -67,6 +68,7 @@ app.use('/api/tipos-nao-conformidade', requireAuth, tiposNaoConformidadeRouter)
 app.use('/api/turnos-trabalho', requireAuth, turnosTrabalhoRouter)
 app.use('/api/politicas-resposta', requireAuth, politicasRespostaRouter)
 app.use('/api/rnc', requireAuth, rncRouter)
+app.use('/api/raq', requireAuth, raqRouter)
 app.use('/api/ia', requireAuth, iaRouter)
 app.use('/api/configuracoes', requireAuth, configuracoesRouter)
 app.use('/api/dashboard', requireAuth, dashboardRouter)
