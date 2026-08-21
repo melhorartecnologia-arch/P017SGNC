@@ -81,6 +81,8 @@ export type RheListParams = {
   filialId?: string
   status?: RncStatus
   homologacaoInicial?: HomologacaoResultado
+  de?: string
+  ate?: string
   page?: number
   pageSize?: number
 }
@@ -115,6 +117,8 @@ export const rheApi = {
         fornecedorId: params.fornecedorId,
         filialId: params.filialId,
         status: params.status,
+        de: params.de,
+        ate: params.ate,
         homologacaoInicial: params.homologacaoInicial,
         page: params.page,
         pageSize: params.pageSize,

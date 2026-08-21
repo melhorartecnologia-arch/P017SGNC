@@ -42,6 +42,8 @@ export type RvtListParams = {
   fornecedorId?: string
   filialId?: string
   status?: RncStatus
+  de?: string
+  ate?: string
   page?: number
   pageSize?: number
 }
@@ -73,6 +75,8 @@ export const rvtApi = {
         fornecedorId: params.fornecedorId,
         filialId: params.filialId,
         status: params.status,
+        de: params.de,
+        ate: params.ate,
         page: params.page,
         pageSize: params.pageSize,
       },

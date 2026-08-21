@@ -28,7 +28,7 @@ const includeRefsRvt = {
 
 rvtRouter.get('/', async (req, res, next) => {
   try {
-    const { fornecedorId, filialId, status, page, pageSize } =
+    const { fornecedorId, filialId, status, de, ate, page, pageSize } =
       rvtQuerySchema.parse(req.query)
     const where: Prisma.RelatorioNaoConformidadeWhereInput = {
       tipoDocumento: 'RVT',
@@ -36,6 +36,11 @@ rvtRouter.get('/', async (req, res, next) => {
     if (fornecedorId) where.fornecedorId = fornecedorId
     if (filialId) where.filialId = filialId
     if (status) where.status = status
+    if (de || ate) {
+      where.dataIdentificacao = {}
+      if (de) where.dataIdentificacao.gte = de
+      if (ate) where.dataIdentificacao.lt = ate
+    }
 
     const [total, items] = await Promise.all([
       prisma.relatorioNaoConformidade.count({ where }),

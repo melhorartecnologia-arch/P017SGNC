@@ -2,151 +2,46 @@ import * as React from 'react'
 import {
   Loader2,
   FileWarning,
+  ShieldAlert,
+  MapPin,
+  PackageCheck,
   Truck,
   AlertTriangle,
   CheckCircle2,
   Clock,
   X,
   Search as SearchIcon,
-  TrendingUp,
-  TrendingDown,
-  Activity,
   ArrowUpRight,
   ChevronDown,
   CalendarRange,
   Timer,
 } from 'lucide-react'
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Cell,
-  LabelList,
-} from 'recharts'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/client'
 import {
   dashboardApi,
   type Contagem,
-  type ContagemMes,
-  type ContagemDia,
   type DashboardRnc,
+  type TipoPainelDocs,
 } from '@/lib/api/dashboard'
 import { rncApi, type Rnc, type RncListParams, type RncStatus } from '@/lib/api/rnc'
 import { RncDetailPanel } from '@/components/registros/RncDetailPanel'
-
-// Paleta sóbria (slate) com um único acento — inspirada em painéis fintech:
-// barras "fantasma" + uma barra de destaque em acento, rótulos sempre visíveis.
-const ACENTO = '#4f46e5'
-const FANTASMA = '#e8edf3'
-const SLATE = ['#1e293b', '#334155', '#475569', '#64748b', '#94a3b8', '#cbd5e1']
-
-// Índice da barra de destaque (maior volume). -1 quando tudo é zero.
-function indiceDestaque(dados: { total: number }[]): number {
-  let idx = -1
-  let max = 0
-  dados.forEach((d, i) => {
-    if (d.total > max) {
-      max = d.total
-      idx = i
-    }
-  })
-  return idx
-}
-
-// Rótulo de coluna vertical: balão escuro no destaque, número discreto nos demais.
-// O recharts tipa as coordenadas como string | number — normalizamos aqui.
-function rotuloColuna(destaque: number) {
-  return function Rotulo(props: {
-    x?: string | number
-    y?: string | number
-    width?: string | number
-    value?: unknown
-    index?: number
-  }) {
-    const x = Number(props.x ?? 0)
-    const y = Number(props.y ?? 0)
-    const width = Number(props.width ?? 0)
-    const value = Number(props.value ?? 0)
-    const { index } = props
-    const cx = x + width / 2
-    if (index === destaque) {
-      const w = Math.max(34, String(value).length * 9 + 18)
-      return (
-        <g>
-          <rect x={cx - w / 2} y={y - 28} width={w} height={19} rx={6} fill="#0f172a" />
-          <text
-            x={cx}
-            y={y - 14.5}
-            textAnchor="middle"
-            fontSize={11}
-            fontWeight={700}
-            fill="#fff"
-          >
-            {value}
-          </text>
-        </g>
-      )
-    }
-    if (!value) return null
-    return (
-      <text x={cx} y={y - 5} textAnchor="middle" fontSize={10} fontWeight={600} fill="#94a3b8">
-        {value}
-      </text>
-    )
-  }
-}
-
-// Rótulo de barra horizontal: balão escuro no destaque, número discreto nos demais.
-// O recharts tipa as coordenadas como string | number — normalizamos aqui.
-function rotuloBarra(destaque: number) {
-  return function Rotulo(props: {
-    x?: string | number
-    y?: string | number
-    width?: string | number
-    height?: string | number
-    value?: unknown
-    index?: number
-  }) {
-    const x = Number(props.x ?? 0)
-    const y = Number(props.y ?? 0)
-    const width = Number(props.width ?? 0)
-    const height = Number(props.height ?? 0)
-    const value = Number(props.value ?? 0)
-    const { index } = props
-    const ex = x + width
-    const ey = y + height / 2
-    if (index === destaque) {
-      const w = Math.max(30, String(value).length * 8 + 16)
-      return (
-        <g>
-          <rect x={ex + 5} y={ey - 9.5} width={w} height={19} rx={6} fill="#0f172a" />
-          <text
-            x={ex + 5 + w / 2}
-            y={ey + 3.5}
-            textAnchor="middle"
-            fontSize={11}
-            fontWeight={700}
-            fill="#fff"
-          >
-            {value}
-          </text>
-        </g>
-      )
-    }
-    if (!value) return null
-    return (
-      <text x={ex + 6} y={ey + 3.5} fontSize={10} fontWeight={600} fill="#94a3b8">
-        {value}
-      </text>
-    )
-  }
-}
+import { DashboardDocsPanel } from './DashboardDocsPanel'
+import {
+  AtividadeDiaria,
+  Barras,
+  Chip,
+  Colunas,
+  HeroEvolucao,
+  Kpi,
+  Painel,
+  Secao,
+  SemDados,
+  SLATE,
+  fmtDataBR,
+  mesRange,
+} from './graficos'
 
 const STATUS_LABEL: Record<RncStatus, string> = {
   DRAFT: 'Rascunho',
@@ -161,17 +56,6 @@ const STATUS_DOT: Record<RncStatus, string> = {
   IN_PROGRESS: 'bg-sky-500',
   CLOSED: 'bg-emerald-500',
   CANCELLED: 'bg-red-500',
-}
-
-function curto(s: string, max = 22): string {
-  return s.length > max ? s.slice(0, max - 1) + '…' : s
-}
-function fmtDataBR(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`
 }
 
 // ── Período (seletor rápido) ────────────────────────────────────────
@@ -221,31 +105,146 @@ type Filtro = {
   posFiltro?: (r: Rnc) => boolean
 }
 
+// ── Abas do painel principal: um painel por tipo de documento ───────
+type PainelKey = 'RNC' | TipoPainelDocs
+const PAINEIS: {
+  key: PainelKey
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+}[] = [
+  { key: 'RNC', label: 'Não Conformidades', icon: FileWarning },
+  { key: 'RAQ', label: 'Alertas de Qualidade', icon: ShieldAlert },
+  { key: 'RVT', label: 'Visitas Técnicas', icon: MapPin },
+  { key: 'RHE', label: 'Homologações', icon: PackageCheck },
+]
+
 export function DashboardPage() {
-  const [data, setData] = React.useState<DashboardRnc | null>(null)
-  const [recentes, setRecentes] = React.useState<Rnc[] | null>(null)
-  const [loading, setLoading] = React.useState(true)
-  const [atualizando, setAtualizando] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+  const [painel, setPainel] = React.useState<PainelKey>('RNC')
   const [periodoKey, setPeriodoKey] = React.useState<Modo>('tudo')
   const [customDe, setCustomDe] = React.useState('')
   const [customAte, setCustomAte] = React.useState('')
-  const [filtro, setFiltro] = React.useState<Filtro | null>(null)
-  const [viewing, setViewing] = React.useState<Rnc | null>(null)
 
   const periodo = React.useMemo(
     () => rangeAtual(periodoKey, customDe, customAte),
     [periodoKey, customDe, customAte],
   )
 
+  return (
+    <div className="flex flex-col gap-5 bg-neutral-50/60 p-4 md:p-6">
+      {/* Abas por tipo de documento + seletor de período */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-1 rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm">
+          {PAINEIS.map((p) => {
+            const Icon = p.icon
+            return (
+              <button
+                key={p.key}
+                onClick={() => setPainel(p.key)}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+                  painel === p.key
+                    ? 'bg-neutral-900 text-white'
+                    : 'text-neutral-500 hover:bg-neutral-100',
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{p.label}</span>
+                <span className="sm:hidden">{p.key}</span>
+              </button>
+            )
+          })}
+        </div>
+
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex items-center gap-1 rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm">
+            {PERIODOS.map((p) => (
+              <button
+                key={p.key}
+                onClick={() => setPeriodoKey(p.key)}
+                className={cn(
+                  'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                  periodoKey === p.key
+                    ? 'bg-neutral-900 text-white'
+                    : 'text-neutral-500 hover:bg-neutral-100',
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+            <button
+              onClick={() => setPeriodoKey('custom')}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                periodoKey === 'custom'
+                  ? 'bg-neutral-900 text-white'
+                  : 'text-neutral-500 hover:bg-neutral-100',
+              )}
+            >
+              <CalendarRange className="h-3.5 w-3.5" />
+              Personalizado
+            </button>
+          </div>
+          {periodoKey === 'custom' && (
+            <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2 py-1 shadow-sm">
+              <span className="text-[11px] text-neutral-400">De</span>
+              <input
+                type="date"
+                value={customDe}
+                max={customAte || undefined}
+                onChange={(e) => setCustomDe(e.target.value)}
+                className="rounded-md border border-neutral-200 px-1.5 py-0.5 text-xs text-neutral-700 outline-none focus:border-neutral-400"
+              />
+              <span className="text-[11px] text-neutral-400">até</span>
+              <input
+                type="date"
+                value={customAte}
+                min={customDe || undefined}
+                onChange={(e) => setCustomAte(e.target.value)}
+                className="rounded-md border border-neutral-200 px-1.5 py-0.5 text-xs text-neutral-700 outline-none focus:border-neutral-400"
+              />
+              {(customDe || customAte) && (
+                <button
+                  onClick={() => {
+                    setCustomDe('')
+                    setCustomAte('')
+                  }}
+                  className="rounded-md p-0.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+                  aria-label="Limpar datas"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {painel === 'RNC' ? (
+        <RncPanel periodo={periodo} />
+      ) : (
+        <DashboardDocsPanel tipo={painel} periodo={periodo} />
+      )}
+    </div>
+  )
+}
+
+// ── Painel de Não Conformidades (RNC) ───────────────────────────────
+function RncPanel({ periodo }: { periodo: { de?: string; ate?: string } }) {
+  const [data, setData] = React.useState<DashboardRnc | null>(null)
+  const [recentes, setRecentes] = React.useState<Rnc[] | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [atualizando, setAtualizando] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+  const [filtro, setFiltro] = React.useState<Filtro | null>(null)
+  const [viewing, setViewing] = React.useState<Rnc | null>(null)
+
   React.useEffect(() => {
     let cancelled = false
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setAtualizando(true)
-    const range = rangeAtual(periodoKey, customDe, customAte)
     Promise.all([
-      dashboardApi.rnc(range),
-      rncApi.list({ ...range, pageSize: 60 }).then((r) => r.items),
+      dashboardApi.rnc(periodo),
+      rncApi.list({ ...periodo, pageSize: 60 }).then((r) => r.items),
     ])
       .then(([d, items]) => {
         if (cancelled) return
@@ -266,7 +265,8 @@ export function DashboardPage() {
     return () => {
       cancelled = true
     }
-  }, [periodoKey, customDe, customAte])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodo.de, periodo.ate])
 
   // Abre o drill mesclando o período corrente nos parâmetros.
   const drill = (
@@ -284,10 +284,8 @@ export function DashboardPage() {
   }
   if (error || !data) {
     return (
-      <div className="p-6">
-        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error ?? 'Sem dados.'}
-        </div>
+      <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        {error ?? 'Sem dados.'}
       </div>
     )
   }
@@ -319,88 +317,21 @@ export function DashboardPage() {
   const comParada = (r: Rnc) => (r.tempoParadaMinutos ?? 0) > 0
 
   return (
-    <div className="flex flex-col gap-5 bg-neutral-50/60 p-4 md:p-6">
-      {/* Cabeçalho + seletor de período */}
-      <header className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-col">
-            <h1 className="text-lg font-semibold tracking-tight text-neutral-900">
-              Painel de Não Conformidades
-            </h1>
-            <p className="text-xs text-neutral-400">
-              {total > 0
-                ? `${total} RNCs · ${pctEncerradas}% encerradas · ${abertas} em andamento`
-                : 'Nenhuma RNC no período selecionado'}
-            </p>
-          </div>
-          <div className="flex flex-col items-end gap-1.5">
-            <div className="flex items-center gap-1.5">
-              {atualizando && (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-300" />
-              )}
-              <div className="flex items-center gap-1 rounded-lg border border-neutral-200 bg-white p-0.5 shadow-sm">
-                {PERIODOS.map((p) => (
-                  <button
-                    key={p.key}
-                    onClick={() => setPeriodoKey(p.key)}
-                    className={cn(
-                      'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                      periodoKey === p.key
-                        ? 'bg-neutral-900 text-white'
-                        : 'text-neutral-500 hover:bg-neutral-100',
-                    )}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setPeriodoKey('custom')}
-                  className={cn(
-                    'inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                    periodoKey === 'custom'
-                      ? 'bg-neutral-900 text-white'
-                      : 'text-neutral-500 hover:bg-neutral-100',
-                  )}
-                >
-                  <CalendarRange className="h-3.5 w-3.5" />
-                  Personalizado
-                </button>
-              </div>
-            </div>
-            {periodoKey === 'custom' && (
-              <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-neutral-200 bg-white px-2 py-1 shadow-sm">
-                <span className="text-[11px] text-neutral-400">De</span>
-                <input
-                  type="date"
-                  value={customDe}
-                  max={customAte || undefined}
-                  onChange={(e) => setCustomDe(e.target.value)}
-                  className="rounded-md border border-neutral-200 px-1.5 py-0.5 text-xs text-neutral-700 outline-none focus:border-neutral-400"
-                />
-                <span className="text-[11px] text-neutral-400">até</span>
-                <input
-                  type="date"
-                  value={customAte}
-                  min={customDe || undefined}
-                  onChange={(e) => setCustomAte(e.target.value)}
-                  className="rounded-md border border-neutral-200 px-1.5 py-0.5 text-xs text-neutral-700 outline-none focus:border-neutral-400"
-                />
-                {(customDe || customAte) && (
-                  <button
-                    onClick={() => {
-                      setCustomDe('')
-                      setCustomAte('')
-                    }}
-                    className="rounded-md p-0.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
-                    aria-label="Limpar datas"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
+    <>
+      <header className="flex items-center gap-2">
+        <div className="flex flex-col">
+          <h1 className="text-lg font-semibold tracking-tight text-neutral-900">
+            Painel de Não Conformidades
+          </h1>
+          <p className="text-xs text-neutral-400">
+            {total > 0
+              ? `${total} RNCs · ${pctEncerradas}% encerradas · ${abertas} em andamento`
+              : 'Nenhuma RNC no período selecionado'}
+          </p>
         </div>
+        {atualizando && (
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-300" />
+        )}
       </header>
 
       {/* KPIs interativos com badge colorida + comparativo de período */}
@@ -465,6 +396,8 @@ export function DashboardPage() {
         <div className="lg:col-span-2">
           <HeroEvolucao
             dados={data.porMes}
+            titulo="Evolução das RNCs"
+            sufixo="RNCs"
             onPick={(m) => {
               const ref = mesRange(data.porMes, m)
               if (ref)
@@ -481,7 +414,7 @@ export function DashboardPage() {
       </div>
 
       {/* Atividade diária (estilo "código de barras") */}
-      <AtividadeDiaria dados={data.porDia} />
+      <AtividadeDiaria dados={data.porDia} sufixo="RNC" />
 
       {/* Horas de parada — impacto operacional das RNCs */}
       <Secao titulo="Horas de parada">
@@ -597,150 +530,7 @@ export function DashboardPage() {
         onClose={() => setViewing(null)}
         onUpdated={(u) => setViewing((p) => (p?.id === u.id ? u : p))}
       />
-    </div>
-  )
-}
-
-// Janela [de, ate) do mês clicado no gráfico de evolução.
-function mesRange(
-  serie: ContagemMes[],
-  m: ContagemMes,
-): { de: string; ate: string } | null {
-  const idx = serie.findIndex((x) => x.label === m.label && x.ano === m.ano)
-  if (idx < 0) return null
-  // O índice da série representa meses recuando a partir do atual.
-  const mesesAtras = serie.length - 1 - idx
-  const agora = new Date()
-  const ini = new Date(agora.getFullYear(), agora.getMonth() - mesesAtras, 1)
-  const fim = new Date(agora.getFullYear(), agora.getMonth() - mesesAtras + 1, 1)
-  return { de: ini.toISOString(), ate: fim.toISOString() }
-}
-
-const TONS_BADGE: Record<string, string> = {
-  indigo: 'bg-indigo-50 text-indigo-600',
-  amber: 'bg-amber-50 text-amber-600',
-  rose: 'bg-rose-50 text-rose-600',
-  emerald: 'bg-emerald-50 text-emerald-600',
-  sky: 'bg-sky-50 text-sky-600',
-}
-
-function Kpi({
-  icon: Icon,
-  tom,
-  label,
-  valor,
-  anterior,
-  bomQuandoSobe,
-  onClick,
-}: {
-  icon: React.ComponentType<{ className?: string }>
-  tom: keyof typeof TONS_BADGE
-  label: string
-  valor: number
-  anterior?: number
-  bomQuandoSobe?: boolean
-  onClick?: () => void
-}) {
-  const delta =
-    anterior != null && anterior > 0
-      ? Math.round(((valor - anterior) / anterior) * 100)
-      : null
-  const subiu = delta != null && delta > 0
-  const bom = delta != null && delta !== 0 && subiu === !!bomQuandoSobe
-  return (
-    <Card
-      onClick={onClick}
-      className={cn(
-        'flex flex-col gap-2.5 rounded-2xl border-neutral-200/70 bg-white p-4 shadow-sm transition-all',
-        onClick &&
-          'cursor-pointer hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-md',
-      )}
-    >
-      <div className="flex items-center justify-between">
-        <div
-          className={cn(
-            'flex h-9 w-9 items-center justify-center rounded-xl',
-            TONS_BADGE[tom],
-          )}
-        >
-          <Icon className="h-4.5 w-4.5" />
-        </div>
-        {delta != null && (
-          <span
-            className={cn(
-              'inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10.5px] font-semibold',
-              delta === 0
-                ? 'bg-neutral-100 text-neutral-500'
-                : bom
-                  ? 'bg-emerald-50 text-emerald-600'
-                  : 'bg-rose-50 text-rose-600',
-            )}
-          >
-            {delta > 0 ? (
-              <TrendingUp className="h-3 w-3" />
-            ) : delta < 0 ? (
-              <TrendingDown className="h-3 w-3" />
-            ) : null}
-            {delta > 0 ? '+' : ''}
-            {delta}%
-          </span>
-        )}
-      </div>
-      <div className="flex flex-col leading-tight">
-        <span className="text-2xl font-semibold tracking-tight text-neutral-900 tabular-nums">
-          {valor.toLocaleString('pt-BR')}
-        </span>
-        <span className="text-[11px] uppercase tracking-wide text-neutral-400">
-          {label}
-        </span>
-      </div>
-      {anterior != null && (
-        <span className="text-[11px] text-neutral-400">
-          Período anterior:{' '}
-          <span className="font-medium text-neutral-500 tabular-nums">{anterior}</span>
-        </span>
-      )}
-    </Card>
-  )
-}
-
-function Secao({
-  titulo,
-  children,
-}: {
-  titulo: string
-  children: React.ReactNode
-}) {
-  return (
-    <section className="flex flex-col gap-2.5">
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-neutral-400">
-          {titulo}
-        </span>
-        <div className="h-px flex-1 bg-neutral-100" />
-      </div>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">{children}</div>
-    </section>
-  )
-}
-
-function Painel({
-  titulo,
-  icon: Icon,
-  children,
-}: {
-  titulo: string
-  icon?: React.ComponentType<{ className?: string }>
-  children: React.ReactNode
-}) {
-  return (
-    <Card className="flex flex-col gap-2 rounded-2xl border-neutral-200/70 bg-white p-4 shadow-sm transition-shadow hover:shadow-md">
-      <div className="flex items-center gap-1.5">
-        {Icon && <Icon className="h-3.5 w-3.5 text-neutral-400" />}
-        <h2 className="text-[13px] font-semibold text-neutral-800">{titulo}</h2>
-      </div>
-      {children}
-    </Card>
+    </>
   )
 }
 
@@ -799,104 +589,6 @@ function MetricaParada({ k, v }: { k: string; v: string }) {
       </span>
       <span className="text-[10.5px] uppercase tracking-wide text-neutral-400">{k}</span>
     </div>
-  )
-}
-
-function SemDados({ altura = 220 }: { altura?: number }) {
-  return (
-    <div
-      className="flex items-center justify-center text-xs text-neutral-300"
-      style={{ height: altura }}
-    >
-      Sem dados
-    </div>
-  )
-}
-
-const tooltipStyle = {
-  fontSize: 12,
-  borderRadius: 8,
-  border: '1px solid #e5e7eb',
-  boxShadow: '0 4px 12px rgba(0,0,0,0.06)',
-  padding: '6px 10px',
-}
-
-// ── Herói: evolução mensal (barras fantasma + barra de destaque + balão) ──
-function HeroEvolucao({
-  dados,
-  onPick,
-}: {
-  dados: ContagemMes[]
-  onPick: (m: ContagemMes) => void
-}) {
-  const [hover, setHover] = React.useState<number | null>(null)
-  const totalPeriodo = dados.reduce((a, m) => a + m.total, 0)
-  // Mês de destaque = maior volume — mesmo padrão dos demais gráficos.
-  const destaque = indiceDestaque(dados)
-  const Rotulo = rotuloColuna(destaque)
-
-  return (
-    <Card className="flex h-full flex-col gap-1 rounded-2xl border-neutral-200/70 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between">
-        <div className="flex flex-col">
-          <h2 className="text-[13px] font-semibold text-neutral-800">
-            Evolução das RNCs
-          </h2>
-          <span className="text-[11px] text-neutral-400">Últimos 12 meses</span>
-        </div>
-        <div className="flex flex-col items-end">
-          <span className="text-xl font-semibold tracking-tight text-neutral-900 tabular-nums">
-            {totalPeriodo.toLocaleString('pt-BR')}
-          </span>
-          <span className="text-[11px] text-neutral-400">no período</span>
-        </div>
-      </div>
-      {totalPeriodo === 0 ? (
-        <SemDados altura={240} />
-      ) : (
-        <ResponsiveContainer width="100%" height={252}>
-          <BarChart data={dados} margin={{ top: 30, right: 6, bottom: 4, left: -18 }}>
-            <CartesianGrid vertical={false} stroke="#f3f4f6" />
-            <XAxis
-              dataKey="label"
-              tick={{ fontSize: 10.5, fill: '#94a3b8' }}
-              interval={0}
-              axisLine={false}
-              tickLine={false}
-            />
-            <YAxis
-              allowDecimals={false}
-              tick={{ fontSize: 10, fill: '#cbd5e1' }}
-              axisLine={false}
-              tickLine={false}
-            />
-            <Tooltip
-              cursor={{ fill: '#f8fafc' }}
-              formatter={(value) => [`${value} RNCs`, '']}
-              labelFormatter={(l, p) => {
-                const ano = (p?.[0]?.payload as ContagemMes | undefined)?.ano
-                return ano ? `${l}/${ano}` : String(l)
-              }}
-              contentStyle={tooltipStyle}
-              labelStyle={{ fontSize: 11, color: '#64748b' }}
-            />
-            <Bar dataKey="total" radius={[6, 6, 0, 0]} barSize={28}>
-              {dados.map((m, i) => (
-                <Cell
-                  key={i}
-                  cursor="pointer"
-                  fill={i === destaque || hover === i ? ACENTO : FANTASMA}
-                  onMouseEnter={() => setHover(i)}
-                  onMouseLeave={() => setHover(null)}
-                  onClick={() => onPick(m)}
-                />
-              ))}
-              <LabelList dataKey="total" content={Rotulo} />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      )}
-    </Card>
   )
 }
 
@@ -998,169 +690,6 @@ function SeveridadeResumo({
         </>
       )}
     </Card>
-  )
-}
-
-// ── Atividade diária — barrinhas finas estilo "código de barras" ──
-function AtividadeDiaria({ dados }: { dados: ContagemDia[] }) {
-  const totalPeriodo = dados.reduce((a, d) => a + d.total, 0)
-  const max = Math.max(1, ...dados.map((d) => d.total))
-  const maxIdx = dados.reduce((mi, d, i) => (d.total > dados[mi].total ? i : mi), 0)
-  const diaPico = dados[maxIdx]
-  return (
-    <Card className="flex flex-col gap-3 rounded-2xl border-neutral-200/70 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-1.5">
-          <Activity className="h-3.5 w-3.5 text-neutral-400" />
-          <div className="flex flex-col">
-            <h2 className="text-[13px] font-semibold text-neutral-800">
-              Atividade diária
-            </h2>
-            <span className="text-[11px] text-neutral-400">Últimos 30 dias</span>
-          </div>
-        </div>
-        <div className="flex flex-col items-end">
-          <span className="text-lg font-semibold tracking-tight text-neutral-900 tabular-nums">
-            {totalPeriodo}
-          </span>
-          <span className="text-[11px] text-neutral-400">
-            pico {diaPico ? `${diaPico.total} em ${fmtDataBR(diaPico.label).slice(0, 5)}` : '—'}
-          </span>
-        </div>
-      </div>
-      {totalPeriodo === 0 ? (
-        <SemDados altura={72} />
-      ) : (
-        <div className="flex h-[72px] items-end gap-[3px]">
-          {dados.map((d, i) => (
-            <div
-              key={i}
-              title={`${fmtDataBR(d.label)} · ${d.total} RNC${d.total === 1 ? '' : 's'}`}
-              className="group flex h-full flex-1 items-end"
-            >
-              <div
-                className="w-full rounded-sm transition-colors"
-                style={{
-                  height: `${Math.max(4, (d.total / max) * 100)}%`,
-                  backgroundColor: i === maxIdx && d.total > 0 ? ACENTO : FANTASMA,
-                }}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="flex justify-between text-[10px] text-neutral-300">
-        <span>{dados[0] ? fmtDataBR(dados[0].label) : ''}</span>
-        <span>{dados.length ? fmtDataBR(dados[dados.length - 1].label) : ''}</span>
-      </div>
-    </Card>
-  )
-}
-
-/** Barras horizontais clicáveis (rótulos longos) — mesmo padrão do herói. */
-function Barras({
-  dados,
-  onPick,
-  sufixo = 'RNCs',
-}: {
-  dados: Contagem[]
-  onPick: (d: Contagem) => void
-  sufixo?: string
-}) {
-  const [hover, setHover] = React.useState<number | null>(null)
-  if (dados.length === 0) return <SemDados />
-  const destaque = indiceDestaque(dados)
-  const Rotulo = rotuloBarra(destaque)
-  const altura = Math.max(190, dados.length * 42 + 24)
-  return (
-    <ResponsiveContainer width="100%" height={altura}>
-      <BarChart data={dados} layout="vertical" margin={{ top: 2, right: 46, bottom: 2, left: 4 }}>
-        <CartesianGrid horizontal={false} stroke="#f3f4f6" />
-        <XAxis type="number" tick={{ fontSize: 10, fill: '#cbd5e1' }} axisLine={false} tickLine={false} />
-        <YAxis
-          type="category"
-          dataKey="label"
-          width={150}
-          tick={{ fontSize: 10.5, fill: '#475569' }}
-          axisLine={false}
-          tickLine={false}
-          tickFormatter={(v: string) => curto(v)}
-        />
-        <Tooltip
-          cursor={{ fill: '#f8fafc' }}
-          formatter={(value) => [`${value} ${sufixo}`, '']}
-          contentStyle={tooltipStyle}
-          labelStyle={{ fontSize: 11, color: '#64748b' }}
-        />
-        <Bar dataKey="total" radius={[0, 6, 6, 0]} barSize={30}>
-          {dados.map((d, i) => (
-            <Cell
-              key={i}
-              cursor="pointer"
-              fill={i === destaque || hover === i ? ACENTO : FANTASMA}
-              onMouseEnter={() => setHover(i)}
-              onMouseLeave={() => setHover(null)}
-              onClick={() => onPick(d)}
-            />
-          ))}
-          <LabelList dataKey="total" content={Rotulo} />
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
-  )
-}
-
-/** Colunas verticais clicáveis — mesmo padrão do gráfico herói. */
-function Colunas({
-  dados,
-  onPick,
-  sufixo = 'RNCs',
-}: {
-  dados: Contagem[]
-  onPick: (d: Contagem) => void
-  sufixo?: string
-}) {
-  const [hover, setHover] = React.useState<number | null>(null)
-  if (dados.length === 0) return <SemDados />
-  const destaque = indiceDestaque(dados)
-  const Rotulo = rotuloColuna(destaque)
-  return (
-    <ResponsiveContainer width="100%" height={244}>
-      <BarChart data={dados} margin={{ top: 30, right: 8, bottom: 44, left: -16 }}>
-        <CartesianGrid vertical={false} stroke="#f3f4f6" />
-        <XAxis
-          dataKey="label"
-          tick={{ fontSize: 10, fill: '#64748b' }}
-          interval={0}
-          angle={-22}
-          textAnchor="end"
-          height={56}
-          axisLine={false}
-          tickLine={false}
-          tickFormatter={(v: string) => curto(v, 14)}
-        />
-        <YAxis tick={{ fontSize: 10, fill: '#cbd5e1' }} axisLine={false} tickLine={false} />
-        <Tooltip
-          cursor={{ fill: '#f8fafc' }}
-          formatter={(value) => [`${value} ${sufixo}`, '']}
-          contentStyle={tooltipStyle}
-          labelStyle={{ fontSize: 11, color: '#64748b' }}
-        />
-        <Bar dataKey="total" radius={[6, 6, 0, 0]} barSize={44}>
-          {dados.map((d, i) => (
-            <Cell
-              key={i}
-              cursor="pointer"
-              fill={i === destaque || hover === i ? ACENTO : FANTASMA}
-              onMouseEnter={() => setHover(i)}
-              onMouseLeave={() => setHover(null)}
-              onClick={() => onPick(d)}
-            />
-          ))}
-          <LabelList dataKey="total" content={Rotulo} />
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
   )
 }
 
@@ -1470,29 +999,5 @@ function DrillModal({
         </footer>
       </div>
     </div>
-  )
-}
-
-function Chip({
-  ativo,
-  onClick,
-  children,
-}: {
-  ativo: boolean
-  onClick: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors',
-        ativo
-          ? 'border-neutral-900 bg-neutral-900 text-white'
-          : 'border-neutral-200 bg-white text-neutral-600 hover:bg-neutral-50',
-      )}
-    >
-      {children}
-    </button>
   )
 }

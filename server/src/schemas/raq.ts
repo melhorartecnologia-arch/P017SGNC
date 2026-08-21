@@ -229,6 +229,9 @@ export const raqQuerySchema = z.object({
   filialId: z.string().uuid().optional(),
   severidadeId: z.string().optional(),
   status: rncStatusEnum.optional(),
+  /** Período por data (painel/drill-down): de inclusivo, ate exclusivo. */
+  de: z.coerce.date().optional(),
+  ate: z.coerce.date().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 })

@@ -155,6 +155,9 @@ export const rheQuerySchema = z.object({
   filialId: z.string().uuid().optional(),
   status: rncStatusEnum.optional(),
   homologacaoInicial: homologacaoResultadoEnum.optional(),
+  /** Período por data (painel/drill-down): de inclusivo, ate exclusivo. */
+  de: z.coerce.date().optional(),
+  ate: z.coerce.date().optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
 })

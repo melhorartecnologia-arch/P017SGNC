@@ -38,9 +38,43 @@ export type DashboardRnc = {
   paradaTopFornecedores: Contagem[]
 }
 
+export type TipoPainelDocs = 'RAQ' | 'RVT' | 'RHE'
+
+export type ContagemHomologacao = { valor: string | null; total: number }
+
+/** Painel dos demais tipos (RAQ/RVT/RHE) — dimensões comuns + específicas. */
+export type DashboardDocs = {
+  tipo: TipoPainelDocs
+  total: number
+  porStatus: ContagemStatus[]
+  porFilial: Contagem[]
+  topFornecedores: Contagem[]
+  topProdutos: Contagem[]
+  porMes: ContagemMes[]
+  porDia: ContagemDia[]
+  anterior: ComparativoAnterior | null
+  /** Documentos com o PDF assinado já enviado ao fornecedor. */
+  enviadosFornecedor: number
+  /** Documentos com todas as assinaturas concluídas. */
+  assinaturasConcluidas: number
+  // Específicas do RAQ (vazias nos demais tipos).
+  porSeveridade: ContagemSeveridade[]
+  porOrigem: Contagem[]
+  porDisposicao: Contagem[]
+  reincidentes: number
+  // Específicas do RHE (vazias nos demais tipos).
+  porHomologacaoInicial: ContagemHomologacao[]
+  porHomologacaoFinal: ContagemHomologacao[]
+}
+
 export const dashboardApi = {
   rnc: (periodo?: { de?: string; ate?: string }) =>
     apiRequest<DashboardRnc>('/dashboard/rnc', {
       query: { de: periodo?.de, ate: periodo?.ate },
+    }),
+
+  documentos: (tipo: TipoPainelDocs, periodo?: { de?: string; ate?: string }) =>
+    apiRequest<DashboardDocs>('/dashboard/documentos', {
+      query: { tipo, de: periodo?.de, ate: periodo?.ate },
     }),
 }

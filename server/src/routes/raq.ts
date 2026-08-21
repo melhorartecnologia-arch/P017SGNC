@@ -51,7 +51,7 @@ async function validarRelacionados(
 
 raqRouter.get('/', async (req, res, next) => {
   try {
-    const { fornecedorId, filialId, severidadeId, status, page, pageSize } =
+    const { fornecedorId, filialId, severidadeId, status, de, ate, page, pageSize } =
       raqQuerySchema.parse(req.query)
     const where: Prisma.RelatorioNaoConformidadeWhereInput = {
       tipoDocumento: 'RAQ',
@@ -60,6 +60,11 @@ raqRouter.get('/', async (req, res, next) => {
     if (filialId) where.filialId = filialId
     if (severidadeId) where.severidadeId = severidadeId
     if (status) where.status = status
+    if (de || ate) {
+      where.dataIdentificacao = {}
+      if (de) where.dataIdentificacao.gte = de
+      if (ate) where.dataIdentificacao.lt = ate
+    }
 
     const [total, items] = await Promise.all([
       prisma.relatorioNaoConformidade.count({ where }),

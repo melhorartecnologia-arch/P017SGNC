@@ -66,6 +66,8 @@ export type RaqListParams = {
   filialId?: string
   severidadeId?: string
   status?: RncStatus
+  de?: string
+  ate?: string
   page?: number
   pageSize?: number
 }
@@ -102,6 +104,8 @@ export const raqApi = {
         filialId: params.filialId,
         severidadeId: params.severidadeId,
         status: params.status,
+        de: params.de,
+        ate: params.ate,
         page: params.page,
         pageSize: params.pageSize,
       },

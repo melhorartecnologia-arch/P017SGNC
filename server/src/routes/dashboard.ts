@@ -50,6 +50,292 @@ async function porRelacaoSoma(
   })
 }
 
+/**
+ * Painéis dos demais tipos de documento (RAQ, RVT e RHE). As dimensões
+ * comuns valem para os três; as específicas vão condicionadas ao tipo:
+ * RAQ tem severidade/origem/disposição/reincidência, RHE tem as
+ * homologações inicial e final.
+ */
+dashboardRouter.get('/documentos', async (req, res, next) => {
+  try {
+    const tipo = String(req.query.tipo ?? '')
+    if (!['RAQ', 'RVT', 'RHE'].includes(tipo)) {
+      return res.status(400).json({
+        error: 'ValidationError',
+        message: 'Tipo inválido — use RAQ, RVT ou RHE.',
+      })
+    }
+    const tipoDoc = tipo as 'RAQ' | 'RVT' | 'RHE'
+
+    const de = typeof req.query.de === 'string' ? new Date(req.query.de) : null
+    const ate = typeof req.query.ate === 'string' ? new Date(req.query.ate) : null
+    const wP: {
+      tipoDocumento: 'RAQ' | 'RVT' | 'RHE'
+      dataIdentificacao?: { gte?: Date; lt?: Date }
+    } = { tipoDocumento: tipoDoc }
+    if ((de && !isNaN(de.getTime())) || (ate && !isNaN(ate.getTime()))) {
+      wP.dataIdentificacao = {}
+      if (de && !isNaN(de.getTime())) wP.dataIdentificacao.gte = de
+      if (ate && !isNaN(ate.getTime())) wP.dataIdentificacao.lt = ate
+    }
+
+    const [
+      total,
+      porStatusRaw,
+      porFilialRaw,
+      porFornecedorRaw,
+      porProdutoRaw,
+      enviadosFornecedor,
+      assinaturasConcluidas,
+    ] = await Promise.all([
+      prisma.relatorioNaoConformidade.count({ where: wP }),
+      prisma.relatorioNaoConformidade.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+        where: wP,
+      }),
+      prisma.relatorioNaoConformidade.groupBy({
+        by: ['filialId'],
+        _count: { _all: true },
+        where: wP,
+      }),
+      prisma.relatorioNaoConformidade.groupBy({
+        by: ['fornecedorId'],
+        _count: { _all: true },
+        where: wP,
+        orderBy: { _count: { fornecedorId: 'desc' } },
+        take: 5,
+      }),
+      prisma.relatorioNaoConformidade.groupBy({
+        by: ['produtoId'],
+        _count: { _all: true },
+        where: { produtoId: { not: null }, ...wP },
+        orderBy: { _count: { produtoId: 'desc' } },
+        take: 5,
+      }),
+      prisma.relatorioNaoConformidade.count({
+        where: { ...wP, enviadoFornecedorEm: { not: null } },
+      }),
+      prisma.relatorioNaoConformidade.count({
+        where: { ...wP, assinaturasConcluidasEm: { not: null } },
+      }),
+    ])
+
+    const labelFilial = async (ids: string[]) => {
+      const rows = await prisma.filial.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, codigo: true, nome: true },
+      })
+      return new Map(rows.map((f) => [f.id, `${f.codigo} — ${f.nome}`]))
+    }
+    const labelFornecedor = async (ids: string[]) => {
+      const rows = await prisma.fornecedor.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, codigo: true, razaoSocial: true },
+      })
+      return new Map(rows.map((f) => [f.id, `${f.codigo} — ${f.razaoSocial}`]))
+    }
+    const labelProduto = async (ids: string[]) => {
+      const rows = await prisma.produto.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, codigo: true, descricao: true },
+      })
+      return new Map(rows.map((p) => [p.id, `${p.codigo} — ${p.descricao}`]))
+    }
+
+    // ── Evolução mensal e atividade diária ────────────────────────
+    // O enum é comparado como texto para parametrizar o tipo com segurança.
+    const mesesRaw = await prisma.$queryRaw<{ mes: Date; total: number }[]>`
+      SELECT date_trunc('month', "data_identificacao") AS mes, count(*)::int AS total
+      FROM "relatorios_nao_conformidade"
+      WHERE "tipo_documento"::text = ${tipoDoc}
+        AND "data_identificacao" >= (date_trunc('month', now()) - interval '11 months')
+      GROUP BY mes ORDER BY mes
+    `
+    const mapMes = new Map(
+      mesesRaw.map((r) => [new Date(r.mes).toISOString().slice(0, 7), Number(r.total)]),
+    )
+    const MESES_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+    const agoraM = new Date()
+    const porMes: { label: string; total: number; ano: number }[] = []
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(agoraM.getFullYear(), agoraM.getMonth() - i, 1)
+      const chave = d.toISOString().slice(0, 7)
+      porMes.push({ label: MESES_PT[d.getMonth()], ano: d.getFullYear(), total: mapMes.get(chave) ?? 0 })
+    }
+
+    const diasRaw = await prisma.$queryRaw<{ dia: Date; total: number }[]>`
+      SELECT date_trunc('day', "data_identificacao") AS dia, count(*)::int AS total
+      FROM "relatorios_nao_conformidade"
+      WHERE "tipo_documento"::text = ${tipoDoc}
+        AND "data_identificacao" >= (date_trunc('day', now()) - interval '29 days')
+      GROUP BY dia ORDER BY dia
+    `
+    const mapDia = new Map(
+      diasRaw.map((r) => [new Date(r.dia).toISOString().slice(0, 10), Number(r.total)]),
+    )
+    const porDia: { label: string; total: number }[] = []
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date()
+      d.setDate(d.getDate() - i)
+      const chave = d.toISOString().slice(0, 10)
+      porDia.push({ label: chave, total: mapDia.get(chave) ?? 0 })
+    }
+
+    // ── Comparação com o período anterior (quando há "de") ────────
+    let anterior: { total: number; abertas: number; encerradas: number } | null = null
+    if (de && !isNaN(de.getTime())) {
+      const fim = ate && !isNaN(ate.getTime()) ? ate : new Date()
+      const dur = fim.getTime() - de.getTime()
+      const prevDe = new Date(de.getTime() - dur)
+      const prevStatus = await prisma.relatorioNaoConformidade.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+        where: {
+          tipoDocumento: tipoDoc,
+          dataIdentificacao: { gte: prevDe, lt: de },
+        },
+      })
+      const pm = new Map(prevStatus.map((s) => [s.status as string, s._count._all]))
+      anterior = {
+        total: prevStatus.reduce((a, s) => a + s._count._all, 0),
+        abertas: (pm.get('OPEN') ?? 0) + (pm.get('IN_PROGRESS') ?? 0),
+        encerradas: pm.get('CLOSED') ?? 0,
+      }
+    }
+
+    const ordena = (arr: Contagem[]) => [...arr].sort((a, b) => b.total - a.total)
+
+    // ── Específicas do RAQ ────────────────────────────────────────
+    let porSeveridade: {
+      id: string | null
+      label: string
+      nivel: number | null
+      cor: string
+      total: number
+    }[] = []
+    let porOrigem: Contagem[] = []
+    let porDisposicao: Contagem[] = []
+    let reincidentes = 0
+    if (tipoDoc === 'RAQ') {
+      const [sevRaw, origRaw, dispRaw, reincCount] = await Promise.all([
+        prisma.relatorioNaoConformidade.groupBy({
+          by: ['severidadeId'],
+          _count: { _all: true },
+          where: wP,
+        }),
+        prisma.relatorioNaoConformidade.groupBy({
+          by: ['origemId'],
+          _count: { _all: true },
+          where: wP,
+        }),
+        prisma.relatorioNaoConformidade.groupBy({
+          by: ['disposicaoMaterialId'],
+          _count: { _all: true },
+          where: wP,
+        }),
+        prisma.relatorioNaoConformidade.count({
+          where: { ...wP, reincidente: true },
+        }),
+      ])
+      const sevIds = sevRaw
+        .map((r) => r.severidadeId)
+        .filter((v): v is string => !!v)
+      const sevRows = await prisma.severidade.findMany({
+        where: { id: { in: sevIds } },
+        select: { id: true, codigo: true, nome: true, nivel: true, cor: true },
+      })
+      const sevMap = new Map(sevRows.map((s) => [s.id, s]))
+      porSeveridade = sevRaw
+        .map((r) => {
+          const s = r.severidadeId ? sevMap.get(r.severidadeId) : null
+          return {
+            id: r.severidadeId,
+            label: s ? `Nível ${s.nivel} — ${s.nome}` : 'Não informada',
+            nivel: s?.nivel ?? null,
+            cor: s?.cor ?? '#a3a3a3',
+            total: r._count._all,
+          }
+        })
+        .sort((a, b) => (a.nivel ?? 99) - (b.nivel ?? 99))
+      const labelOrigem = async (ids: string[]) => {
+        const rows = await prisma.origemNaoConformidade.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, codigo: true, nome: true },
+        })
+        return new Map(rows.map((o) => [o.id, `${o.codigo} — ${o.nome}`]))
+      }
+      const labelDisposicao = async (ids: string[]) => {
+        const rows = await prisma.disposicaoMaterial.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, codigo: true, descricao: true },
+        })
+        return new Map(rows.map((d) => [d.id, `${d.codigo} — ${d.descricao}`]))
+      }
+      porOrigem = ordena(await porRelacao('origemId', origRaw, labelOrigem))
+      porDisposicao = ordena(
+        await porRelacao('disposicaoMaterialId', dispRaw, labelDisposicao),
+      )
+      reincidentes = reincCount
+    }
+
+    // ── Específicas do RHE ────────────────────────────────────────
+    let porHomologacaoInicial: { valor: string | null; total: number }[] = []
+    let porHomologacaoFinal: { valor: string | null; total: number }[] = []
+    if (tipoDoc === 'RHE') {
+      const [iniRaw, finRaw] = await Promise.all([
+        prisma.relatorioNaoConformidade.groupBy({
+          by: ['homologacaoInicial'],
+          _count: { _all: true },
+          where: wP,
+        }),
+        prisma.relatorioNaoConformidade.groupBy({
+          by: ['homologacaoFinal'],
+          _count: { _all: true },
+          where: wP,
+        }),
+      ])
+      porHomologacaoInicial = iniRaw.map((r) => ({
+        valor: r.homologacaoInicial ?? null,
+        total: r._count._all,
+      }))
+      porHomologacaoFinal = finRaw.map((r) => ({
+        valor: r.homologacaoFinal ?? null,
+        total: r._count._all,
+      }))
+    }
+
+    res.json({
+      tipo: tipoDoc,
+      total,
+      porStatus: porStatusRaw.map((r) => ({
+        status: r.status as string,
+        total: r._count._all,
+      })),
+      porFilial: ordena(await porRelacao('filialId', porFilialRaw, labelFilial)),
+      topFornecedores: await porRelacao(
+        'fornecedorId',
+        porFornecedorRaw,
+        labelFornecedor,
+      ),
+      topProdutos: await porRelacao('produtoId', porProdutoRaw, labelProduto),
+      porMes,
+      porDia,
+      anterior,
+      enviadosFornecedor,
+      assinaturasConcluidas,
+      porSeveridade,
+      porOrigem,
+      porDisposicao,
+      reincidentes,
+      porHomologacaoInicial,
+      porHomologacaoFinal,
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
 dashboardRouter.get('/rnc', async (req, res, next) => {
   try {
     // Filtro de período por data de identificação.

@@ -35,7 +35,7 @@ const includeRefsRhe = {
 
 rheRouter.get('/', async (req, res, next) => {
   try {
-    const { fornecedorId, filialId, status, homologacaoInicial, page, pageSize } =
+    const { fornecedorId, filialId, status, homologacaoInicial, de, ate, page, pageSize } =
       rheQuerySchema.parse(req.query)
     const where: Prisma.RelatorioNaoConformidadeWhereInput = {
       tipoDocumento: 'RHE',
@@ -44,6 +44,11 @@ rheRouter.get('/', async (req, res, next) => {
     if (filialId) where.filialId = filialId
     if (status) where.status = status
     if (homologacaoInicial) where.homologacaoInicial = homologacaoInicial
+    if (de || ate) {
+      where.dataIdentificacao = {}
+      if (de) where.dataIdentificacao.gte = de
+      if (ate) where.dataIdentificacao.lt = ate
+    }
 
     const [total, items] = await Promise.all([
       prisma.relatorioNaoConformidade.count({ where }),
