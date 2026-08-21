@@ -47,6 +47,7 @@ const mainNav: Item[] = [
   { key: 'dashboard', label: 'Painel Principal', icon: LayoutDashboard },
   { key: 'rnc-list', label: 'RNCs', icon: FileWarning },
   { key: 'raq-list', label: 'RAQs', icon: ShieldAlert },
+  { key: 'rvt-list', label: 'RVTs', icon: MapPin },
   { key: 'workflows-assinatura', label: 'Workflows de Assinatura', icon: Send },
   { key: 'lifecycle', label: 'Acompanhamento', icon: ListChecks },
   { key: 'analytics', label: 'Pendências de Assinaturas', icon: BarChart3 },

@@ -18,6 +18,7 @@ import { streamRncPdf } from '../lib/rnc-pdf-loader.js'
 import {
   pendenciasParaAssinatura,
   pendenciasParaAssinaturaRaq,
+  pendenciasParaAssinaturaRvt,
 } from '../lib/rnc-completude.js'
 import { criarTransporteSmtp } from '../lib/smtp.js'
 import { criarContextoWa } from '../lib/wa.js'
@@ -458,6 +459,7 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
         lotes: { select: { id: true } },
         notasFiscais: { select: { id: true } },
         fotos: { select: { id: true } },
+        participantes: { select: { id: true } },
         aprovadores: true,
       },
     })
@@ -466,7 +468,9 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
     const pendencias =
       rnc.tipoDocumento === 'RAQ'
         ? pendenciasParaAssinaturaRaq(rnc)
-        : pendenciasParaAssinatura(rnc)
+        : rnc.tipoDocumento === 'RVT'
+          ? pendenciasParaAssinaturaRvt(rnc)
+          : pendenciasParaAssinatura(rnc)
     if (pendencias.length > 0) {
       throw new HttpError(
         400,

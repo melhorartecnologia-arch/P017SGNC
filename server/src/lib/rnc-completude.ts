@@ -71,3 +71,32 @@ export function pendenciasParaAssinaturaRaq(raq: RaqParaValidar): string[] {
   if (!raq.fotos || raq.fotos.length === 0) faltando.push('Fotos da ocorrência')
   return faltando
 }
+
+/** Campos obrigatórios do RVT + ao menos uma foto para envio à assinatura. */
+export type RvtParaValidar = {
+  filialId: string | null
+  fornecedorId: string | null
+  produtoId: string | null
+  pauta?: string | null
+  assuntosAbordados?: string | null
+  conclusao?: string | null
+  participantes?: unknown[]
+  fotos: unknown[]
+}
+
+/** Pendências do RVT; vazio significa pronto para assinatura. */
+export function pendenciasParaAssinaturaRvt(rvt: RvtParaValidar): string[] {
+  const faltando: string[] = []
+  if (!rvt.filialId) faltando.push('Unidade (filial)')
+  if (!rvt.fornecedorId) faltando.push('Fornecedor')
+  if (!rvt.produtoId) faltando.push('Produto')
+  if (!rvt.pauta || !rvt.pauta.trim()) faltando.push('Pauta')
+  if (!rvt.participantes || rvt.participantes.length === 0)
+    faltando.push('Participantes')
+  if (!rvt.assuntosAbordados || !rvt.assuntosAbordados.trim())
+    faltando.push('Assuntos abordados')
+  if (!rvt.conclusao || !rvt.conclusao.trim()) faltando.push('Conclusão')
+  if (!rvt.fotos || rvt.fotos.length === 0)
+    faltando.push('Fotos da visita técnica')
+  return faltando
+}

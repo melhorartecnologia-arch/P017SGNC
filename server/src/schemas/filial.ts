@@ -57,6 +57,8 @@ export const filialCreateSchema = z.object({
   observacoes: z.string().trim().max(2000).optional().nullable(),
   // Ponto de partida da numeração de RNC (último número do controle atual).
   rncNumeroInicial: z.coerce.number().int().min(0).max(9_999_999).optional().default(0),
+  raqNumeroInicial: z.coerce.number().int().min(0).max(9_999_999).optional().default(0),
+  rvtNumeroInicial: z.coerce.number().int().min(0).max(9_999_999).optional().default(0),
 })
 
 // Na edição o CNPJ valida apenas o formato; os dígitos verificadores são

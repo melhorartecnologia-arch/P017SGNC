@@ -24,6 +24,8 @@ import { RncWizard } from '@/components/registros/RncWizard'
 import { RncListPage } from '@/components/registros/RncListPage'
 import { RaqListPage } from '@/components/registros/RaqListPage'
 import { RaqWizard } from '@/components/registros/RaqWizard'
+import { RvtListPage } from '@/components/registros/RvtListPage'
+import { RvtWizard } from '@/components/registros/RvtWizard'
 import { WorkflowAssinaturasPage } from '@/components/registros/WorkflowAssinaturasPage'
 import { DashboardPage } from '@/components/dashboard/DashboardPage'
 import { useAuth } from '@/lib/auth/AuthContext'
@@ -34,6 +36,7 @@ function App() {
   const [activeLabel, setActiveLabel] = useState('Painel Principal')
   const [rncWizardOpen, setRncWizardOpen] = useState(false)
   const [raqWizardOpen, setRaqWizardOpen] = useState(false)
+  const [rvtWizardOpen, setRvtWizardOpen] = useState(false)
 
   if (auth.status === 'loading') {
     return (
@@ -75,6 +78,10 @@ function App() {
       setRaqWizardOpen(true)
       return
     }
+    if (key === 'rvt') {
+      setRvtWizardOpen(true)
+      return
+    }
     // Demais tipos ainda não têm wizard — caem na tela "Em construção".
     setActiveKey(`registro-${key}`)
     setActiveLabel(`${sigla} — ${label}`)
@@ -100,6 +107,7 @@ function App() {
     activeKey === 'cfg-workflow' && auth.user.role === 'ADMIN'
   const isRncList = activeKey === 'rnc-list'
   const isRaqList = activeKey === 'raq-list'
+  const isRvtList = activeKey === 'rvt-list'
   const isWorkflows = activeKey === 'workflows-assinatura'
   const isDashboard = activeKey === 'dashboard'
 
@@ -121,6 +129,7 @@ function App() {
   else if (isWorkflowConfig) pageTitle = 'Configurações — Prazos do Fornecedor'
   else if (isRncList) pageTitle = 'Relatórios de Não Conformidade'
   else if (isRaqList) pageTitle = 'Relatórios de Alerta de Qualidade'
+  else if (isRvtList) pageTitle = 'Relatórios de Visita Técnica'
   else if (isWorkflows) pageTitle = 'Workflows de Assinatura'
   else if (isCadastro) pageTitle = `Cadastro de ${activeLabel}`
   else if (isRegistro) pageTitle = activeLabel
@@ -134,6 +143,7 @@ function App() {
       />
       <RncWizard open={rncWizardOpen} onOpenChange={setRncWizardOpen} />
       <RaqWizard open={raqWizardOpen} onOpenChange={setRaqWizardOpen} />
+      <RvtWizard open={rvtWizardOpen} onOpenChange={setRvtWizardOpen} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar title={pageTitle} />
         <main className="flex flex-1 flex-col overflow-y-auto bg-white">
@@ -171,6 +181,8 @@ function App() {
             <RncListPage />
           ) : isRaqList ? (
             <RaqListPage />
+          ) : isRvtList ? (
+            <RvtListPage />
           ) : isWorkflows ? (
             <WorkflowAssinaturasPage />
           ) : isDashboard ? (

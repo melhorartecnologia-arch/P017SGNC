@@ -6,6 +6,7 @@ import { prisma } from '../db.js'
 import {
   montarRncPdf,
   montarRaqPdf,
+  montarRvtPdf,
   type RncPdfData,
   type RncPdfFoto,
 } from './rnc-pdf.js'
@@ -15,6 +16,10 @@ const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'rnc-fotos')
 const IMAGENS_PDF = ['image/jpeg', 'image/jpg', 'image/png']
 
 const pdfInclude = {
+  participantes: {
+    select: { ordem: true, nome: true },
+    orderBy: { ordem: 'asc' },
+  },
   raqRelacionados: {
     select: {
       numero: true,
@@ -123,26 +128,37 @@ async function carregarParaPdf(rncId: string): Promise<{
   }
 }
 
-/** Cria o PDFDocument com as propriedades do tipo (RNC ou RAQ). */
+/** Cria o PDFDocument com as propriedades do tipo (RNC, RAQ ou RVT). */
 function criarDocumento(numero: string, tipoDocumento: string) {
-  const raq = tipoDocumento === 'RAQ'
+  const props: Record<string, { title: string; subject: string; keywords: string }> = {
+    RNC: {
+      title: `RNC ${numero} — Relatório de Não Conformidade`,
+      subject: 'Relatório de Não Conformidade (FOR.IND.CQA.012)',
+      keywords: 'RNC, não conformidade, qualidade',
+    },
+    RAQ: {
+      title: `RAQ ${numero} — Relatório de Alerta de Qualidade`,
+      subject: 'Relatório de Alerta de Qualidade (FOR.IND.CQA.023)',
+      keywords: 'RAQ, alerta de qualidade, qualidade',
+    },
+    RVT: {
+      title: `RVT ${numero} — Relatório de Visita Técnica`,
+      subject: 'Relatório de Visita Técnica',
+      keywords: 'RVT, visita técnica, fornecedor, qualidade',
+    },
+  }
+  const p = props[tipoDocumento] ?? props.RNC
   return new PDFDocument({
     size: 'A4',
     margin: 28,
     lang: 'pt-BR',
     info: {
-      Title: raq
-        ? `RAQ ${numero} — Relatório de Alerta de Qualidade`
-        : `RNC ${numero} — Relatório de Não Conformidade`,
+      Title: p.title,
       Author: 'SGNC — Cervejaria Cidade Imperial',
-      Subject: raq
-        ? 'Relatório de Alerta de Qualidade (FOR.IND.CQA.023)'
-        : 'Relatório de Não Conformidade (FOR.IND.CQA.012)',
+      Subject: p.subject,
       Creator: 'SGNC — Sistema de Gestão de Não Conformidade',
       Producer: 'SGNC — Cervejaria Cidade Imperial',
-      Keywords: raq
-        ? 'RAQ, alerta de qualidade, qualidade'
-        : 'RNC, não conformidade, qualidade',
+      Keywords: p.keywords,
     },
   })
 }
@@ -170,6 +186,7 @@ export async function streamRncPdf(
   const doc = criarDocumento(rnc.numero, rnc.tipoDocumento)
   doc.pipe(res)
   if (rnc.tipoDocumento === 'RAQ') montarRaqPdf(doc, rnc, fotos)
+  else if (rnc.tipoDocumento === 'RVT') montarRvtPdf(doc, rnc, fotos)
   else montarRncPdf(doc, rnc, fotos)
   doc.end()
   return true
@@ -192,6 +209,7 @@ export async function gerarPdfBuffer(rncId: string): Promise<Buffer | null> {
     doc.on('error', reject)
   })
   if (rnc.tipoDocumento === 'RAQ') montarRaqPdf(doc, rnc, fotos)
+  else if (rnc.tipoDocumento === 'RVT') montarRvtPdf(doc, rnc, fotos)
   else montarRncPdf(doc, rnc, fotos)
   doc.end()
   return pronto

@@ -111,8 +111,8 @@ export type ProdutoRef = {
 export type Rnc = {
   id: string
   numero: string
-  /** RNC ou RAQ — os endpoints de workflow servem os dois tipos. */
-  tipoDocumento: 'RNC' | 'RAQ'
+  /** RNC, RAQ ou RVT — os endpoints de workflow servem os três tipos. */
+  tipoDocumento: 'RNC' | 'RAQ' | 'RVT'
   titulo: string | null
   filialId: string
   fornecedorId: string
@@ -339,7 +339,7 @@ export type EnvioAssinatura = {
   enviadoEm: string
   rnc: {
     id: string
-    tipoDocumento: 'RNC' | 'RAQ'
+    tipoDocumento: 'RNC' | 'RAQ' | 'RVT'
     status: RncStatus
     filial: { codigo: string; nome: string } | null
     fornecedor: { codigo: string; razaoSocial: string } | null

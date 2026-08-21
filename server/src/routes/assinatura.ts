@@ -81,7 +81,7 @@ assinaturaRouter.get('/:token', async (req, res, next) => {
       rnc: {
         numero: r.numero,
         tipoDocumento: r.tipoDocumento,
-        titulo: r.titulo,
+        titulo: r.titulo ?? r.pauta,
         status: r.status,
         dataIdentificacao: r.dataIdentificacao,
         descricaoDefeito: r.descricaoDefeito,

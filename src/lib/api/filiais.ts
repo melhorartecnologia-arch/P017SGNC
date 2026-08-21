@@ -17,6 +17,8 @@ export type Filial = {
   observacoes: string | null
   /** Ponto de partida da numeração sequencial de RNC desta filial. */
   rncNumeroInicial: number
+  raqNumeroInicial: number
+  rvtNumeroInicial: number
   createdAt: string
   updatedAt: string
 }

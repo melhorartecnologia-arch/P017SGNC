@@ -270,6 +270,8 @@ model Filial {
   rncNumeroInicial Int @default(0) @map("rnc_numero_inicial")
   /// Sequencial inicial dos RAQs da filial (sistemas com histórico prévio).
   raqNumeroInicial Int @default(0) @map("raq_numero_inicial")
+  /// Sequencial inicial dos RVTs da filial (sistemas com histórico prévio).
+  rvtNumeroInicial Int @default(0) @map("rvt_numero_inicial")
 
   aprovadores               Aprovador[]
   turnos                    TurnoTrabalho[]
@@ -348,6 +350,7 @@ model Aprovador {
 enum TipoDocumento {
   RNC
   RAQ
+  RVT
 }
 
 /// Resposta do fornecedor à RNC concluída (ciência).
@@ -541,6 +544,12 @@ model RelatorioNaoConformidade {
   quantidadeDefeito  Float?    @map("quantidade_defeito")
   tempoParadaMinutos Int?      @map("tempo_parada_minutos")
 
+  // Campos próprios do RVT (Relatório de Visita Técnica).
+  pauta             String? @db.VarChar(200)
+  assuntosAbordados String? @map("assuntos_abordados") @db.Text
+  conclusao         String? @db.Text
+  participantes     RvtParticipante[]
+
   // Campos próprios do RAQ (Relatório de Alerta de Qualidade).
   titulo                    String?  @db.VarChar(200)
   reincidente               Boolean?
@@ -642,6 +651,22 @@ model RncIshikawaCausa {
 
   @@index([rncId])
   @@map("rnc_ishikawa_causas")
+}
+
+/// Participante da visita técnica registrada em um RVT — um nome por
+/// linha, na ordem informada (o formulário prevê até 5).
+model RvtParticipante {
+  id    String @id @default(uuid()) @db.Uuid
+  rncId String @map("rnc_id") @db.Uuid
+  ordem Int
+  nome  String @db.VarChar(160)
+
+  rnc RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([rncId])
+  @@map("rvt_participantes")
 }
 
 /// Foto anexada a um Relatório de Não Conformidade. O arquivo físico

@@ -6,6 +6,11 @@ export type RncPdfData = {
   dataIdentificacao: Date
   status: string
   createdAt?: Date
+  // Campos próprios do RVT.
+  pauta?: string | null
+  assuntosAbordados?: string | null
+  conclusao?: string | null
+  participantes?: { ordem: number; nome: string }[]
   // Campos próprios do RAQ.
   titulo?: string | null
   reincidente?: boolean | null
@@ -222,7 +227,7 @@ function cabecalho(
   doc: Doc,
   est: Estado,
   rnc: RncPdfData,
-  docMeta: { titulo: string; codigo: string } = {
+  docMeta: { titulo: string; codigo: string; versao?: string; emissao?: string } = {
     titulo: 'RELATÓRIO DE NÃO CONFORMIDADE (RNC)',
     codigo: 'FOR.IND.CQA.012',
   },
@@ -252,8 +257,8 @@ function cabecalho(
   doc.moveTo(mx, est.y).lineTo(mx, est.y + h).strokeColor(COR_BORDA).stroke()
   const meta = [
     ['DOCUMENTO', docMeta.codigo],
-    ['VERSÃO', '.003'],
-    ['EMISSÃO', '23/12/2025'],
+    ['VERSÃO', docMeta.versao ?? '.003'],
+    ['EMISSÃO', docMeta.emissao ?? '23/12/2025'],
   ]
   let my = est.y + 5
   for (const [k, v] of meta) {
@@ -799,6 +804,147 @@ export function montarRaqPdf(doc: Doc, raq: RncPdfData, fotos: RncPdfFoto[]) {
     entradas = [
       'Controle de Qualidade',
       'Gestão Controle de Qualidade',
+    ].map((papel) => ({ papel, nome: '', assinadoEm: null }))
+  }
+
+  for (let i = 0; i < entradas.length; i += 2) {
+    const a = entradas[i]
+    const b = entradas[i + 1]
+    const rowH = Math.max(alturaCaixa(a), b ? alturaCaixa(b) : 0)
+    novaPaginaSeNecessario(doc, est, rowH + 4)
+    caixaAssinatura(doc, LEFT, est.y, colW, rowH, a)
+    if (b) caixaAssinatura(doc, LEFT + colW + 8, est.y, colW, rowH, b)
+    est.y += rowH + 4
+  }
+}
+
+/**
+ * Monta o PDF do RVT (Relatório de Visita Técnica) no layout do
+ * formulário do modelo. Não chama doc.end() — quem chama controla o
+ * stream.
+ */
+export function montarRvtPdf(doc: Doc, rvt: RncPdfData, fotos: RncPdfFoto[]) {
+  const est: Estado = { y: MARGIN }
+
+  cabecalho(doc, est, rvt, {
+    titulo: 'RELATÓRIO DE VISITA TÉCNICA (RVT)',
+    codigo: 'FOR.IND.XXX.XXX',
+    versao: '.001',
+    emissao: '—',
+  })
+
+  // 1. Dados do fornecedor e produto
+  tituloSecao(doc, est, '1. Dados do Fornecedor e Produto')
+  linhaCampos(doc, est, [
+    { label: 'Fornecedor', valor: rvt.fornecedor ? `${rvt.fornecedor.codigo} — ${rvt.fornecedor.razaoSocial}` : '', flex: 2 },
+    { label: 'CNPJ', valor: rvt.fornecedor?.cnpj ?? '', flex: 1 },
+  ])
+  linhaCampos(doc, est, [
+    { label: 'Produto', valor: rvt.produto ? `${rvt.produto.codigo} — ${rvt.produto.descricao}` : '', flex: 2 },
+    { label: 'Data da visita', valor: fmtData(rvt.dataIdentificacao), flex: 0.8 },
+    { label: 'Número', valor: rvt.numero, flex: 1 },
+  ])
+  linhaCampos(doc, est, [
+    { label: 'Unidade', valor: rvt.filial ? `${rvt.filial.codigo} — ${rvt.filial.nome}` : '', flex: 2 },
+    { label: 'Situação', valor: fmtStatus(rvt.status), flex: 1 },
+  ])
+
+  // 2. Informações gerais da visita técnica
+  tituloSecao(doc, est, '2. Informações Gerais da Visita Técnica')
+  linhaCampos(doc, est, [{ label: 'Pauta', valor: rvt.pauta ?? '' }], 26)
+  const participantes = rvt.participantes ?? []
+  for (let i = 0; i < 5; i++) {
+    linhaCampos(
+      doc,
+      est,
+      [
+        {
+          label: `Participante ${i + 1}`,
+          valor: participantes[i]?.nome ?? '',
+        },
+      ],
+      20,
+    )
+  }
+
+  // 3. Fotos da visita técnica
+  tituloSecao(doc, est, '3. Fotos da Visita Técnica')
+  const fotosUsaveis = fotos.filter((f) =>
+    ['image/jpeg', 'image/jpg', 'image/png'].includes(f.mimeType),
+  )
+  const celW = CONTENT_W / 2
+  const celH = 120
+  for (let i = 0; i < 4; i += 2) {
+    novaPaginaSeNecessario(doc, est, celH)
+    for (let j = 0; j < 2; j++) {
+      const idx = i + j
+      const x = LEFT + j * celW
+      doc.rect(x, est.y, celW, celH).strokeColor(COR_BORDA).lineWidth(0.6).stroke()
+      doc
+        .fillColor(COR_LABEL)
+        .font('Helvetica-Bold')
+        .fontSize(6)
+        .text(`FOTO 0${idx + 1}`, x + 4, est.y + 3)
+      const foto = fotosUsaveis[idx]
+      if (foto) {
+        try {
+          doc.image(foto.buffer, x + 6, est.y + 14, {
+            fit: [celW - 12, celH - 32],
+            align: 'center',
+            valign: 'center',
+          })
+        } catch {
+          // imagem inválida — ignora
+        }
+        doc
+          .fillColor(COR_VALOR)
+          .font('Helvetica')
+          .fontSize(7)
+          .text(foto.legenda ?? '', x + 4, est.y + celH - 14, {
+            width: celW - 8,
+            ellipsis: true,
+          })
+      }
+    }
+    est.y += celH
+  }
+
+  // 4. Assuntos abordados
+  tituloSecao(doc, est, '4. Assuntos Abordados')
+  blocoTexto(doc, est, 'Assuntos abordados na visita', rvt.assuntosAbordados ?? '', 90)
+
+  // 5. Conclusão
+  tituloSecao(doc, est, '5. Conclusão')
+  blocoTexto(doc, est, 'Conclusão da visita técnica', rvt.conclusao ?? '', 70)
+  linhaCampos(doc, est, [
+    { label: 'Emitente', valor: rvt.criadoPor ? `${rvt.criadoPor.nome} (${rvt.criadoPor.email})` : '' },
+  ], 22)
+
+  // 6. Assinaturas — aprovadores configurados para o tipo RVT.
+  tituloSecao(doc, est, '6. Assinaturas')
+  const colW = (CONTENT_W - 8) / 2
+
+  let entradas: AssinaturaEntrada[]
+  if (rvt.aprovadores.length > 0) {
+    entradas = rvt.aprovadores.map((a) => ({
+      papel: a.areaNome + (a.cargo ? ` — ${a.cargo}` : ''),
+      nome: a.nome,
+      assinadoEm: a.assinadoEm,
+      ip: a.assinaturaIp,
+      navegador: a.assinaturaNavegador,
+      so: a.assinaturaSo,
+      dispositivo: a.assinaturaDispositivo,
+      lat: a.assinaturaLatitude,
+      lng: a.assinaturaLongitude,
+      precisao: a.assinaturaPrecisao,
+    }))
+  } else {
+    // Sem matriz: papéis padrão do formulário, em branco.
+    entradas = [
+      'Controle de Qualidade',
+      'Gestão Controle de Qualidade',
+      'Gerência Envase/Processo',
+      'Representante Técnico',
     ].map((papel) => ({ papel, nome: '', assinadoEm: null }))
   }
 

@@ -273,7 +273,9 @@ export function WorkflowAssinaturasPage() {
                           'inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-semibold',
                           e.rnc?.tipoDocumento === 'RAQ'
                             ? 'border-violet-200 bg-violet-50 text-violet-700'
-                            : 'border-neutral-200 bg-neutral-50 text-neutral-700',
+                            : e.rnc?.tipoDocumento === 'RVT'
+                              ? 'border-sky-200 bg-sky-50 text-sky-700'
+                              : 'border-neutral-200 bg-neutral-50 text-neutral-700',
                         )}
                       >
                         {e.rnc?.tipoDocumento ?? 'RNC'}

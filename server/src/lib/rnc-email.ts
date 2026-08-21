@@ -32,10 +32,15 @@ export type DadosEmailAssinatura = {
   prazoTexto?: string | null
   /** URL pública do app (derivada da requisição) para os links do e-mail. */
   baseUrl?: string
-  /** RNC (padrão) ou RAQ — muda os rótulos do e-mail. */
-  docTipo?: 'RNC' | 'RAQ'
-  /** Título do documento (RAQ). */
+  /** RNC (padrão), RAQ ou RVT — muda os rótulos do e-mail. */
+  docTipo?: 'RNC' | 'RAQ' | 'RVT'
+  /** Título do documento (RAQ) ou pauta (RVT). */
   titulo?: string | null
+}
+
+/** Rótulo do campo de título por tipo de documento. */
+function rotuloTitulo(doc: string): string {
+  return doc === 'RVT' ? 'Pauta' : 'Título'
 }
 
 function fmtData(d: Date): string {
@@ -64,11 +69,14 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
   const linkAssinar = `${base}/?assinar=${encodeURIComponent(d.token)}`
   const linkPdf = `${base}/api/assinatura/${encodeURIComponent(d.token)}/pdf`
   const tipo = d.tipo ?? 'solicitacao'
-  // Rótulos por tipo de documento: "a RNC" / "o RAQ".
+  // Rótulos por tipo de documento: "a RNC" / "o RAQ" / "o RVT".
   const doc = d.docTipo ?? 'RNC'
-  const oDoc = doc === 'RAQ' ? 'o RAQ' : 'a RNC'
-  const escalonadoDoc = doc === 'RAQ' ? 'Este RAQ foi escalonado' : 'Esta RNC foi escalonada'
-  const assinadoDoc = doc === 'RAQ' ? 'assinado' : 'assinada'
+  const masculino = doc !== 'RNC'
+  const oDoc = masculino ? `o ${doc}` : 'a RNC'
+  const escalonadoDoc = masculino
+    ? `Este ${doc} foi escalonado`
+    : 'Esta RNC foi escalonada'
+  const assinadoDoc = masculino ? 'assinado' : 'assinada'
 
   const subject =
     tipo === 'lembrete'
@@ -80,7 +88,7 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
   // Aviso conforme o tipo (lembrete/escalonamento).
   const aviso =
     tipo === 'lembrete'
-      ? `ATENÇÃO: o prazo${d.prazoTexto ? ` de ${d.prazoTexto}` : ''} para assinatura está expirando. Caso não seja ${assinadoDoc} a tempo, ${oDoc} será ${doc === 'RAQ' ? 'escalonado' : 'escalonada'} para o nível superior da sua área.`
+      ? `ATENÇÃO: o prazo${d.prazoTexto ? ` de ${d.prazoTexto}` : ''} para assinatura está expirando. Caso não seja ${assinadoDoc} a tempo, ${oDoc} será ${masculino ? 'escalonado' : 'escalonada'} para o nível superior da sua área.`
       : tipo === 'escalonamento'
         ? `${escalonadoDoc} para você porque o prazo de assinatura do nível anterior expirou sem assinatura.`
         : ''
@@ -98,7 +106,7 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
     intro,
     '',
     `${doc}: ${d.numero}`,
-    d.titulo ? `Título: ${d.titulo}` : '',
+    d.titulo ? `${rotuloTitulo(doc)}: ${d.titulo}` : '',
     `Unidade: ${d.filialNome}`,
     `Fornecedor: ${d.fornecedorNome}`,
     d.tipoNc ? `Tipo de não conformidade: ${d.tipoNc}` : '',
@@ -137,7 +145,7 @@ export function montarEmailAssinatura(d: DadosEmailAssinatura) {
     <table style="border-collapse:collapse;width:100%;font-size:14px;margin:12px 0">
       ${[
         [doc, d.numero],
-        ...(d.titulo ? [['Título', d.titulo]] : []),
+        ...(d.titulo ? [[rotuloTitulo(doc), d.titulo]] : []),
         ['Unidade', d.filialNome],
         ['Fornecedor', d.fornecedorNome],
         ...(d.tipoNc ? [['Tipo de NC', d.tipoNc]] : []),
@@ -201,9 +209,9 @@ export type DadosEmailConclusao = {
   assinaturas: AssinaturaResumo[]
   /** URL pública do app (derivada da requisição) para os links do e-mail. */
   baseUrl?: string
-  /** RNC (padrão) ou RAQ — muda os rótulos do e-mail. */
-  docTipo?: 'RNC' | 'RAQ'
-  /** Título do documento (RAQ). */
+  /** RNC (padrão), RAQ ou RVT — muda os rótulos do e-mail. */
+  docTipo?: 'RNC' | 'RAQ' | 'RVT'
+  /** Título do documento (RAQ) ou pauta (RVT). */
   titulo?: string | null
 }
 
@@ -211,7 +219,7 @@ export type DadosEmailConclusao = {
 export function montarEmailConclusao(d: DadosEmailConclusao) {
   const base = resolverBaseUrl(d.baseUrl)
   const doc = d.docTipo ?? 'RNC'
-  const daDoc = doc === 'RAQ' ? 'do RAQ' : 'da RNC'
+  const daDoc = doc === 'RNC' ? 'da RNC' : `do ${doc}`
   const subject = `${doc} ${d.numero} — assinaturas concluídas`
 
   const linhasResumo = d.assinaturas.map((a) => {
@@ -231,7 +239,7 @@ export function montarEmailConclusao(d: DadosEmailConclusao) {
   const text = [
     `As assinaturas ${daDoc} ${d.numero} foram concluídas.`,
     '',
-    d.titulo ? `Título: ${d.titulo}` : '',
+    d.titulo ? `${rotuloTitulo(doc)}: ${d.titulo}` : '',
     `Unidade: ${d.filialNome}`,
     `Fornecedor: ${d.fornecedorNome}`,
     d.tipoNc ? `Tipo de não conformidade: ${d.tipoNc}` : '',
@@ -271,7 +279,7 @@ export function montarEmailConclusao(d: DadosEmailConclusao) {
     <h2 style="margin:0 0 4px">Assinaturas concluídas — ${doc} ${escapeHtml(d.numero)}</h2>
     <p style="color:#6b7280;margin:0 0 12px">Sistema de Gestão de Não Conformidade</p>
     <div style="margin:0 0 14px;padding:10px 14px;border-radius:8px;background:#f0fdf4;border:1px solid #86efac;color:#15803d;font-size:14px">
-      Todas as assinaturas previstas para ${doc === 'RAQ' ? 'este RAQ' : 'esta RNC'} foram realizadas.
+      Todas as assinaturas previstas para ${doc === 'RNC' ? 'esta RNC' : `este ${doc}`} foram realizadas.
     </div>
     <table style="border-collapse:collapse;width:100%;font-size:13px;margin:0 0 14px">
       ${[
@@ -1372,6 +1380,65 @@ export function montarEmailRaqFornecedor(d: DadosEmailRaqFornecedor) {
     <p style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;padding:10px 12px;border-radius:6px;font-size:13px;margin:0">
       Este comunicado é um <b>alerta de qualidade</b>: analise o documento em anexo e adote
       as providências internas cabíveis.
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
+// ── RVT: envio do documento assinado ao fornecedor ─────────────────
+
+export type DadosEmailRvtFornecedor = {
+  numero: string
+  pauta: string | null
+  filialNome: string
+  fornecedorNome: string
+  contatoNome: string | null
+  dataVisita: Date
+  conclusao: string | null
+}
+
+/**
+ * Relatório de visita técnica assinado, enviado ao contato do fornecedor
+ * com o PDF anexo. Etapa final do RVT: registro, sem resposta esperada.
+ */
+export function montarEmailRvtFornecedor(d: DadosEmailRvtFornecedor) {
+  const subject = `Relatório de Visita Técnica ${d.numero}${d.pauta ? ` — ${d.pauta}` : ''}`
+
+  const text = [
+    `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
+    '',
+    `Segue em anexo o Relatório de Visita Técnica ${d.numero}, referente à visita realizada em ${fmtData(d.dataVisita)} envolvendo ${d.fornecedorNome}, já assinado pelos responsáveis de ${d.filialNome}.`,
+    '',
+    d.pauta ? `Pauta: ${d.pauta}` : '',
+    d.conclusao ? `Conclusão: ${d.conclusao}` : '',
+    '',
+    'Este documento é o registro formal da visita técnica e das tratativas acordadas.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const item = (k: string, v: string) =>
+    v
+      ? `<tr><td style="padding:4px 10px 4px 0;color:#6b7280;font-size:13px">${escapeHtml(k)}</td><td style="padding:4px 0;color:#111827;font-size:13px"><b>${escapeHtml(v)}</b></td></tr>`
+      : ''
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">Relatório de Visita Técnica — RVT ${escapeHtml(d.numero)}</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, segue em anexo o
+      relatório da visita técnica realizada em <b>${escapeHtml(fmtData(d.dataVisita))}</b>
+      envolvendo <b>${escapeHtml(d.fornecedorNome)}</b>, já assinado pelos responsáveis de
+      <b>${escapeHtml(d.filialNome)}</b>.
+    </p>
+    <table style="border-collapse:collapse;margin-bottom:18px">
+      ${item('Pauta', d.pauta ?? '')}
+      ${item('Conclusão', d.conclusao ?? '')}
+    </table>
+    <p style="background:#f0f9ff;border:1px solid #bae6fd;color:#075985;padding:10px 12px;border-radius:6px;font-size:13px;margin:0">
+      Este documento é o <b>registro formal</b> da visita técnica e das tratativas acordadas.
     </p>
     <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
   </div>`

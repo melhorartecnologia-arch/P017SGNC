@@ -5,6 +5,7 @@ import {
   montarEmailAssinatura,
   montarEmailConclusao,
   montarEmailRaqFornecedor,
+  montarEmailRvtFornecedor,
 } from './rnc-email.js'
 import {
   enviarCienciaFornecedor,
@@ -49,6 +50,7 @@ const rncInfoSelect = {
   numero: true,
   tipoDocumento: true,
   titulo: true,
+  pauta: true,
   status: true,
   dataIdentificacao: true,
   descricaoDefeito: true,
@@ -145,7 +147,7 @@ export async function enviarWorkflowAprovador(
     const { subject, text, html } = montarEmailAssinatura({
       numero: rnc.numero,
       docTipo: rnc.tipoDocumento,
-      titulo: rnc.titulo,
+      titulo: rnc.titulo ?? rnc.pauta,
       filialNome: rnc.filial?.nome ?? '',
       fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
       tipoNc: rnc.tipoNaoConformidade
@@ -336,6 +338,7 @@ export async function processarWorkflows(
   const horasPorTipo: Record<string, number | null> = {
     RNC: await horasRespostaRnc(prisma, 'RNC'),
     RAQ: await horasRespostaRnc(prisma, 'RAQ'),
+    RVT: await horasRespostaRnc(prisma, 'RVT'),
   }
   if (!Object.values(horasPorTipo).some((h) => h && h > 0)) return out
 
@@ -584,6 +587,7 @@ export async function finalizarSeConcluida(
       numero: true,
       tipoDocumento: true,
       titulo: true,
+      pauta: true,
       dataIdentificacao: true,
       status: true,
       assinaturasConcluidasEm: true,
@@ -629,7 +633,7 @@ export async function finalizarSeConcluida(
     baseUrl,
     numero: rnc.numero,
     docTipo: rnc.tipoDocumento,
-    titulo: rnc.titulo,
+    titulo: rnc.titulo ?? rnc.pauta,
     filialNome: rnc.filial?.nome ?? '',
     fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
     tipoNc: rnc.tipoNaoConformidade
@@ -691,17 +695,23 @@ export async function finalizarSeConcluida(
     }
   }
 
-  if (rnc.tipoDocumento === 'RAQ') {
-    // RAQ: o fluxo termina aqui — o documento assinado vai por e-mail ao
-    // contato do fornecedor, sem ciência nem resposta esperada. Falha não
-    // desfaz a conclusão; fica no log e o painel oferece o reenvio manual.
+  if (rnc.tipoDocumento !== 'RNC') {
+    // RAQ e RVT: o fluxo termina aqui — o documento assinado vai por
+    // e-mail ao contato do fornecedor, sem ciência nem resposta esperada.
+    // Falha não desfaz a conclusão; fica no log e o painel oferece o
+    // reenvio manual.
     try {
-      const r = await enviarRaqAoFornecedor(prisma, rnc.id)
-      if (!r.enviado && r.motivo !== 'RAQ já enviado ao fornecedor') {
-        console.warn(`SGNC RAQ ${rnc.numero}: envio ao fornecedor falhou — ${r.motivo}`)
+      const r = await enviarDocumentoAoFornecedor(prisma, rnc.id)
+      if (!r.enviado && r.motivo !== 'Documento já enviado ao fornecedor') {
+        console.warn(
+          `SGNC ${rnc.tipoDocumento} ${rnc.numero}: envio ao fornecedor falhou — ${r.motivo}`,
+        )
       }
     } catch (err) {
-      console.warn(`SGNC RAQ ${rnc.numero}: envio ao fornecedor falhou.`, err)
+      console.warn(
+        `SGNC ${rnc.tipoDocumento} ${rnc.numero}: envio ao fornecedor falhou.`,
+        err,
+      )
     }
     return true
   }
@@ -718,10 +728,10 @@ export async function finalizarSeConcluida(
 }
 
 /**
- * Etapa final do RAQ: envia o documento assinado, em PDF anexo, ao
- * contato de e-mail do fornecedor e registra o envio. Idempotente.
+ * Etapa final do RAQ e do RVT: envia o documento assinado, em PDF anexo,
+ * ao contato de e-mail do fornecedor e registra o envio. Idempotente.
  */
-export async function enviarRaqAoFornecedor(
+export async function enviarDocumentoAoFornecedor(
   prisma: PrismaClient,
   raqId: string,
 ): Promise<{ enviado: boolean; motivo?: string; email?: string }> {
@@ -730,7 +740,10 @@ export async function enviarRaqAoFornecedor(
     select: {
       id: true,
       numero: true,
+      tipoDocumento: true,
       titulo: true,
+      pauta: true,
+      conclusao: true,
       dataIdentificacao: true,
       descricaoDefeito: true,
       enviadoFornecedorEm: true,
@@ -746,9 +759,9 @@ export async function enviarRaqAoFornecedor(
       },
     },
   })
-  if (!raq) return { enviado: false, motivo: 'RAQ não encontrado' }
+  if (!raq) return { enviado: false, motivo: 'Documento não encontrado' }
   if (raq.enviadoFornecedorEm) {
-    return { enviado: false, motivo: 'RAQ já enviado ao fornecedor' }
+    return { enviado: false, motivo: 'Documento já enviado ao fornecedor' }
   }
 
   const contato = escolherEmailFornecedor(raq.fornecedor?.contatos ?? [])
@@ -774,7 +787,7 @@ export async function enviarRaqAoFornecedor(
     },
   })
   if (claim.count === 0) {
-    return { enviado: false, motivo: 'RAQ já enviado ao fornecedor' }
+    return { enviado: false, motivo: 'Documento já enviado ao fornecedor' }
   }
 
   const desfazerClaim = () =>
@@ -784,18 +797,29 @@ export async function enviarRaqAoFornecedor(
     })
 
   const pdf = await gerarPdfBuffer(raq.id)
-  const { subject, text, html } = montarEmailRaqFornecedor({
-    numero: raq.numero,
-    titulo: raq.titulo,
-    filialNome: raq.filial?.nome ?? '',
-    fornecedorNome: raq.fornecedor?.razaoSocial ?? '',
-    contatoNome: contato.nome,
-    severidade: raq.severidade
-      ? `Nível ${raq.severidade.nivel} — ${raq.severidade.nome}`
-      : null,
-    dataIdentificacao: raq.dataIdentificacao,
-    descricaoDefeito: raq.descricaoDefeito,
-  })
+  const { subject, text, html } =
+    raq.tipoDocumento === 'RVT'
+      ? montarEmailRvtFornecedor({
+          numero: raq.numero,
+          pauta: raq.pauta,
+          filialNome: raq.filial?.nome ?? '',
+          fornecedorNome: raq.fornecedor?.razaoSocial ?? '',
+          contatoNome: contato.nome,
+          dataVisita: raq.dataIdentificacao,
+          conclusao: raq.conclusao,
+        })
+      : montarEmailRaqFornecedor({
+          numero: raq.numero,
+          titulo: raq.titulo,
+          filialNome: raq.filial?.nome ?? '',
+          fornecedorNome: raq.fornecedor?.razaoSocial ?? '',
+          contatoNome: contato.nome,
+          severidade: raq.severidade
+            ? `Nível ${raq.severidade.nivel} — ${raq.severidade.nome}`
+            : null,
+          dataIdentificacao: raq.dataIdentificacao,
+          descricaoDefeito: raq.descricaoDefeito,
+        })
 
   try {
     await transporte.transporter.sendMail({
@@ -807,7 +831,7 @@ export async function enviarRaqAoFornecedor(
       attachments: pdf
         ? [
             {
-              filename: `RAQ-${raq.numero}.pdf`,
+              filename: `${raq.tipoDocumento}-${raq.numero}.pdf`,
               content: pdf,
               contentType: 'application/pdf',
             },

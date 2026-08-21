@@ -256,7 +256,10 @@ export function AssinaturaPage({ token }: { token: string }) {
                     ) : (
                       <Check className="h-4 w-4" />
                     )}
-                    Assinar {rnc.tipoDocumento === 'RAQ' ? 'este RAQ' : 'esta RNC'}
+                    Assinar{' '}
+                    {rnc.tipoDocumento === 'RNC'
+                      ? 'esta RNC'
+                      : `este ${rnc.tipoDocumento}`}
                   </Button>
                 </div>
                 {erroAssinatura && (

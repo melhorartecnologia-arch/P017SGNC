@@ -31,6 +31,8 @@ const empty: FilialInput = {
   ativo: true,
   observacoes: '',
   rncNumeroInicial: 0,
+  raqNumeroInicial: 0,
+  rvtNumeroInicial: 0,
 }
 
 function toInput(f: Filial): FilialInput {
@@ -49,6 +51,8 @@ function toInput(f: Filial): FilialInput {
     ativo: f.ativo,
     observacoes: f.observacoes ?? '',
     rncNumeroInicial: f.rncNumeroInicial ?? 0,
+    raqNumeroInicial: f.raqNumeroInicial ?? 0,
+    rvtNumeroInicial: f.rvtNumeroInicial ?? 0,
   }
 }
 
@@ -243,10 +247,42 @@ export function FilialForm({ initial, onSaved, onCancel }: Props) {
             placeholder="0"
           />
         </Field>
-        <p className="self-end pb-2 text-xs text-neutral-500 sm:col-span-8">
-          Informe o <b>último número de RNC já usado</b> no controle atual desta
-          filial. As novas RNCs continuam a contagem a partir daí (ex.: informando
-          120, a próxima RNC será a 121). Deixe 0 para começar do início.
+        <Field
+          label="Numeração inicial de RAQ"
+          error={fieldError('raqNumeroInicial')}
+          className="sm:col-span-4"
+        >
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={String(form.raqNumeroInicial ?? 0)}
+            onChange={(e) =>
+              set('raqNumeroInicial', Math.max(0, Math.floor(Number(e.target.value) || 0)))
+            }
+            placeholder="0"
+          />
+        </Field>
+        <Field
+          label="Numeração inicial de RVT"
+          error={fieldError('rvtNumeroInicial')}
+          className="sm:col-span-4"
+        >
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={String(form.rvtNumeroInicial ?? 0)}
+            onChange={(e) =>
+              set('rvtNumeroInicial', Math.max(0, Math.floor(Number(e.target.value) || 0)))
+            }
+            placeholder="0"
+          />
+        </Field>
+        <p className="self-end pb-2 text-xs text-neutral-500 sm:col-span-12">
+          Informe o <b>último número já usado</b> de cada tipo no controle atual
+          desta filial — a contagem continua a partir daí (ex.: informando 120,
+          o próximo documento será o 121). Deixe 0 para começar do início.
         </p>
 
         <Field
