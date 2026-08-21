@@ -354,6 +354,11 @@ export function AprovadorPage() {
               { header: 'E-mail', value: (a) => a.email, width: 30 },
               { header: 'Telefone', value: (a) => a.telefone ?? '', width: 16 },
               { header: 'WhatsApp', value: (a) => a.whatsapp ?? '', width: 16 },
+              {
+                header: 'Recebe resposta do fornecedor',
+                value: (a) => (a.recebeRespostaFornecedor ? 'Sim' : 'Não'),
+                width: 26,
+              },
               { header: 'Situação', value: (a) => (a.ativo ? 'Ativo' : 'Inativo'), width: 10 },
               { header: 'Observações', value: (a) => a.observacoes ?? '', width: 40 },
             ]}
@@ -415,6 +420,9 @@ export function AprovadorPage() {
                 <th className="px-3 py-2.5 text-left font-medium">Turno</th>
                 <th className="px-3 py-2.5 text-left font-medium">Aprovador</th>
                 <th className="px-3 py-2.5 text-left font-medium">Contatos</th>
+                <th className="px-3 py-2.5 text-center font-medium">
+                  Resposta forn.
+                </th>
                 <th className="px-3 py-2.5 text-center font-medium">Situação</th>
                 <th className="w-24 px-3 py-2.5"></th>
               </tr>
@@ -450,6 +458,9 @@ export function AprovadorPage() {
                       <Skeleton className="mt-1.5 h-3 w-36" />
                     </td>
                     <td className="px-3 py-4">
+                      <Skeleton className="mx-auto h-5 w-16" />
+                    </td>
+                    <td className="px-3 py-4">
                       <Skeleton className="mx-auto h-5 w-14" />
                     </td>
                     <td className="px-3 py-4">
@@ -462,7 +473,7 @@ export function AprovadorPage() {
                 ))}
               {!loading && items.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-3 py-10 text-center text-neutral-500">
+                  <td colSpan={10} className="px-3 py-10 text-center text-neutral-500">
                     Nenhum aprovador encontrado.
                   </td>
                 </tr>
@@ -532,6 +543,18 @@ export function AprovadorPage() {
                           </div>
                         )}
                       </div>
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      {a.recebeRespostaFornecedor ? (
+                        <span
+                          title="Recebe as respostas do fornecedor (aceite/recusa) por e-mail"
+                          className="inline-flex items-center rounded-md border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-xs font-medium text-indigo-700"
+                        >
+                          Recebe
+                        </span>
+                      ) : (
+                        <span className="text-xs text-neutral-300">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-center">
                       <span

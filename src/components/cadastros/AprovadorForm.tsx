@@ -33,6 +33,7 @@ type FormState = {
   telefone: string
   whatsapp: string
   ativo: boolean
+  recebeRespostaFornecedor: boolean
   observacoes: string
 }
 
@@ -47,6 +48,7 @@ const empty: FormState = {
   telefone: '',
   whatsapp: '',
   ativo: true,
+  recebeRespostaFornecedor: false,
   observacoes: '',
 }
 
@@ -62,6 +64,7 @@ function toForm(a: Aprovador): FormState {
     telefone: a.telefone ?? '',
     whatsapp: a.whatsapp ?? '',
     ativo: a.ativo,
+    recebeRespostaFornecedor: a.recebeRespostaFornecedor ?? false,
     observacoes: a.observacoes ?? '',
   }
 }
@@ -158,6 +161,7 @@ export function AprovadorForm({ initial, onSaved, onCancel }: Props) {
         telefone: form.telefone || null,
         whatsapp: form.whatsapp || null,
         ativo: form.ativo,
+        recebeRespostaFornecedor: form.recebeRespostaFornecedor,
         observacoes: form.observacoes || null,
       }
       if (initial) {
@@ -350,6 +354,23 @@ export function AprovadorForm({ initial, onSaved, onCancel }: Props) {
             className="flex w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
           />
         </Field>
+        <div className="flex flex-col gap-1.5 sm:col-span-12">
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={form.recebeRespostaFornecedor}
+              onCheckedChange={(v) => set('recebeRespostaFornecedor', v)}
+              id="recebe-resposta-fornecedor"
+            />
+            <Label htmlFor="recebe-resposta-fornecedor" className="cursor-pointer">
+              Recebe as respostas do fornecedor
+            </Label>
+          </div>
+          <span className="text-xs text-neutral-500">
+            Após todas as assinaturas, a RNC vai ao fornecedor para aceite ou
+            recusa. Somente os aprovadores marcados aqui recebem essa resposta
+            por e-mail.
+          </span>
+        </div>
         <div className="flex items-center gap-3 sm:col-span-12">
           <Switch
             checked={form.ativo}

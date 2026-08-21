@@ -12,6 +12,8 @@ export type Aprovador = {
   telefone: string | null
   whatsapp: string | null
   ativo: boolean
+  /** Recebe as respostas do fornecedor (aceite/recusa) por e-mail. */
+  recebeRespostaFornecedor: boolean
   observacoes: string | null
   filial: { id: string; codigo: string; nome: string }
   area: { id: string; codigo: string; nome: string }
@@ -31,6 +33,7 @@ export type AprovadorInput = {
   telefone?: string | null
   whatsapp?: string | null
   ativo?: boolean
+  recebeRespostaFornecedor?: boolean
   observacoes?: string | null
 }
 

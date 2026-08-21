@@ -314,6 +314,9 @@ model Aprovador {
   whatsapp    String? @db.VarChar(20)
   ativo       Boolean @default(true)
   observacoes String? @db.Text
+  /// Recebe as respostas do fornecedor (aceite/recusa) após a conclusão
+  /// das assinaturas. Só os marcados recebem esse fluxo.
+  recebeRespostaFornecedor Boolean @default(false) @map("recebe_resposta_fornecedor")
 
   filial Filial         @relation(fields: [filialId], references: [id], onDelete: Restrict)
   area   Area           @relation(fields: [areaId], references: [id], onDelete: Restrict)

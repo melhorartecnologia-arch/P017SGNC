@@ -143,7 +143,38 @@ export async function enviarCienciaFornecedor(
   return { enviado: true, email: contato.email }
 }
 
-/** Avisa a equipe interna sobre a resposta do fornecedor (best-effort). */
+/**
+ * Destinatários da resposta do fornecedor: os aprovadores da filial
+ * marcados no cadastro como receptores desse fluxo. Sem nenhum marcado,
+ * cai no emitente + aprovadores da matriz para a resposta não se perder.
+ */
+export async function destinatariosRespostaFornecedor(
+  prisma: PrismaClient,
+  rnc: {
+    filialId: string
+    criadoPor?: { email: string | null } | null
+    aprovadores: { email: string | null }[]
+  },
+): Promise<string[]> {
+  const marcados = await prisma.aprovador.findMany({
+    where: {
+      filialId: rnc.filialId,
+      ativo: true,
+      recebeRespostaFornecedor: true,
+    },
+    select: { email: true },
+  })
+  const emails = new Set<string>()
+  for (const m of marcados) if (m.email) emails.add(m.email)
+  if (emails.size > 0) return [...emails]
+
+  // Nenhum aprovador marcado: fallback para não perder a resposta.
+  if (rnc.criadoPor?.email) emails.add(rnc.criadoPor.email)
+  for (const a of rnc.aprovadores) if (a.email) emails.add(a.email)
+  return [...emails]
+}
+
+/** Avisa os aprovadores marcados sobre a resposta do fornecedor. */
 export async function notificarRespostaCiencia(
   prisma: PrismaClient,
   rncId: string,
@@ -153,6 +184,7 @@ export async function notificarRespostaCiencia(
     where: { id: rncId },
     select: {
       numero: true,
+      filialId: true,
       cienciaStatus: true,
       cienciaRespondidaEm: true,
       cienciaRespondidaPor: true,
@@ -167,10 +199,8 @@ export async function notificarRespostaCiencia(
   const transporte = await criarTransporteSmtp()
   if (!transporte) return
 
-  const destinatarios = new Set<string>()
-  if (rnc.criadoPor?.email) destinatarios.add(rnc.criadoPor.email)
-  for (const a of rnc.aprovadores) if (a.email) destinatarios.add(a.email)
-  if (destinatarios.size === 0) return
+  const destinatarios = await destinatariosRespostaFornecedor(prisma, rnc)
+  if (destinatarios.length === 0) return
 
   const { subject, text, html } = montarEmailRespostaCiencia({
     numero: rnc.numero,
@@ -185,7 +215,7 @@ export async function notificarRespostaCiencia(
   try {
     await transporte.transporter.sendMail({
       from: transporte.remetente,
-      to: [...destinatarios].join(', '),
+      to: destinatarios.join(', '),
       subject,
       text,
       html,
