@@ -159,6 +159,8 @@ export function RncWizard({
   const [savedRnc, setSavedRnc] = React.useState<Rnc | null>(initial ?? null)
 
   const [saving, setSaving] = React.useState(false)
+  /** Trava síncrona contra duplo clique no salvamento do rascunho. */
+  const salvandoRef = React.useRef(false)
   const [corrigindoTexto, setCorrigindoTexto] = React.useState(false)
   // Texto anterior à última correção por IA — permite desfazer. Limpo
   // quando o usuário edita manualmente a descrição.
@@ -630,6 +632,12 @@ export function RncWizard({
         return
       }
       if (subStep3 === 3 && stepFinalValid) {
+        // Trava síncrona: o estado `saving` só desabilita o botão após o
+        // re-render, então dois cliques muito rápidos poderiam disparar dois
+        // POSTs e criar duas RNCs (com números diferentes) para o mesmo
+        // rascunho. O ref bloqueia já na segunda chamada.
+        if (salvandoRef.current) return
+        salvandoRef.current = true
         setSaving(true)
         try {
           const persisted = await persistRnc()
@@ -646,6 +654,7 @@ export function RncWizard({
           setError(message)
           toast.error('Não foi possível salvar', { description: message })
         } finally {
+          salvandoRef.current = false
           setSaving(false)
         }
       }

@@ -612,7 +612,11 @@ rncRouter.post('/', async (req, res, next) => {
     const codigoFilial = filial.codigo.trim().toUpperCase()
 
     const { lotes, notasFiscais, ...rncData } = data
-    const created = await prisma.$transaction(async (tx) => {
+    const prefixo = codigoFilial + mes2 + ano2
+    const montarNumero = (seq: number) => prefixo + String(seq).padStart(3, '0')
+
+    const criarComNumeracao = () =>
+      prisma.$transaction(async (tx) => {
       // Lock advisory por filial — liberado ao fim da transação. Evita corrida
       // quando dois POSTs da mesma filial chegam ao mesmo tempo.
       await tx.$executeRawUnsafe(
@@ -628,24 +632,28 @@ rncRouter.post('/', async (req, res, next) => {
         _max: { sequencialFilial: true },
         _count: { _all: true },
       })
+      // Números já usados neste prefixo (filial + mês/ano). Uma consulta só:
+      // evita uma ida ao banco por tentativa e cobre registros legados, que
+      // podem ter numeração fora da sequência atual.
+      const usados = new Set(
+        (
+          await tx.relatorioNaoConformidade.findMany({
+            where: { numero: { startsWith: prefixo } },
+            select: { numero: true },
+          })
+        ).map((r) => r.numero),
+      )
       let sequencial =
         Math.max(
           filial.rncNumeroInicial ?? 0,
           agg._max.sequencialFilial ?? 0,
           agg._count._all ?? 0,
         ) + 1
-      let numero =
-        codigoFilial + mes2 + ano2 + String(sequencial).padStart(3, '0')
-      // Garante a unicidade do número mesmo diante de numerações legadas ou
-      // inconsistências: avança o sequencial até encontrar um número livre.
-      // Seguro sob o lock advisory por filial (sem concorrência aqui).
-      for (let i = 0; i < 5000; i++) {
-        const conflito = await tx.relatorioNaoConformidade.count({
-          where: { numero },
-        })
-        if (conflito === 0) break
+      let numero = montarNumero(sequencial)
+      // Avança até um número livre. Como o conjunto é finito, o laço termina.
+      while (usados.has(numero)) {
         sequencial += 1
-        numero = codigoFilial + mes2 + ano2 + String(sequencial).padStart(3, '0')
+        numero = montarNumero(sequencial)
       }
       const novo = await tx.relatorioNaoConformidade.create({
         data: {
@@ -682,7 +690,25 @@ rncRouter.post('/', async (req, res, next) => {
         where: { id: novo.id },
         include: includeRefs,
       })
-    })
+      })
+
+    // Rede de segurança: se ainda assim o número colidir (dado legado
+    // inserido por fora, restauração de backup, integração), refaz a
+    // transação — que recalcula a numeração — em vez de devolver o erro
+    // "já existe registro com este número" para o usuário.
+    let created
+    for (let tentativa = 1; ; tentativa++) {
+      try {
+        created = await criarComNumeracao()
+        break
+      } catch (err) {
+        const colisaoDeNumero =
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002' &&
+          (err.meta?.target as string[] | undefined)?.includes('numero')
+        if (!colisaoDeNumero || tentativa >= 5) throw err
+      }
+    }
     res.status(201).json(created)
   } catch (err) {
     next(err)
