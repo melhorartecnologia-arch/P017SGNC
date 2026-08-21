@@ -23,6 +23,9 @@ import {
   resumoAssinaturas,
   pendenciasParaAssinatura,
   CIENCIA_RNC_LABEL,
+  CONTINGENCIA_RNC_LABEL,
+  ACAO_CONTINGENCIA_LABEL,
+  type AcaoContingencia,
   type Rnc,
   type RncStatus,
 } from '@/lib/api/rnc'
@@ -701,7 +704,7 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
 
               {rnc.contingenciaStatus && (
                 <Section title="Ações de contingência">
-                  <ContingenciaBloco rnc={rnc} />
+                  <ContingenciaBloco rnc={rnc} onUpdated={onUpdated} />
                 </Section>
               )}
 
@@ -774,20 +777,231 @@ function prazoVencido(prazo: string | null | undefined): boolean {
   return !Number.isNaN(ms) && ms <= Date.now()
 }
 
-/**
- * Devolutiva das ações de contingência: aberta quando a não conformidade
- * é confirmada e cobrada por alertas enquanto o fornecedor não responde.
- */
-function ContingenciaBloco({ rnc }: { rnc: Rnc }) {
-  const respondida = rnc.contingenciaStatus === 'RESPONDIDA'
-  const atrasada = !respondida && prazoVencido(rnc.contingenciaPrazoEm)
+/** Selo de situação de uma ação do plano. */
+function SeloAcao({ status }: { status: AcaoContingencia['status'] }) {
+  const cor =
+    status === 'APROVADA'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : status === 'RECUSADA'
+        ? 'border-red-200 bg-red-50 text-red-700'
+        : 'border-amber-200 bg-amber-50 text-amber-700'
+  return (
+    <span
+      className={cn(
+        'inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium',
+        cor,
+      )}
+    >
+      {ACAO_CONTINGENCIA_LABEL[status]}
+    </span>
+  )
+}
 
-  const cor = respondida
+/**
+ * Uma linha do plano com a decisão do aprovador. A recusa abre o campo de
+ * parecer, que é o texto devolvido ao fornecedor para corrigir a ação.
+ */
+function AcaoLinha({
+  rncId,
+  acao,
+  podeDecidir,
+  onUpdated,
+}: {
+  rncId: string
+  acao: AcaoContingencia
+  podeDecidir: boolean
+  onUpdated?: (rnc: Rnc) => void
+}) {
+  const [modo, setModo] = React.useState<'aprovar' | 'recusar' | null>(null)
+  const [parecer, setParecer] = React.useState('')
+  const [salvando, setSalvando] = React.useState(false)
+
+  const decidir = async (aprovada: boolean) => {
+    if (salvando) return
+    if (!aprovada && !parecer.trim()) {
+      toast.error('Informe o parecer que fundamenta a recusa da ação.')
+      return
+    }
+    setSalvando(true)
+    try {
+      const atualizado = await rncApi.analisarAcaoContingencia(rncId, acao.id, {
+        aprovada,
+        parecer: parecer.trim() || null,
+      })
+      onUpdated?.(atualizado)
+      setModo(null)
+      setParecer('')
+      toast.success(
+        aprovada
+          ? `Ação ${acao.ordem} aprovada`
+          : `Ação ${acao.ordem} recusada — o fornecedor será avisado`,
+      )
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao registrar a decisão.'
+      toast.error('Não foi possível registrar', { description: message })
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  const pendente = acao.status === 'PENDENTE'
+
+  return (
+    <div className="flex flex-col gap-2 border-b border-neutral-100 py-2.5 last:border-0">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 w-5 shrink-0 text-xs tabular-nums text-neutral-400">
+          {acao.ordem}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-neutral-900">
+            {acao.descricao}
+          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
+            <span>
+              Responsável:{' '}
+              <span className="text-neutral-700">{acao.responsavel || '—'}</span>
+            </span>
+            <span>
+              Prazo:{' '}
+              <span className="text-neutral-700">
+                {acao.prazo ? formatDataBR(acao.prazo) : '—'}
+              </span>
+            </span>
+            {acao.analisadaEm && (
+              <span>
+                {acao.status === 'APROVADA' ? 'Aprovada' : 'Recusada'} em{' '}
+                {formatDataHoraBR(acao.analisadaEm)}
+                {acao.analisadaPor ? ` · por ${acao.analisadaPor}` : ''}
+              </span>
+            )}
+          </div>
+          {acao.parecer && (
+            <p
+              className={cn(
+                'whitespace-pre-wrap rounded-md border px-2 py-1 text-xs',
+                acao.status === 'RECUSADA'
+                  ? 'border-red-200 bg-red-50 text-red-800'
+                  : 'border-neutral-200 bg-neutral-50 text-neutral-700',
+              )}
+            >
+              <b>Parecer:</b> {acao.parecer}
+            </p>
+          )}
+        </div>
+        <SeloAcao status={acao.status} />
+      </div>
+
+      {pendente && podeDecidir && (
+        <div className="ml-8 flex flex-col gap-2">
+          {modo === null ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => decidir(true)}
+                disabled={salvando}
+              >
+                {salvando ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                )}
+                Aprovar
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+                onClick={() => setModo('recusar')}
+                disabled={salvando}
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Recusar
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <textarea
+                value={parecer}
+                onChange={(e) => setParecer(e.target.value)}
+                rows={2}
+                maxLength={4000}
+                disabled={salvando}
+                placeholder="Parecer que fundamenta a recusa (obrigatório) — o fornecedor recebe este texto para corrigir a ação."
+                className="flex w-full rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-red-600 hover:bg-red-700"
+                  disabled={salvando || !parecer.trim()}
+                  onClick={() => decidir(false)}
+                >
+                  {salvando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Confirmar recusa
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={salvando}
+                  onClick={() => {
+                    setModo(null)
+                    setParecer('')
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Plano de ações de contingência: o fornecedor cadastra uma ação por
+ * linha e o aprovador marcado aprova ou recusa cada uma delas.
+ */
+function ContingenciaBloco({
+  rnc,
+  onUpdated,
+}: {
+  rnc: Rnc
+  onUpdated?: (rnc: Rnc) => void
+}) {
+  const auth = useAuth()
+  const usuario = auth.status === 'authenticated' ? auth.user : null
+  // Mesma regra da análise da recusa: ADMIN ou aprovador marcado da filial.
+  const podeDecidir = podeAnalisarRecusa(usuario, rnc.filialId)
+
+  const status = rnc.contingenciaStatus
+  if (!status) return null
+
+  const acoes = rnc.acoesContingencia ?? []
+  const emAnalise = status === 'EM_ANALISE'
+  const aprovada = status === 'APROVADA'
+  const emAberto = status === 'PENDENTE' || status === 'AJUSTE_SOLICITADO'
+  const atrasada = emAberto && prazoVencido(rnc.contingenciaPrazoEm)
+  const pendentes = acoes.filter((a) => a.status === 'PENDENTE').length
+
+  const cor = aprovada
     ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
     : atrasada
       ? 'border-red-200 bg-red-50 text-red-800'
-      : 'border-amber-200 bg-amber-50 text-amber-800'
-  const Icone = respondida ? CheckCircle2 : atrasada ? AlertTriangle : Clock
+      : emAnalise
+        ? 'border-sky-200 bg-sky-50 text-sky-800'
+        : 'border-amber-200 bg-amber-50 text-amber-800'
+  const Icone = aprovada
+    ? CheckCircle2
+    : atrasada
+      ? AlertTriangle
+      : emAnalise
+        ? ClipboardList
+        : Clock
 
   return (
     <div className="flex flex-col gap-2">
@@ -795,21 +1009,32 @@ function ContingenciaBloco({ rnc }: { rnc: Rnc }) {
         <Icone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <div className="flex flex-col gap-0.5 text-xs">
           <span className="font-semibold">
-            {respondida
-              ? 'Ações de contingência recebidas'
-              : atrasada
-                ? 'Ações de contingência em atraso'
-                : 'Aguardando as ações de contingência'}
+            {atrasada
+              ? `${CONTINGENCIA_RNC_LABEL[status]} — em atraso`
+              : CONTINGENCIA_RNC_LABEL[status]}
           </span>
-          {respondida ? (
+          {emAnalise ? (
             <span>
-              Registradas em {formatDataHoraBR(rnc.contingenciaRespondidaEm)}
+              Plano recebido em {formatDataHoraBR(rnc.contingenciaRespondidaEm)}
               {rnc.contingenciaRespondidaPor
                 ? ` · por ${rnc.contingenciaRespondidaPor}`
+                : ''}
+              {pendentes > 0
+                ? ` — ${pendentes} ação(ões) aguardando decisão.`
+                : '.'}
+            </span>
+          ) : aprovada ? (
+            <span>
+              Aprovado em {formatDataHoraBR(rnc.contingenciaAnalisadaEm)}
+              {rnc.contingenciaAnalisadaPor
+                ? ` · por ${rnc.contingenciaAnalisadaPor}`
                 : ''}
             </span>
           ) : (
             <span>
+              {status === 'AJUSTE_SOLICITADO'
+                ? 'Devolvido ao fornecedor para correção. '
+                : ''}
               Prazo até {formatDataHoraBR(rnc.contingenciaPrazoEm)}
               {atrasada
                 ? ` — ${rnc.contingenciaAlertas} alerta(s) enviado(s) ao fornecedor.`
@@ -821,22 +1046,33 @@ function ContingenciaBloco({ rnc }: { rnc: Rnc }) {
       <Row label="Solicitadas em">
         {formatDataHoraBR(rnc.contingenciaSolicitadaEm) || '—'}
       </Row>
-      {rnc.contingenciaAcoes ? (
-        <div className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wide text-neutral-400">
-            Ações informadas pelo fornecedor
-          </span>
-          <p className="whitespace-pre-wrap rounded-md border border-neutral-200 bg-neutral-50/60 p-2.5 text-[13px] leading-relaxed text-neutral-800">
-            {rnc.contingenciaAcoes}
-          </p>
-        </div>
-      ) : (
+
+      {acoes.length === 0 ? (
         <div className="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600">
           <ClipboardList className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
           <span>
-            O fornecedor ainda não informou as ações. A cobrança automática se
-            repete até a devolutiva chegar.
+            O fornecedor ainda não cadastrou nenhuma ação. A cobrança
+            automática se repete até o plano chegar.
           </span>
+        </div>
+      ) : (
+        <div className="rounded-md border border-neutral-200 px-3">
+          {acoes.map((a) => (
+            <AcaoLinha
+              key={a.id}
+              rncId={rnc.id}
+              acao={a}
+              podeDecidir={podeDecidir && emAnalise}
+              onUpdated={onUpdated}
+            />
+          ))}
+        </div>
+      )}
+
+      {emAnalise && !podeDecidir && (
+        <div className="rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
+          A aprovação das ações cabe aos aprovadores marcados para receber as
+          respostas do fornecedor nesta filial (ou a um administrador).
         </div>
       )}
     </div>

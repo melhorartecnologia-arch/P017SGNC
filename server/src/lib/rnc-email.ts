@@ -608,7 +608,8 @@ export function montarEmailContingencia(d: DadosEmailContingencia) {
     `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
     '',
     `A não conformidade da RNC ${d.numero} foi confirmada (${d.confirmacao}).`,
-    'É necessário informar as ações de contingência que serão executadas.',
+    'É necessário cadastrar, uma a uma, as ações de contingência que serão executadas.',
+    'Cada ação é analisada individualmente e pode ser aprovada ou recusada.',
     '',
     `Tipo de não conformidade: ${d.tipoNc}`,
     d.descricaoDefeito ? `Defeito: ${d.descricaoDefeito}` : '',
@@ -628,7 +629,8 @@ export function montarEmailContingencia(d: DadosEmailContingencia) {
     <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
       Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, a não conformidade
       registrada para <b>${escapeHtml(d.fornecedorNome)}</b> foi confirmada
-      (${escapeHtml(d.confirmacao)}).
+      (${escapeHtml(d.confirmacao)}). Cadastre, uma a uma, as ações que serão executadas —
+      cada ação é analisada individualmente e pode ser aprovada ou recusada.
     </p>
     <table style="border-collapse:collapse;margin-bottom:18px">
       <tr><td style="padding:4px 10px 4px 0;color:#6b7280;font-size:13px">Tipo de não conformidade</td><td style="padding:4px 0;color:#111827;font-size:13px"><b>${escapeHtml(d.tipoNc)}</b></td></tr>
@@ -663,6 +665,8 @@ export type DadosEmailAlertaContingencia = {
   prazoEm: Date
   /** Quantos alertas já foram enviados, contando este. */
   alerta: number
+  /** true quando o plano foi devolvido para correção, não é o 1º envio. */
+  ajuste: boolean
   token: string
   baseUrl?: string
 }
@@ -673,25 +677,35 @@ export function montarEmailAlertaContingencia(d: DadosEmailAlertaContingencia) {
   const linkPagina = `${base}/?ciencia=${encodeURIComponent(d.token)}`
   const prazo = fmtDataHora(d.prazoEm)
 
-  const subject = `URGENTE — RNC ${d.numero}: ações de contingência em atraso (alerta ${d.alerta})`
+  const oQueFalta = d.ajuste
+    ? 'a correção do plano de ações de contingência'
+    : 'as ações de contingência'
+
+  const subject = `URGENTE — RNC ${d.numero}: ${d.ajuste ? 'correção do plano de ações' : 'ações de contingência'} em atraso (alerta ${d.alerta})`
 
   const text = [
     `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
     '',
-    `As ações de contingência da RNC ${d.numero} continuam pendentes.`,
+    d.ajuste
+      ? `O plano de ações da RNC ${d.numero} foi devolvido para correção e continua pendente.`
+      : `As ações de contingência da RNC ${d.numero} continuam pendentes.`,
     `O prazo venceu em ${prazo}.`,
     '',
-    `Registre as ações agora: ${linkPagina}`,
+    `Registre ${oQueFalta} agora: ${linkPagina}`,
     '',
     'Este alerta será repetido enquanto a devolutiva não for registrada.',
   ].join('\n')
 
   const html = `
   <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
-    <h2 style="margin:0 0 4px">Ações de contingência em atraso — RNC ${escapeHtml(d.numero)}</h2>
+    <h2 style="margin:0 0 4px">${d.ajuste ? 'Correção do plano de ações' : 'Ações de contingência'} em atraso — RNC ${escapeHtml(d.numero)}</h2>
     <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
-      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, as ações de contingência
-      de <b>${escapeHtml(d.fornecedorNome)}</b> continuam pendentes.
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''},
+      ${
+        d.ajuste
+          ? `o plano de ações de <b>${escapeHtml(d.fornecedorNome)}</b> foi devolvido para correção e continua pendente.`
+          : `as ações de contingência de <b>${escapeHtml(d.fornecedorNome)}</b> continuam pendentes.`
+      }
     </p>
     <p style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:12px 14px;border-radius:8px;font-size:14px;margin:0 0 16px">
       <b>Prazo vencido em ${escapeHtml(prazo)}.</b><br>
@@ -699,7 +713,7 @@ export function montarEmailAlertaContingencia(d: DadosEmailAlertaContingencia) {
     </p>
     <p style="margin:0 0 16px">
       <a href="${linkPagina}" style="background:#b91c1c;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
-        Registrar as ações de contingência
+        ${d.ajuste ? 'Corrigir o plano de ações' : 'Registrar as ações de contingência'}
       </a>
     </p>
     <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
@@ -708,43 +722,187 @@ export function montarEmailAlertaContingencia(d: DadosEmailAlertaContingencia) {
   return { subject, text, html }
 }
 
+export type AcaoDoPlano = {
+  ordem: number
+  descricao: string
+  responsavel?: string | null
+  prazo?: Date | null
+  status?: string
+  parecer?: string | null
+}
+
+/** Linhas da tabela de ações em texto puro, para o corpo alternativo. */
+function acoesEmTexto(acoes: AcaoDoPlano[]): string {
+  return acoes
+    .map((a) => {
+      const partes = [`${a.ordem}. ${a.descricao}`]
+      if (a.responsavel) partes.push(`   Responsável: ${a.responsavel}`)
+      if (a.prazo) partes.push(`   Prazo: ${fmtData(a.prazo)}`)
+      if (a.status && a.status !== 'PENDENTE') {
+        partes.push(`   Situação: ${a.status === 'APROVADA' ? 'APROVADA' : 'RECUSADA'}`)
+      }
+      if (a.parecer) partes.push(`   Parecer: ${a.parecer}`)
+      return partes.join('\n')
+    })
+    .join('\n\n')
+}
+
+/** Linhas da tabela de ações em HTML. */
+function acoesEmHtml(acoes: AcaoDoPlano[], comSituacao: boolean): string {
+  const cabecalho = `
+    <tr style="background:#f9fafb">
+      <th style="border:1px solid #e5e7eb;padding:6px 8px;text-align:left;font-size:12px;color:#6b7280">#</th>
+      <th style="border:1px solid #e5e7eb;padding:6px 8px;text-align:left;font-size:12px;color:#6b7280">Ação</th>
+      <th style="border:1px solid #e5e7eb;padding:6px 8px;text-align:left;font-size:12px;color:#6b7280">Responsável</th>
+      <th style="border:1px solid #e5e7eb;padding:6px 8px;text-align:left;font-size:12px;color:#6b7280">Prazo</th>
+      ${comSituacao ? '<th style="border:1px solid #e5e7eb;padding:6px 8px;text-align:left;font-size:12px;color:#6b7280">Situação</th>' : ''}
+    </tr>`
+
+  const linhas = acoes
+    .map((a) => {
+      const aprovada = a.status === 'APROVADA'
+      const recusada = a.status === 'RECUSADA'
+      const cor = aprovada ? '#15803d' : recusada ? '#b91c1c' : '#6b7280'
+      const rotulo = aprovada ? 'Aprovada' : recusada ? 'Recusada' : 'Em análise'
+      return `
+      <tr>
+        <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:#6b7280">${a.ordem}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:#111827">
+          ${escapeHtml(a.descricao)}
+          ${a.parecer ? `<br><span style="font-size:12px;color:${cor}"><b>Parecer:</b> ${escapeHtml(a.parecer)}</span>` : ''}
+        </td>
+        <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:#111827">${escapeHtml(a.responsavel ?? '—')}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:#111827">${a.prazo ? escapeHtml(fmtData(a.prazo)) : '—'}</td>
+        ${comSituacao ? `<td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:${cor}"><b>${rotulo}</b></td>` : ''}
+      </tr>`
+    })
+    .join('')
+
+  return `<table style="border-collapse:collapse;width:100%;margin:0 0 16px">${cabecalho}${linhas}</table>`
+}
+
 export type DadosEmailContingenciaRecebida = {
   numero: string
+  rncId: string
   fornecedorNome: string
   respondidaPor: string | null
   respondidaEm: Date
-  acoes: string
+  acoes: AcaoDoPlano[]
   emAtraso: boolean
+  baseUrl?: string
 }
 
-/** Aviso interno com as ações de contingência enviadas pelo fornecedor. */
+/** Aviso interno com o plano de ações enviado pelo fornecedor. */
 export function montarEmailContingenciaRecebida(
   d: DadosEmailContingenciaRecebida,
 ) {
-  const subject = `RNC ${d.numero} — ações de contingência recebidas${d.emAtraso ? ' (em atraso)' : ''}`
+  const base = resolverBaseUrl(d.baseUrl)
+  const linkRnc = `${base}/?rnc=${encodeURIComponent(d.rncId)}`
+  const subject = `RNC ${d.numero} — plano de ações de contingência para análise${d.emAtraso ? ' (entregue em atraso)' : ''}`
 
   const text = [
-    `O fornecedor ${d.fornecedorNome} registrou as ações de contingência da RNC ${d.numero}.`,
+    `O fornecedor ${d.fornecedorNome} enviou o plano de ações de contingência da RNC ${d.numero}.`,
     '',
     `Data da devolutiva: ${fmtDataHora(d.respondidaEm)}${d.emAtraso ? ' (fora do prazo)' : ''}`,
     d.respondidaPor ? `Registrado por: ${d.respondidaPor}` : '',
     '',
-    'Ações informadas:',
-    d.acoes,
+    `Ações informadas (${d.acoes.length}):`,
+    acoesEmTexto(d.acoes),
+    '',
+    'Cada ação precisa ser APROVADA ou RECUSADA na plataforma.',
+    `Abrir a RNC: ${linkRnc}`,
   ]
     .filter(Boolean)
     .join('\n')
 
   const html = `
-  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
-    <h2 style="margin:0 0 4px">RNC ${escapeHtml(d.numero)} — ações de contingência</h2>
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">RNC ${escapeHtml(d.numero)} — plano de ações de contingência</h2>
     <p style="color:#6b7280;margin:0 0 16px;font-size:14px">Fornecedor: <b>${escapeHtml(d.fornecedorNome)}</b></p>
     <p style="background:${d.emAtraso ? '#fffbeb' : '#f0fdf4'};border:1px solid ${d.emAtraso ? '#fde68a' : '#86efac'};color:${d.emAtraso ? '#92400e' : '#15803d'};padding:12px 14px;border-radius:8px;font-size:14px;margin:0 0 14px">
-      <b>Devolutiva registrada${d.emAtraso ? ' fora do prazo' : ' dentro do prazo'}.</b><br>
+      <b>Plano recebido${d.emAtraso ? ' fora do prazo' : ' dentro do prazo'} — ${d.acoes.length} ação(ões) para analisar.</b><br>
       <span style="color:#374151;font-size:13px">Em ${escapeHtml(fmtDataHora(d.respondidaEm))}${d.respondidaPor ? ` · por ${escapeHtml(d.respondidaPor)}` : ''}</span>
     </p>
-    <p style="font-size:13px;color:#374151;margin:0 0 4px"><b>Ações informadas:</b></p>
-    <p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:10px 12px;border-radius:6px;font-size:13px;margin:0">${escapeHtml(d.acoes)}</p>
+    ${acoesEmHtml(d.acoes, false)}
+    <p style="margin:0 0 16px">
+      <a href="${linkRnc}" style="background:#111827;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        Analisar as ações na plataforma
+      </a>
+    </p>
+    <p style="font-size:13px;color:#374151;margin:0">
+      Cada ação deve ser <b>aprovada</b> ou <b>recusada</b>. A recusa exige parecer e devolve
+      o plano ao fornecedor para correção.
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
+export type DadosEmailAnalisePlano = {
+  numero: string
+  fornecedorNome: string
+  contatoNome: string | null
+  aprovado: boolean
+  acoes: AcaoDoPlano[]
+  novoPrazoEm: Date | null
+  token: string
+  baseUrl?: string
+}
+
+/**
+ * Resultado da análise do plano para o fornecedor: aprovado, ou devolvido
+ * para correção com o parecer de cada ação recusada.
+ */
+export function montarEmailAnalisePlanoContingencia(d: DadosEmailAnalisePlano) {
+  const base = resolverBaseUrl(d.baseUrl)
+  const linkPagina = `${base}/?ciencia=${encodeURIComponent(d.token)}`
+  const recusadas = d.acoes.filter((a) => a.status === 'RECUSADA')
+
+  const subject = d.aprovado
+    ? `RNC ${d.numero} — plano de ações de contingência aprovado`
+    : `RNC ${d.numero} — ajuste necessário no plano de ações de contingência`
+
+  const text = [
+    `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
+    '',
+    d.aprovado
+      ? `O plano de ações de contingência da RNC ${d.numero} foi APROVADO integralmente.`
+      : `O plano de ações de contingência da RNC ${d.numero} foi analisado e ${recusadas.length} ação(ões) NÃO foram aprovadas.`,
+    '',
+    'Situação de cada ação:',
+    acoesEmTexto(d.acoes),
+    '',
+    d.aprovado
+      ? 'Nenhuma providência adicional é necessária nesta etapa.'
+      : `Corrija os pontos indicados e reenvie o plano até ${d.novoPrazoEm ? fmtDataHora(d.novoPrazoEm) : 'o novo prazo informado na plataforma'}.`,
+    '',
+    `Acessar: ${linkPagina}`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">RNC ${escapeHtml(d.numero)} — análise do plano de ações</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, o plano enviado por
+      <b>${escapeHtml(d.fornecedorNome)}</b> foi analisado.
+    </p>
+    <p style="background:${d.aprovado ? '#f0fdf4' : '#fef2f2'};border:1px solid ${d.aprovado ? '#86efac' : '#fecaca'};color:${d.aprovado ? '#15803d' : '#991b1b'};padding:12px 14px;border-radius:8px;font-size:14px;margin:0 0 14px">
+      <b>${d.aprovado ? 'Plano aprovado integralmente.' : `${recusadas.length} ação(ões) não foram aprovadas.`}</b>
+      ${
+        d.aprovado
+          ? ''
+          : `<br><span style="color:#374151;font-size:13px">Corrija os pontos indicados e reenvie o plano${d.novoPrazoEm ? ` até <b>${escapeHtml(fmtDataHora(d.novoPrazoEm))}</b>` : ''}.</span>`
+      }
+    </p>
+    ${acoesEmHtml(d.acoes, true)}
+    <p style="margin:0 0 16px">
+      <a href="${linkPagina}" style="background:${d.aprovado ? '#111827' : '#b91c1c'};color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        ${d.aprovado ? 'Consultar na plataforma' : 'Corrigir o plano de ações'}
+      </a>
+    </p>
     <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
   </div>`
 

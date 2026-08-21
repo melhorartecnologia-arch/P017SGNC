@@ -9,8 +9,33 @@ export type CienciaStatus =
   | 'RECUSA_ACEITA'
   | 'MANTIDA_DEFINITIVA'
 
-/** Devolutiva das ações de contingência que o fornecedor vai executar. */
-export type ContingenciaStatus = 'PENDENTE' | 'RESPONDIDA'
+/** Situação do plano de ações de contingência do fornecedor. */
+export type ContingenciaStatus =
+  | 'PENDENTE'
+  | 'EM_ANALISE'
+  | 'APROVADA'
+  | 'AJUSTE_SOLICITADO'
+
+/** Situação de cada ação do plano, decidida pelo aprovador marcado. */
+export type AcaoContingenciaStatus = 'PENDENTE' | 'APROVADA' | 'RECUSADA'
+
+/** Uma ação do plano, como o fornecedor a vê. */
+export type AcaoContingencia = {
+  id: string
+  ordem: number
+  descricao: string
+  responsavel: string | null
+  prazo: string | null
+  status: AcaoContingenciaStatus
+  analisadaEm: string | null
+  parecer: string | null
+}
+
+export const ACAO_CONTINGENCIA_LABEL: Record<AcaoContingenciaStatus, string> = {
+  PENDENTE: 'Em análise',
+  APROVADA: 'Aprovada',
+  RECUSADA: 'Recusada',
+}
 
 export type CienciaRnc = {
   id: string
@@ -30,7 +55,8 @@ export type CienciaRnc = {
   contingenciaPrazoEm: string | null
   contingenciaRespondidaEm: string | null
   contingenciaRespondidaPor: string | null
-  contingenciaAcoes: string | null
+  contingenciaAnalisadaEm: string | null
+  acoesContingencia: AcaoContingencia[]
   filial: { codigo: string; nome: string } | null
   fornecedor: { razaoSocial: string; cnpj: string } | null
   tipoNaoConformidade: { codigo: string; descricao: string } | null
@@ -68,10 +94,20 @@ export const cienciaApi = {
       body: JSON.stringify(body),
     }),
 
-  /** Registra o plano de ações de contingência do fornecedor. */
+  /**
+   * Envia o plano de ações — uma linha por ação. Vale tanto para o
+   * primeiro envio quanto para a correção depois de uma recusa.
+   */
   registrarContingencia: (
     token: string,
-    body: { acoes: string; nome?: string | null },
+    body: {
+      acoes: {
+        descricao: string
+        responsavel?: string | null
+        prazo?: string | null
+      }[]
+      nome?: string | null
+    },
   ) =>
     publicRequest<CienciaRnc>(`/${token}/contingencia`, {
       method: 'POST',

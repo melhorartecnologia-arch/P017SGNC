@@ -9,6 +9,7 @@ import {
   montarEmailContingencia,
   montarEmailAlertaContingencia,
   montarEmailContingenciaRecebida,
+  montarEmailAnalisePlanoContingencia,
 } from './rnc-email.js'
 import {
   intervaloEntreAlertasMs,
@@ -567,23 +568,29 @@ export async function solicitarAcoesContingencia(
   return { solicitado: true, email: contato.email }
 }
 
-/** Aviso interno com as ações de contingência enviadas pelo fornecedor. */
+/** Aviso interno com o plano de ações enviado pelo fornecedor. */
 async function notificarContingenciaRecebida(
   prisma: PrismaClient,
   rncId: string,
+  baseUrl?: string,
 ): Promise<void> {
   const rnc = await prisma.relatorioNaoConformidade.findUnique({
     where: { id: rncId },
     select: {
+      id: true,
       numero: true,
       filialId: true,
-      contingenciaAcoes: true,
       contingenciaPrazoEm: true,
       contingenciaRespondidaEm: true,
       contingenciaRespondidaPor: true,
       fornecedor: { select: { razaoSocial: true } },
       criadoPor: { select: { email: true } },
       aprovadores: { select: { email: true } },
+      acoesContingencia: {
+        where: { status: 'PENDENTE' },
+        orderBy: { ordem: 'asc' },
+        select: { ordem: true, descricao: true, responsavel: true, prazo: true },
+      },
     },
   })
   if (!rnc) return
@@ -597,11 +604,13 @@ async function notificarContingenciaRecebida(
   const respondidaEm = rnc.contingenciaRespondidaEm ?? new Date()
   const { subject, text, html } = montarEmailContingenciaRecebida({
     numero: rnc.numero,
+    rncId: rnc.id,
     fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
     respondidaPor: rnc.contingenciaRespondidaPor,
     respondidaEm,
-    acoes: rnc.contingenciaAcoes ?? '',
+    acoes: rnc.acoesContingencia,
     emAtraso: !!rnc.contingenciaPrazoEm && respondidaEm > rnc.contingenciaPrazoEm,
+    baseUrl,
   })
 
   try {
@@ -617,38 +626,273 @@ async function notificarContingenciaRecebida(
   }
 }
 
-/** Registra a devolutiva do fornecedor e encerra os alertas. */
+/** Uma ação do plano, como informada pelo fornecedor. */
+export type AcaoContingenciaEntrada = {
+  descricao: string
+  responsavel?: string | null
+  prazo?: Date | null
+}
+
+/**
+ * Estados em que o fornecedor ainda deve (re)enviar o plano de ações:
+ * nunca enviou, ou teve ao menos uma ação recusada.
+ */
+const CONTINGENCIA_ABERTA = ['PENDENTE', 'AJUSTE_SOLICITADO'] as const
+
+/**
+ * Registra o plano de ações do fornecedor — uma linha por ação — e
+ * encerra os alertas até a análise do aprovador. As ações recusadas em
+ * uma rodada anterior permanecem no histórico; as novas entram como
+ * pendentes de análise, continuando a numeração.
+ */
 export async function registrarAcoesContingencia(
   prisma: PrismaClient,
   rncId: string,
   opts: {
-    acoes: string
+    acoes: AcaoContingenciaEntrada[]
     respondidoPor?: string | null
     ip?: string | null
     navegador?: string | null
+    baseUrl?: string
   },
-): Promise<void> {
-  const acoes = opts.acoes.trim()
-  if (!acoes) throw new Error('Informe as ações de contingência.')
-
-  // Condicionado ao status pendente: evita sobrescrever uma devolutiva
-  // já registrada por outra sessão.
-  const r = await prisma.relatorioNaoConformidade.updateMany({
-    where: { id: rncId, contingenciaStatus: 'PENDENTE' },
-    data: {
-      contingenciaStatus: 'RESPONDIDA',
-      contingenciaAcoes: acoes,
-      contingenciaRespondidaEm: new Date(),
-      contingenciaRespondidaPor: opts.respondidoPor?.trim() || null,
-      contingenciaIp: opts.ip?.slice(0, 64) || null,
-      contingenciaNavegador: opts.navegador?.slice(0, 160) || null,
-    },
-  })
-  if (r.count === 0) {
-    throw new Error('As ações de contingência já foram registradas.')
+): Promise<{ registradas: number }> {
+  const acoes = opts.acoes
+    .map((a) => ({
+      descricao: a.descricao.trim(),
+      responsavel: a.responsavel?.trim() || null,
+      prazo: a.prazo ?? null,
+    }))
+    .filter((a) => a.descricao !== '')
+  if (acoes.length === 0) {
+    throw new Error('Informe ao menos uma ação de contingência.')
   }
 
-  await notificarContingenciaRecebida(prisma, rncId)
+  const agora = new Date()
+  const informadaPor = opts.respondidoPor?.trim() || null
+
+  // Tudo em uma transação: ou o plano inteiro entra e o status muda,
+  // ou nada acontece.
+  await prisma.$transaction(async (tx) => {
+    // Condicionado ao status aberto: evita sobrescrever um plano que
+    // outra sessão acabou de enviar.
+    const r = await tx.relatorioNaoConformidade.updateMany({
+      where: { id: rncId, contingenciaStatus: { in: [...CONTINGENCIA_ABERTA] } },
+      data: {
+        contingenciaStatus: 'EM_ANALISE',
+        contingenciaRespondidaEm: agora,
+        contingenciaRespondidaPor: informadaPor,
+        contingenciaIp: opts.ip?.slice(0, 64) || null,
+        contingenciaNavegador: opts.navegador?.slice(0, 160) || null,
+        // Enquanto o plano está em análise não há o que cobrar.
+        contingenciaUltimoAlerta: null,
+      },
+    })
+    if (r.count === 0) {
+      throw new Error('O plano de ações já foi enviado e está em análise.')
+    }
+
+    // Continua a numeração para não confundir o histórico de recusas.
+    const ultima = await tx.rncAcaoContingencia.aggregate({
+      where: { rncId },
+      _max: { ordem: true },
+    })
+    let ordem = ultima._max.ordem ?? 0
+
+    await tx.rncAcaoContingencia.createMany({
+      data: acoes.map((a) => ({
+        rncId,
+        ordem: ++ordem,
+        descricao: a.descricao,
+        responsavel: a.responsavel,
+        prazo: a.prazo,
+        informadaEm: agora,
+        informadaPor,
+      })),
+    })
+  })
+
+  await notificarContingenciaRecebida(prisma, rncId, opts.baseUrl)
+  return { registradas: acoes.length }
+}
+
+/**
+ * Aprova ou recusa UMA ação do plano. A recusa exige parecer — é o que o
+ * fornecedor recebe para corrigir. Quando não sobra nenhuma ação pendente,
+ * o plano é fechado: aprovado, ou devolvido para ajuste.
+ */
+export async function analisarAcaoContingencia(
+  prisma: PrismaClient,
+  rncId: string,
+  acaoId: string,
+  opts: {
+    aprovada: boolean
+    analisadaPor?: string | null
+    parecer?: string | null
+    baseUrl?: string
+  },
+): Promise<{ contingenciaStatus: string; pendentes: number }> {
+  const parecer = opts.parecer?.trim() || null
+  if (!opts.aprovada && !parecer) {
+    throw new Error('Informe o parecer que fundamenta a recusa da ação.')
+  }
+
+  const acao = await prisma.rncAcaoContingencia.findUnique({
+    where: { id: acaoId },
+    select: { id: true, rncId: true, status: true },
+  })
+  if (!acao || acao.rncId !== rncId) {
+    throw new Error('Ação de contingência não encontrada nesta RNC.')
+  }
+  if (acao.status !== 'PENDENTE') {
+    throw new Error('Esta ação já foi analisada.')
+  }
+
+  // Condicionado ao status pendente: evita duas análises simultâneas.
+  const r = await prisma.rncAcaoContingencia.updateMany({
+    where: { id: acaoId, status: 'PENDENTE' },
+    data: {
+      status: opts.aprovada ? 'APROVADA' : 'RECUSADA',
+      analisadaEm: new Date(),
+      analisadaPor: opts.analisadaPor?.trim() || null,
+      parecer,
+    },
+  })
+  if (r.count === 0) throw new Error('Esta ação já foi analisada.')
+
+  return await fecharAnalisePlano(prisma, rncId, opts.analisadaPor, opts.baseUrl)
+}
+
+/**
+ * Reavalia o plano depois de cada decisão: enquanto houver ação pendente
+ * ele segue EM_ANALISE; sem pendências, vira APROVADA (todas aprovadas) ou
+ * AJUSTE_SOLICITADO (alguma recusada), reabrindo o prazo do fornecedor.
+ */
+async function fecharAnalisePlano(
+  prisma: PrismaClient,
+  rncId: string,
+  analisadaPor?: string | null,
+  baseUrl?: string,
+): Promise<{ contingenciaStatus: string; pendentes: number }> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: { contingenciaRespondidaEm: true },
+  })
+
+  const pendentes = await prisma.rncAcaoContingencia.count({
+    where: { rncId, status: 'PENDENTE' },
+  })
+  // Só as recusas DESTA rodada decidem o veredito: uma ação recusada e
+  // já corrigida em um envio posterior fica no histórico, mas não pode
+  // travar o plano em ajuste para sempre.
+  const recusadas = await prisma.rncAcaoContingencia.count({
+    where: {
+      rncId,
+      status: 'RECUSADA',
+      ...(rnc?.contingenciaRespondidaEm
+        ? { informadaEm: { gte: rnc.contingenciaRespondidaEm } }
+        : {}),
+    },
+  })
+
+  // Ainda há ação por analisar: o plano continua em análise e o
+  // fornecedor não é incomodado no meio da avaliação.
+  if (pendentes > 0) {
+    return { contingenciaStatus: 'EM_ANALISE', pendentes }
+  }
+
+  const aprovado = recusadas === 0
+  const agora = new Date()
+  const parametros = await obterParametrosWorkflow(prisma)
+
+  await prisma.relatorioNaoConformidade.updateMany({
+    where: { id: rncId, contingenciaStatus: 'EM_ANALISE' },
+    data: {
+      contingenciaStatus: aprovado ? 'APROVADA' : 'AJUSTE_SOLICITADO',
+      contingenciaAnalisadaEm: agora,
+      contingenciaAnalisadaPor: analisadaPor?.trim() || null,
+      // Recusa reabre o prazo do fornecedor e volta a cobrar do zero: o
+      // contador é por rodada, senão a 1ª cobrança da correção chegaria
+      // numerada como se fosse continuação da rodada anterior.
+      ...(aprovado
+        ? {}
+        : {
+            contingenciaPrazoEm: new Date(
+              agora.getTime() + parametros.contingenciaPrazoHoras * 3600_000,
+            ),
+            contingenciaUltimoAlerta: null,
+            contingenciaAlertas: 0,
+          }),
+    },
+  })
+
+  await notificarAnalisePlano(prisma, rncId, { aprovado, baseUrl })
+  return {
+    contingenciaStatus: aprovado ? 'APROVADA' : 'AJUSTE_SOLICITADO',
+    pendentes: 0,
+  }
+}
+
+/** Comunica ao fornecedor o resultado da análise do plano de ações. */
+async function notificarAnalisePlano(
+  prisma: PrismaClient,
+  rncId: string,
+  opts: { aprovado: boolean; baseUrl?: string },
+): Promise<void> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      numero: true,
+      cienciaToken: true,
+      contingenciaPrazoEm: true,
+      fornecedor: {
+        select: {
+          razaoSocial: true,
+          contatos: {
+            select: { tipo: true, valor: true, nome: true, principal: true },
+          },
+        },
+      },
+      acoesContingencia: {
+        orderBy: { ordem: 'asc' },
+        select: {
+          ordem: true,
+          descricao: true,
+          responsavel: true,
+          prazo: true,
+          status: true,
+          parecer: true,
+        },
+      },
+    },
+  })
+  if (!rnc || !rnc.cienciaToken) return
+
+  const contato = escolherEmailFornecedor(rnc.fornecedor?.contatos ?? [])
+  const transporte = await criarTransporteSmtp()
+  if (!contato || !transporte) return
+
+  const { subject, text, html } = montarEmailAnalisePlanoContingencia({
+    numero: rnc.numero,
+    fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+    contatoNome: contato.nome,
+    aprovado: opts.aprovado,
+    acoes: rnc.acoesContingencia,
+    novoPrazoEm: opts.aprovado ? null : rnc.contingenciaPrazoEm,
+    token: rnc.cienciaToken,
+    baseUrl: opts.baseUrl,
+  })
+
+  try {
+    await transporte.transporter.sendMail({
+      from: transporte.remetente,
+      to: contato.email,
+      subject,
+      text,
+      html,
+    })
+  } catch {
+    // best-effort: a decisão já está registrada
+  }
 }
 
 /**
@@ -667,7 +911,7 @@ export async function processarAlertasContingencia(
 
   const atrasadas = await prisma.relatorioNaoConformidade.findMany({
     where: {
-      contingenciaStatus: 'PENDENTE',
+      contingenciaStatus: { in: [...CONTINGENCIA_ABERTA] },
       contingenciaPrazoEm: { lte: agora },
       OR: [
         { contingenciaUltimoAlerta: null },
@@ -678,6 +922,7 @@ export async function processarAlertasContingencia(
       id: true,
       numero: true,
       cienciaToken: true,
+      contingenciaStatus: true,
       contingenciaPrazoEm: true,
       contingenciaAlertas: true,
       fornecedor: {
@@ -705,7 +950,7 @@ export async function processarAlertasContingencia(
     const marcado = await prisma.relatorioNaoConformidade.updateMany({
       where: {
         id: rnc.id,
-        contingenciaStatus: 'PENDENTE',
+        contingenciaStatus: { in: [...CONTINGENCIA_ABERTA] },
         OR: [
           { contingenciaUltimoAlerta: null },
           { contingenciaUltimoAlerta: { lte: desde } },
@@ -724,6 +969,7 @@ export async function processarAlertasContingencia(
       contatoNome: contato.nome,
       prazoEm: rnc.contingenciaPrazoEm ?? agora,
       alerta: rnc.contingenciaAlertas + 1,
+      ajuste: rnc.contingenciaStatus === 'AJUSTE_SOLICITADO',
       token: rnc.cienciaToken,
       baseUrl,
     })

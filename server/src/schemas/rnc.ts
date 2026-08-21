@@ -259,7 +259,13 @@ export const rncQuerySchema = z.object({
     .optional(),
   /** Ações de contingência. "__none__" = ainda não solicitadas. */
   contingenciaStatus: z
-    .enum(['PENDENTE', 'RESPONDIDA', '__none__'])
+    .enum([
+      'PENDENTE',
+      'EM_ANALISE',
+      'APROVADA',
+      'AJUSTE_SOLICITADO',
+      '__none__',
+    ])
     .optional(),
   /** Só as RNCs com as ações de contingência fora do prazo. */
   contingenciaAtrasada: z

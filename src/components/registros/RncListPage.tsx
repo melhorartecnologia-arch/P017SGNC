@@ -19,6 +19,7 @@ import {
   rncApi,
   resumoAssinaturas,
   CIENCIA_RNC_LABEL,
+  CONTINGENCIA_RNC_LABEL,
   type AssinaturaStatus,
   type CienciaRncStatus,
   type ContingenciaRncStatus,
@@ -125,6 +126,46 @@ function formatDataBR(iso: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return ''
   const pad = (n: number) => String(n).padStart(2, '0')
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`
+}
+
+/** Prazo já vencido? Fica fora do render para não depender do relógio. */
+function prazoVencido(prazo: string | null | undefined): boolean {
+  if (!prazo) return false
+  const ms = new Date(prazo).getTime()
+  return !Number.isNaN(ms) && ms <= Date.now()
+}
+
+/** Situação do plano de ações de contingência, para a lista. */
+function ContingenciaBadge({ rnc }: { rnc: Rnc }) {
+  const st = rnc.contingenciaStatus
+  if (!st) return <span className="text-xs text-neutral-300">—</span>
+
+  const emAberto = st === 'PENDENTE' || st === 'AJUSTE_SOLICITADO'
+  const atrasada = emAberto && prazoVencido(rnc.contingenciaPrazoEm)
+
+  const cor = atrasada
+    ? 'border-red-200 bg-red-50 text-red-700'
+    : st === 'APROVADA'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : st === 'EM_ANALISE'
+        ? 'border-sky-200 bg-sky-50 text-sky-700'
+        : 'border-amber-200 bg-amber-50 text-amber-700'
+
+  return (
+    <span
+      className={cn(
+        'inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium',
+        cor,
+      )}
+      title={
+        atrasada
+          ? `${CONTINGENCIA_RNC_LABEL[st]} — prazo vencido`
+          : CONTINGENCIA_RNC_LABEL[st]
+      }
+    >
+      {atrasada ? 'Em atraso' : CONTINGENCIA_RNC_LABEL[st]}
+    </span>
+  )
 }
 
 export function RncListPage() {
@@ -312,9 +353,11 @@ export function RncListPage() {
           >
             <option value="">Todas as ações de contingência</option>
             <option value="__none__">Não solicitadas</option>
-            <option value="PENDENTE">Ações pendentes</option>
-            <option value="atrasada">Ações em atraso</option>
-            <option value="RESPONDIDA">Ações recebidas</option>
+            <option value="PENDENTE">Aguardando o plano</option>
+            <option value="atrasada">Plano em atraso</option>
+            <option value="EM_ANALISE">Plano para aprovar</option>
+            <option value="AJUSTE_SOLICITADO">Devolvido para ajuste</option>
+            <option value="APROVADA">Plano aprovado</option>
           </select>
           <Button
             type="button"
@@ -365,6 +408,7 @@ export function RncListPage() {
                 <th className="px-3 py-2.5 text-center font-medium">Status</th>
                 <th className="px-3 py-2.5 text-center font-medium">Assinaturas</th>
                 <th className="px-3 py-2.5 text-center font-medium">Ciência</th>
+                <th className="px-3 py-2.5 text-center font-medium">Ações</th>
                 <th className="px-3 py-2.5 text-left font-medium">Criado por</th>
                 <th className="w-24 px-3 py-2.5"></th>
               </tr>
@@ -389,7 +433,7 @@ export function RncListPage() {
               {!loading && visible.length === 0 && (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={11}
                     className="px-3 py-10 text-center text-neutral-500"
                   >
                     {total === 0
@@ -466,6 +510,9 @@ export function RncListPage() {
                     </td>
                     <td className="px-3 py-3 text-center">
                       <CienciaBadge rnc={r} />
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <ContingenciaBadge rnc={r} />
                     </td>
                     <td className="px-3 py-3 text-neutral-700">
                       <div className="line-clamp-1 text-sm">

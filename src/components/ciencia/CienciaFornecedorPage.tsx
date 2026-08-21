@@ -10,6 +10,8 @@ import {
   Clock,
   AlertTriangle,
   ClipboardList,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -20,6 +22,8 @@ import { ApiError } from '@/lib/api/client'
 import {
   cienciaApi,
   CIENCIA_LABEL,
+  ACAO_CONTINGENCIA_LABEL,
+  type AcaoContingencia,
   type CienciaRnc,
   type CienciaStatus,
 } from '@/lib/api/ciencia'
@@ -44,10 +48,109 @@ function restante(prazo: string | null): string | null {
   const ms = new Date(prazo).getTime() - Date.now()
   if (Number.isNaN(ms)) return null
   if (ms <= 0) return 'prazo encerrado'
-  const h = Math.floor(ms / 3600_000)
-  const m = Math.round((ms % 3600_000) / 60_000)
+  // Arredonda para o minuto ANTES de separar horas e minutos: arredondar
+  // só o resto produzia "69h60" quando os minutos batiam em 60.
+  const totalMin = Math.round(ms / 60_000)
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
   if (h >= 1) return `faltam ${h}h${m > 0 ? String(m).padStart(2, '0') : ''}`
   return `faltam ${Math.max(1, m)} min`
+}
+
+/** Uma linha do plano em edição, antes do envio. */
+type LinhaAcao = { descricao: string; responsavel: string; prazo: string }
+
+/** Teto de ações por plano — espelha a validação do servidor. */
+const MAX_ACOES = 50
+
+const LINHA_VAZIA: LinhaAcao = { descricao: '', responsavel: '', prazo: '' }
+
+/**
+ * A tabela sempre mostra ao menos uma linha: a página é pública e de uso
+ * único, então o fornecedor começa a digitar sem ter de descobrir o botão
+ * "Adicionar ação".
+ */
+function comLinhaInicial(linhas: LinhaAcao[]): LinhaAcao[] {
+  return linhas.length > 0 ? linhas : [LINHA_VAZIA]
+}
+
+const inputAcaoClass =
+  'flex h-9 w-full rounded-md border border-neutral-200 bg-white px-2.5 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900 disabled:cursor-not-allowed disabled:opacity-50'
+
+/** Selo de situação de uma ação já enviada. */
+function SeloAcao({ status }: { status: AcaoContingencia['status'] }) {
+  const cor =
+    status === 'APROVADA'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : status === 'RECUSADA'
+        ? 'border-red-200 bg-red-50 text-red-700'
+        : 'border-amber-200 bg-amber-50 text-amber-700'
+  return (
+    <span
+      className={cn(
+        'inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium',
+        cor,
+      )}
+    >
+      {ACAO_CONTINGENCIA_LABEL[status]}
+    </span>
+  )
+}
+
+/** Tabela somente leitura das ações já enviadas, com o parecer. */
+function TabelaAcoesEnviadas({ acoes }: { acoes: AcaoContingencia[] }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-neutral-200">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-neutral-200 bg-neutral-50/60 text-neutral-500">
+            <th className="w-10 px-2 py-2 text-left text-xs font-medium">#</th>
+            <th className="px-2 py-2 text-left text-xs font-medium">Ação</th>
+            <th className="w-40 px-2 py-2 text-left text-xs font-medium">
+              Responsável
+            </th>
+            <th className="w-28 px-2 py-2 text-left text-xs font-medium">Prazo</th>
+            <th className="w-28 px-2 py-2 text-left text-xs font-medium">
+              Situação
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {acoes.map((a) => (
+            <tr key={a.id} className="border-b border-neutral-100 last:border-0">
+              <td className="px-2 py-2 align-top text-xs text-neutral-500">
+                {a.ordem}
+              </td>
+              <td className="px-2 py-2 align-top text-neutral-900">
+                <span className="whitespace-pre-wrap">{a.descricao}</span>
+                {a.parecer && (
+                  <p
+                    className={cn(
+                      'mt-1 whitespace-pre-wrap rounded-md border px-2 py-1 text-xs',
+                      a.status === 'RECUSADA'
+                        ? 'border-red-200 bg-red-50 text-red-800'
+                        : 'border-neutral-200 bg-neutral-50 text-neutral-700',
+                    )}
+                  >
+                    <b>Parecer do aprovador:</b> {a.parecer}
+                  </p>
+                )}
+              </td>
+              <td className="px-2 py-2 align-top text-neutral-700">
+                {a.responsavel || '—'}
+              </td>
+              <td className="px-2 py-2 align-top text-neutral-700">
+                {a.prazo ? fmtData(a.prazo) : '—'}
+              </td>
+              <td className="px-2 py-2 align-top">
+                <SeloAcao status={a.status} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 /** Prazo já vencido? Fica fora do render para não depender do relógio. */
@@ -77,7 +180,8 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
   const [nome, setNome] = React.useState('')
   const [justificativa, setJustificativa] = React.useState('')
   const [verPdf, setVerPdf] = React.useState(false)
-  const [acoes, setAcoes] = React.useState('')
+  // Linhas do plano em edição — uma por ação, adicionadas uma a uma.
+  const [acoes, setAcoes] = React.useState<LinhaAcao[]>([])
   const [enviandoAcoes, setEnviandoAcoes] = React.useState(false)
 
   React.useEffect(() => {
@@ -124,21 +228,39 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
     }
   }
 
+  const addAcaoRow = () =>
+    setAcoes((atual) =>
+      atual.length >= MAX_ACOES ? atual : [...comLinhaInicial(atual), LINHA_VAZIA],
+    )
+  const updateAcaoRow = (idx: number, patch: Partial<LinhaAcao>) =>
+    setAcoes((atual) =>
+      comLinhaInicial(atual).map((a, i) => (i === idx ? { ...a, ...patch } : a)),
+    )
+  const removeAcaoRow = (idx: number) =>
+    setAcoes((atual) => comLinhaInicial(atual).filter((_, i) => i !== idx))
+
   const enviarAcoes = async () => {
     if (enviandoAcoes) return
-    if (!acoes.trim()) {
-      toast.error('Descreva as ações de contingência que serão executadas.')
+    const preenchidas = acoes.filter((a) => a.descricao.trim() !== '')
+    if (preenchidas.length === 0) {
+      toast.error('Informe ao menos uma ação de contingência.')
       return
     }
     setEnviandoAcoes(true)
     try {
       const atualizado = await cienciaApi.registrarContingencia(token, {
-        acoes: acoes.trim(),
+        acoes: preenchidas.map((a) => ({
+          descricao: a.descricao.trim(),
+          responsavel: a.responsavel.trim() || null,
+          prazo: a.prazo || null,
+        })),
         nome: nome.trim() || null,
       })
       setRnc(atualizado)
-      setAcoes('')
-      toast.success('Ações de contingência registradas.')
+      setAcoes([])
+      toast.success(
+        `${preenchidas.length} ação(ões) enviada(s) para análise.`,
+      )
     } catch (e) {
       const msg =
         e instanceof ApiError
@@ -175,11 +297,18 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
   const status = (rnc.cienciaStatus ?? 'PENDENTE') as CienciaStatus
   const respondido = status !== 'PENDENTE'
   const prazoTexto = restante(rnc.cienciaPrazoEm)
-  const contingenciaPendente = rnc.contingenciaStatus === 'PENDENTE'
-  const contingenciaRespondida = rnc.contingenciaStatus === 'RESPONDIDA'
+  // O plano é devido enquanto nunca foi enviado ou voltou para correção.
+  const planoEmAberto =
+    rnc.contingenciaStatus === 'PENDENTE' ||
+    rnc.contingenciaStatus === 'AJUSTE_SOLICITADO'
+  const planoEmAjuste = rnc.contingenciaStatus === 'AJUSTE_SOLICITADO'
+  const planoEmAnalise = rnc.contingenciaStatus === 'EM_ANALISE'
+  const planoAprovado = rnc.contingenciaStatus === 'APROVADA'
   const contingenciaAtrasada =
-    contingenciaPendente && prazoVencido(rnc.contingenciaPrazoEm)
+    planoEmAberto && prazoVencido(rnc.contingenciaPrazoEm)
   const prazoAcoesTexto = restante(rnc.contingenciaPrazoEm)
+  const acoesEnviadas = rnc.acoesContingencia ?? []
+  const linhasEmEdicao = comLinhaInicial(acoes)
 
   return (
     <div className="min-h-screen bg-neutral-50 px-4 py-8">
@@ -448,8 +577,8 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
           </section>
         )}
 
-        {/* Ações de contingência — devidas depois de confirmada a NC */}
-        {contingenciaPendente && (
+        {/* Plano de ações de contingência — uma ação por linha */}
+        {rnc.contingenciaStatus && (
           <section
             className={cn(
               'rounded-xl border bg-white p-4 shadow-sm',
@@ -462,96 +591,212 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
                 Ações de contingência
               </h2>
             </div>
-            <div
-              className={cn(
-                'mb-3 flex items-start gap-2 rounded-lg border p-3 text-xs',
-                contingenciaAtrasada
-                  ? 'border-red-200 bg-red-50 text-red-800'
-                  : 'border-amber-200 bg-amber-50 text-amber-800',
-              )}
-            >
-              {contingenciaAtrasada ? (
-                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              ) : (
-                <Clock className="mt-0.5 h-4 w-4 shrink-0" />
-              )}
-              <span>
-                {contingenciaAtrasada ? (
-                  <>
-                    O prazo venceu em {fmtDataHora(rnc.contingenciaPrazoEm)}. Os
-                    alertas se repetem até o registro das ações.
-                  </>
-                ) : (
-                  <>
-                    Informe as ações até {fmtDataHora(rnc.contingenciaPrazoEm)}
-                    {prazoAcoesTexto ? ` (${prazoAcoesTexto})` : ''}. Vencido o
-                    prazo, você passa a receber alertas diários.
-                  </>
-                )}
-              </span>
-            </div>
-            <p className="mb-3 text-xs text-neutral-500">
-              Com a não conformidade confirmada, descreva as ações de
-              contingência que serão executadas — o que será feito, por quem e
-              em que prazo.
-            </p>
-            <div className="mb-3 flex flex-col gap-1.5">
-              <Label htmlFor="nome-acoes">Seu nome (opcional)</Label>
-              <Input
-                id="nome-acoes"
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
-                placeholder="Quem está respondendo"
-                maxLength={160}
-                disabled={enviandoAcoes}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="acoes-contingencia">
-                Ações de contingência *
-              </Label>
-              <textarea
-                id="acoes-contingencia"
-                value={acoes}
-                onChange={(e) => setAcoes(e.target.value)}
-                rows={6}
-                maxLength={8000}
-                required
-                disabled={enviandoAcoes}
-                placeholder="Ex.: 1) Bloqueio do lote remanescente em estoque — Qualidade — até 22/08; 2) Inspeção 100% na próxima remessa — Produção — a partir de 23/08."
-                className="flex w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
-              />
-            </div>
-            <div className="mt-3">
-              <Button
-                onClick={enviarAcoes}
-                disabled={enviandoAcoes || !acoes.trim()}
-                className="gap-1.5"
-              >
-                {enviandoAcoes && <Loader2 className="h-4 w-4 animate-spin" />}
-                Enviar ações de contingência
-              </Button>
-            </div>
-          </section>
-        )}
 
-        {contingenciaRespondida && (
-          <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
-            <div className="mb-1 flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-              <h2 className="text-[13px] font-semibold text-emerald-900">
-                Ações de contingência registradas
-              </h2>
-            </div>
-            <p className="mb-2 text-xs text-neutral-600">
-              Em {fmtDataHora(rnc.contingenciaRespondidaEm)}
-              {rnc.contingenciaRespondidaPor
-                ? ` · por ${rnc.contingenciaRespondidaPor}`
-                : ''}
-            </p>
-            <p className="whitespace-pre-wrap rounded-md border border-emerald-200 bg-white p-3 text-sm text-neutral-800">
-              {rnc.contingenciaAcoes}
-            </p>
+            {/* Situação do plano */}
+            {planoEmAnalise && (
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Plano enviado em {fmtDataHora(rnc.contingenciaRespondidaEm)} e
+                  em análise. Cada ação será aprovada ou recusada
+                  individualmente — você será avisado do resultado.
+                </span>
+              </div>
+            )}
+            {planoAprovado && (
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Plano <b>aprovado integralmente</b> em{' '}
+                  {fmtDataHora(rnc.contingenciaAnalisadaEm)}.
+                </span>
+              </div>
+            )}
+            {planoEmAberto && (
+              <div
+                className={cn(
+                  'mb-3 flex items-start gap-2 rounded-lg border p-3 text-xs',
+                  contingenciaAtrasada
+                    ? 'border-red-200 bg-red-50 text-red-800'
+                    : 'border-amber-200 bg-amber-50 text-amber-800',
+                )}
+              >
+                {contingenciaAtrasada ? (
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                ) : (
+                  <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+                )}
+                <span>
+                  {planoEmAjuste ? (
+                    <>
+                      O plano foi <b>devolvido para correção</b>: veja abaixo o
+                      parecer de cada ação recusada e cadastre as ações
+                      corrigidas.{' '}
+                    </>
+                  ) : null}
+                  {contingenciaAtrasada ? (
+                    <>
+                      O prazo venceu em {fmtDataHora(rnc.contingenciaPrazoEm)}.
+                      Os alertas se repetem até o envio.
+                    </>
+                  ) : (
+                    <>
+                      Envie até {fmtDataHora(rnc.contingenciaPrazoEm)}
+                      {prazoAcoesTexto ? ` (${prazoAcoesTexto})` : ''}. Vencido o
+                      prazo, você passa a receber alertas diários.
+                    </>
+                  )}
+                </span>
+              </div>
+            )}
+
+            {/* Ações já enviadas */}
+            {acoesEnviadas.length > 0 && (
+              <div className="mb-4 flex flex-col gap-1.5">
+                <span className="text-[11px] uppercase tracking-wide text-neutral-400">
+                  {planoEmAberto ? 'Ações já enviadas' : 'Plano enviado'}
+                </span>
+                <TabelaAcoesEnviadas acoes={acoesEnviadas} />
+              </div>
+            )}
+
+            {/* Editor: uma ação por linha */}
+            {planoEmAberto && (
+              <>
+                <p className="mb-3 text-xs text-neutral-500">
+                  Cadastre as ações <b>uma a uma</b>: o que será feito, quem é o
+                  responsável e até quando. Cada ação é analisada
+                  individualmente pelo aprovador.
+                </p>
+
+                <div className="mb-3 flex flex-col gap-1.5 sm:max-w-sm">
+                  <Label htmlFor="nome-acoes">Seu nome (opcional)</Label>
+                  <Input
+                    id="nome-acoes"
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value)}
+                    placeholder="Quem está respondendo"
+                    maxLength={160}
+                    disabled={enviandoAcoes}
+                  />
+                </div>
+
+                <div className="overflow-x-auto rounded-lg border border-neutral-200">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-neutral-200 bg-neutral-50/60 text-neutral-500">
+                          <th className="w-9 px-2 py-2 text-left text-xs font-medium">
+                            #
+                          </th>
+                          <th className="px-2 py-2 text-left text-xs font-medium">
+                            Ação a executar *
+                          </th>
+                          <th className="w-44 px-2 py-2 text-left text-xs font-medium">
+                            Responsável
+                          </th>
+                          <th className="w-36 px-2 py-2 text-left text-xs font-medium">
+                            Prazo
+                          </th>
+                          <th className="w-10 px-2 py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {linhasEmEdicao.map((a, idx) => (
+                          <tr
+                            key={idx}
+                            className="border-b border-neutral-100 last:border-0"
+                          >
+                            <td className="px-2 py-1.5 text-xs text-neutral-500">
+                              {acoesEnviadas.length + idx + 1}
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <input
+                                className={inputAcaoClass}
+                                value={a.descricao}
+                                onChange={(e) =>
+                                  updateAcaoRow(idx, { descricao: e.target.value })
+                                }
+                                placeholder="Ex.: Inspeção 100% na próxima remessa, com laudo por palete"
+                                maxLength={2000}
+                                disabled={enviandoAcoes}
+                              />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <input
+                                className={inputAcaoClass}
+                                value={a.responsavel}
+                                onChange={(e) =>
+                                  updateAcaoRow(idx, {
+                                    responsavel: e.target.value,
+                                  })
+                                }
+                                placeholder="Área ou pessoa"
+                                maxLength={160}
+                                disabled={enviandoAcoes}
+                              />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <input
+                                type="date"
+                                className={inputAcaoClass}
+                                value={a.prazo}
+                                onChange={(e) =>
+                                  updateAcaoRow(idx, { prazo: e.target.value })
+                                }
+                                disabled={enviandoAcoes}
+                              />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <button
+                                type="button"
+                                onClick={() => removeAcaoRow(idx)}
+                                disabled={enviandoAcoes}
+                                aria-label={`Remover ação ${idx + 1}`}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addAcaoRow}
+                    disabled={enviandoAcoes || linhasEmEdicao.length >= MAX_ACOES}
+                    className="gap-1.5"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Adicionar ação
+                  </Button>
+                  <Button
+                    onClick={enviarAcoes}
+                    disabled={
+                      enviandoAcoes ||
+                      linhasEmEdicao.every((a) => a.descricao.trim() === '')
+                    }
+                    className="gap-1.5"
+                  >
+                    {enviandoAcoes && (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    )}
+                    {planoEmAjuste
+                      ? 'Enviar plano corrigido'
+                      : 'Enviar plano de ações'}
+                  </Button>
+                  {linhasEmEdicao.length >= MAX_ACOES && (
+                    <span className="text-xs text-neutral-500">
+                      Máximo de {MAX_ACOES} ações por envio.
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
           </section>
         )}
 

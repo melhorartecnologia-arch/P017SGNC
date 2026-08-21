@@ -17,7 +17,10 @@ import { streamRncPdf } from '../lib/rnc-pdf-loader.js'
 import { pendenciasParaAssinatura } from '../lib/rnc-completude.js'
 import { criarTransporteSmtp } from '../lib/smtp.js'
 import { criarContextoWa } from '../lib/wa.js'
-import { registrarAnaliseRecusa } from '../lib/rnc-ciencia.js'
+import {
+  registrarAnaliseRecusa,
+  analisarAcaoContingencia,
+} from '../lib/rnc-ciencia.js'
 import {
   processarWorkflows,
   enviarLembreteManual,
@@ -114,8 +117,67 @@ const includeRefs = {
     },
     orderBy: { areaNome: 'asc' },
   },
+  acoesContingencia: {
+    select: {
+      id: true,
+      ordem: true,
+      descricao: true,
+      responsavel: true,
+      prazo: true,
+      status: true,
+      informadaEm: true,
+      informadaPor: true,
+      analisadaEm: true,
+      analisadaPor: true,
+      parecer: true,
+    },
+    orderBy: { ordem: 'asc' },
+  },
   _count: { select: { fotos: true } },
 } as const
+
+/**
+ * Quem pode decidir sobre as respostas do fornecedor (recusa da ciência e
+ * ações de contingência): perfil ADMIN ou aprovador ativo marcado como
+ * receptor das respostas na filial da RNC. Devolve o usuário para que a
+ * decisão fique nominal; lança 403 quando não pode.
+ */
+async function exigirAnalistaDoFornecedor(
+  usuarioId: string,
+  emailFallback: string,
+  rncId: string,
+): Promise<{ nome: string; email: string }> {
+  const usuario = await prisma.usuario.findUnique({
+    where: { id: usuarioId },
+    select: { nome: true, email: true, role: true },
+  })
+  const identidade = {
+    nome: usuario?.nome ?? emailFallback,
+    email: usuario?.email ?? emailFallback,
+  }
+  if (usuario?.role === 'ADMIN') return identidade
+
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: { filialId: true },
+  })
+  const marcado = await prisma.aprovador.findFirst({
+    where: {
+      filialId: rnc?.filialId,
+      ativo: true,
+      recebeRespostaFornecedor: true,
+      email: { equals: usuario?.email ?? '', mode: 'insensitive' },
+    },
+    select: { id: true },
+  })
+  if (!marcado) {
+    throw new HttpError(
+      403,
+      'Apenas administradores ou aprovadores marcados para receber as respostas do fornecedor podem registrar esta análise.',
+    )
+  }
+  return identidade
+}
 
 rncRouter.get('/', async (req, res, next) => {
   try {
@@ -163,9 +225,10 @@ rncRouter.get('/', async (req, res, next) => {
       where.contingenciaStatus =
         contingenciaStatus === '__none__' ? null : contingenciaStatus
     }
-    // Em atraso: solicitadas, sem devolutiva e com o prazo já vencido.
+    // Em atraso: plano ainda devido (nunca enviado ou devolvido para
+    // ajuste) com o prazo já vencido.
     if (contingenciaAtrasada) {
-      where.contingenciaStatus = 'PENDENTE'
+      where.contingenciaStatus = { in: ['PENDENTE', 'AJUSTE_SOLICITADO'] }
       where.contingenciaPrazoEm = { lte: new Date() }
     }
 
@@ -543,6 +606,72 @@ rncRouter.post('/:id/escalonar', async (req, res, next) => {
 
 // Análise da recusa do fornecedor pela plataforma (usuário logado).
 // Mesma decisão disponível no link enviado por e-mail ao aprovador marcado.
+/**
+ * Aprova ou recusa UMA ação do plano de contingência do fornecedor.
+ * Restrito a ADMIN e aos aprovadores marcados da filial. A recusa exige
+ * parecer — é o texto que volta ao fornecedor para correção.
+ */
+rncRouter.post(
+  '/:id/contingencia/acoes/:acaoId',
+  async (req, res, next) => {
+    try {
+      if (!req.user) throw new HttpError(401, 'Não autenticado')
+      const aprovada = req.body?.aprovada
+      if (typeof aprovada !== 'boolean') {
+        throw new HttpError(400, 'Informe se a ação é aprovada ou recusada.')
+      }
+      const parecer =
+        typeof req.body?.parecer === 'string' ? req.body.parecer.trim() : ''
+      if (!aprovada && !parecer) {
+        throw new HttpError(
+          400,
+          'Informe o parecer que fundamenta a recusa da ação.',
+        )
+      }
+
+      const rnc = await prisma.relatorioNaoConformidade.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, contingenciaStatus: true },
+      })
+      if (!rnc) throw new HttpError(404, 'RNC não encontrada')
+      if (rnc.contingenciaStatus !== 'EM_ANALISE') {
+        throw new HttpError(
+          409,
+          'A análise só é possível enquanto o plano de ações está aguardando avaliação.',
+        )
+      }
+
+      const analista = await exigirAnalistaDoFornecedor(
+        req.user.sub,
+        req.user.email,
+        rnc.id,
+      )
+
+      try {
+        await analisarAcaoContingencia(prisma, rnc.id, req.params.acaoId, {
+          aprovada,
+          analisadaPor: analista.nome,
+          parecer: parecer || null,
+          baseUrl: baseUrlPublica(req),
+        })
+      } catch (err) {
+        throw new HttpError(
+          409,
+          err instanceof Error ? err.message : 'Não foi possível registrar.',
+        )
+      }
+
+      const atualizado = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
+        where: { id: rnc.id },
+        include: includeRefs,
+      })
+      res.json(atualizado)
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
 rncRouter.post('/:id/ciencia/analisar', async (req, res, next) => {
   try {
     if (!req.user) throw new HttpError(401, 'Não autenticado')
@@ -574,39 +703,16 @@ rncRouter.post('/:id/ciencia/analisar', async (req, res, next) => {
       )
     }
 
-    const usuario = await prisma.usuario.findUnique({
-      where: { id: req.user.sub },
-      select: { nome: true, email: true, role: true },
-    })
-
-    // Só decidem: perfil ADMIN ou aprovador marcado para receber as
-    // respostas do fornecedor na filial da RNC.
-    if (usuario?.role !== 'ADMIN') {
-      const rncFilial = await prisma.relatorioNaoConformidade.findUnique({
-        where: { id: rnc.id },
-        select: { filialId: true },
-      })
-      const marcado = await prisma.aprovador.findFirst({
-        where: {
-          filialId: rncFilial?.filialId,
-          ativo: true,
-          recebeRespostaFornecedor: true,
-          email: { equals: usuario?.email ?? '', mode: 'insensitive' },
-        },
-        select: { id: true },
-      })
-      if (!marcado) {
-        throw new HttpError(
-          403,
-          'Apenas administradores ou aprovadores marcados para receber as respostas do fornecedor podem analisar a recusa.',
-        )
-      }
-    }
+    const analista = await exigirAnalistaDoFornecedor(
+      req.user.sub,
+      req.user.email,
+      rnc.id,
+    )
 
     try {
       await registrarAnaliseRecusa(prisma, rnc.id, {
         acatarRecusa,
-        analisadoPor: usuario?.nome ?? req.user.email,
+        analisadoPor: analista.nome,
         justificativa: justificativa || null,
         baseUrl: baseUrlPublica(req),
       })

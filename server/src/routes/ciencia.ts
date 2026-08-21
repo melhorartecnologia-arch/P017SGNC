@@ -80,7 +80,20 @@ async function carregarPorToken(token: string) {
       contingenciaSolicitadaEm: true,
       contingenciaRespondidaEm: true,
       contingenciaRespondidaPor: true,
-      contingenciaAcoes: true,
+      contingenciaAnalisadaEm: true,
+      acoesContingencia: {
+        select: {
+          id: true,
+          ordem: true,
+          descricao: true,
+          responsavel: true,
+          prazo: true,
+          status: true,
+          analisadaEm: true,
+          parecer: true,
+        },
+        orderBy: { ordem: 'asc' },
+      },
       filial: { select: { codigo: true, nome: true } },
       fornecedor: { select: { razaoSocial: true, cnpj: true } },
       tipoNaoConformidade: { select: { codigo: true, descricao: true } },
@@ -185,10 +198,23 @@ cienciaRouter.post('/:token/responder', async (req, res, next) => {
 
 const contingenciaSchema = z.object({
   acoes: z
-    .string({ required_error: 'Informe as ações de contingência.' })
-    .trim()
-    .min(1, 'Informe as ações de contingência.')
-    .max(8000),
+    .array(
+      z.object({
+        descricao: z
+          .string({ required_error: 'Descreva a ação de contingência.' })
+          .trim()
+          .min(1, 'Descreva a ação de contingência.')
+          .max(2000),
+        responsavel: z.string().trim().max(160).optional().nullable(),
+        prazo: z
+          .union([z.coerce.date({ invalid_type_error: 'Prazo inválido' }), z.literal('')])
+          .optional()
+          .nullable()
+          .transform((v) => (v === '' || v === undefined ? null : v)),
+      }),
+    )
+    .min(1, 'Informe ao menos uma ação de contingência.')
+    .max(50, 'Máximo de 50 ações por plano'),
   nome: z.string().trim().max(160).optional().nullable(),
 })
 
@@ -202,12 +228,19 @@ cienciaRouter.post('/:token/contingencia', async (req, res, next) => {
       select: { id: true, contingenciaStatus: true },
     })
     if (!rnc) throw new HttpError(404, 'Link de ciência inválido ou expirado.')
-    if (rnc.contingenciaStatus !== 'PENDENTE') {
+    // Só cabe enviar quando o plano ainda é devido: nunca enviado, ou
+    // devolvido pelo aprovador para correção.
+    if (
+      rnc.contingenciaStatus !== 'PENDENTE' &&
+      rnc.contingenciaStatus !== 'AJUSTE_SOLICITADO'
+    ) {
       throw new HttpError(
         409,
-        rnc.contingenciaStatus === 'RESPONDIDA'
-          ? 'As ações de contingência já foram registradas.'
-          : 'Ainda não há ações de contingência a informar para esta RNC.',
+        rnc.contingenciaStatus === 'EM_ANALISE'
+          ? 'O plano de ações já foi enviado e está em análise.'
+          : rnc.contingenciaStatus === 'APROVADA'
+            ? 'O plano de ações já foi aprovado.'
+            : 'Ainda não há ações de contingência a informar para esta RNC.',
       )
     }
 
@@ -223,6 +256,7 @@ cienciaRouter.post('/:token/contingencia', async (req, res, next) => {
         respondidoPor: nome,
         ip: ipDaRequisicao(req),
         navegador,
+        baseUrl: baseUrlPublica(req),
       })
     } catch (err) {
       throw new HttpError(

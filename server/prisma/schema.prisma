@@ -352,8 +352,20 @@ enum CienciaFornecedorStatus {
 enum ContingenciaStatus {
   /// Solicitada ao fornecedor, aguardando o envio das ações.
   PENDENTE
-  /// Fornecedor enviou o plano de ações de contingência.
-  RESPONDIDA
+  /// Fornecedor enviou o plano; aguardando a análise do aprovador marcado.
+  EM_ANALISE
+  /// Todas as ações do plano foram aprovadas.
+  APROVADA
+  /// Ao menos uma ação foi recusada: o fornecedor precisa corrigir o plano.
+  AJUSTE_SOLICITADO
+}
+
+/// Situação de cada ação de contingência informada pelo fornecedor.
+enum AcaoContingenciaStatus {
+  /// Informada pelo fornecedor, aguardando a análise do aprovador.
+  PENDENTE
+  APROVADA
+  RECUSADA
 }
 
 enum RncStatus {
@@ -415,12 +427,15 @@ model RelatorioNaoConformidade {
   // fornecedor, decurso de prazo ou recusa negada), o fornecedor precisa
   // informar as ações que vai executar. Vencido o prazo, passa a receber
   // alertas diários até enviar a devolutiva.
+  /// As ações em si ficam em RncAcaoContingencia — uma linha por ação,
+  /// cada uma aprovada ou recusada pelo aprovador marcado.
   contingenciaStatus       ContingenciaStatus? @map("contingencia_status")
   contingenciaSolicitadaEm DateTime? @map("contingencia_solicitada_em")
   contingenciaPrazoEm      DateTime? @map("contingencia_prazo_em")
   contingenciaRespondidaEm DateTime? @map("contingencia_respondida_em")
   contingenciaRespondidaPor String?  @map("contingencia_respondida_por") @db.VarChar(160)
-  contingenciaAcoes        String?   @map("contingencia_acoes") @db.Text
+  contingenciaAnalisadaEm  DateTime? @map("contingencia_analisada_em")
+  contingenciaAnalisadaPor String?   @map("contingencia_analisada_por") @db.VarChar(160)
   contingenciaIp           String?   @map("contingencia_ip") @db.VarChar(64)
   contingenciaNavegador    String?   @map("contingencia_navegador") @db.VarChar(160)
   contingenciaUltimoAlerta DateTime? @map("contingencia_ultimo_alerta")
@@ -452,6 +467,7 @@ model RelatorioNaoConformidade {
   notasFiscais        RncNotaFiscal[]
   aprovadores         RncAprovador[]
   enviosAssinatura    RncEnvioAssinatura[]
+  acoesContingencia   RncAcaoContingencia[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -465,6 +481,37 @@ model RelatorioNaoConformidade {
   @@index([produtoId])
   @@index([status])
   @@map("relatorios_nao_conformidade")
+}
+
+/// Ação de contingência informada pelo fornecedor depois de confirmada a
+/// não conformidade. O fornecedor cadastra uma ação por linha (o que será
+/// feito, por quem e até quando) e o aprovador marcado aprova ou recusa
+/// cada uma delas, com parecer obrigatório na recusa.
+model RncAcaoContingencia {
+  id          String  @id @default(uuid()) @db.Uuid
+  rncId       String  @map("rnc_id") @db.Uuid
+  /// Posição da ação no plano (1, 2, 3…), na ordem informada.
+  ordem       Int
+  descricao   String  @db.Text
+  responsavel String? @db.VarChar(160)
+  prazo       DateTime?
+
+  status       AcaoContingenciaStatus @default(PENDENTE)
+  informadaEm  DateTime  @default(now()) @map("informada_em")
+  informadaPor String?   @map("informada_por") @db.VarChar(160)
+  analisadaEm  DateTime? @map("analisada_em")
+  analisadaPor String?   @map("analisada_por") @db.VarChar(160)
+  /// Parecer do aprovador — obrigatório quando a ação é recusada.
+  parecer      String?   @db.Text
+
+  rnc RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([rncId])
+  @@index([status])
+  @@map("rnc_acoes_contingencia")
 }
 
 /// Foto anexada a um Relatório de Não Conformidade. O arquivo físico

@@ -20,12 +20,42 @@ export const CIENCIA_RNC_LABEL: Record<CienciaRncStatus, string> = {
   MANTIDA_DEFINITIVA: 'Mantida em definitivo',
 }
 
-/** Devolutiva das ações de contingência do fornecedor. */
-export type ContingenciaRncStatus = 'PENDENTE' | 'RESPONDIDA'
+/** Situação do plano de ações de contingência do fornecedor. */
+export type ContingenciaRncStatus =
+  | 'PENDENTE'
+  | 'EM_ANALISE'
+  | 'APROVADA'
+  | 'AJUSTE_SOLICITADO'
 
 export const CONTINGENCIA_RNC_LABEL: Record<ContingenciaRncStatus, string> = {
-  PENDENTE: 'Ações pendentes',
-  RESPONDIDA: 'Ações recebidas',
+  PENDENTE: 'Aguardando o plano',
+  EM_ANALISE: 'Plano para aprovar',
+  APROVADA: 'Plano aprovado',
+  AJUSTE_SOLICITADO: 'Devolvido para ajuste',
+}
+
+/** Situação de cada ação do plano. */
+export type AcaoContingenciaStatus = 'PENDENTE' | 'APROVADA' | 'RECUSADA'
+
+export const ACAO_CONTINGENCIA_LABEL: Record<AcaoContingenciaStatus, string> = {
+  PENDENTE: 'Aguardando análise',
+  APROVADA: 'Aprovada',
+  RECUSADA: 'Recusada',
+}
+
+/** Uma ação do plano de contingência, com o veredito do aprovador. */
+export type AcaoContingencia = {
+  id: string
+  ordem: number
+  descricao: string
+  responsavel: string | null
+  prazo: string | null
+  status: AcaoContingenciaStatus
+  informadaEm: string
+  informadaPor: string | null
+  analisadaEm: string | null
+  analisadaPor: string | null
+  parecer: string | null
 }
 
 export type SeveridadeRef = {
@@ -80,8 +110,10 @@ export type Rnc = {
   contingenciaPrazoEm: string | null
   contingenciaRespondidaEm: string | null
   contingenciaRespondidaPor: string | null
-  contingenciaAcoes: string | null
+  contingenciaAnalisadaEm: string | null
+  contingenciaAnalisadaPor: string | null
   contingenciaAlertas: number
+  acoesContingencia: AcaoContingencia[]
 
   // Material & lote
   produtoId: string | null
@@ -322,6 +354,20 @@ export const rncApi = {
     body: { acatarRecusa: boolean; justificativa?: string | null },
   ) =>
     apiRequest<Rnc>(`/rnc/${id}/ciencia/analisar`, {
+      method: 'POST',
+      body,
+    }),
+
+  /**
+   * Aprova ou recusa UMA ação do plano de contingência. A recusa exige
+   * parecer — é o texto que volta ao fornecedor para correção.
+   */
+  analisarAcaoContingencia: (
+    rncId: string,
+    acaoId: string,
+    body: { aprovada: boolean; parecer?: string | null },
+  ) =>
+    apiRequest<Rnc>(`/rnc/${rncId}/contingencia/acoes/${acaoId}`, {
       method: 'POST',
       body,
     }),
