@@ -219,6 +219,23 @@ function linhaCampos(doc: Doc, est: Estado, campos: Campo[], altura = 30) {
   est.y += altura
 }
 
+/**
+ * Como linhaCampos, mas mede o conteúdo e cresce a altura da linha para
+ * caber o texto — campos de texto livre não podem truncar com "…". Para
+ * textos muito longos (milhares de caracteres) use blocoTextoFluido.
+ */
+function linhaCamposAuto(doc: Doc, est: Estado, campos: Campo[], minAltura = 30) {
+  const totalFlex = campos.reduce((s, c) => s + (c.flex ?? 1), 0)
+  doc.font('Helvetica').fontSize(8.5)
+  let necessario = minAltura
+  for (const c of campos) {
+    const w = (CONTENT_W * (c.flex ?? 1)) / totalFlex
+    const h = doc.heightOfString(c.valor || ' ', { width: w - 8 }) + 17
+    if (h > necessario) necessario = h
+  }
+  linhaCampos(doc, est, campos, Math.ceil(necessario))
+}
+
 /** Bloco de texto livre (label + valor multilinha) ocupando a largura toda. */
 function blocoTexto(
   doc: Doc,
@@ -1039,29 +1056,30 @@ export function montarRhePdf(doc: Doc, rhe: RncPdfData, fotos: RncPdfFoto[]) {
     { label: 'Número sequencial', valor: rhe.numero, flex: 1.2 },
     { label: 'Situação', valor: fmtStatus(rhe.status), flex: 1 },
   ])
-  linhaCampos(doc, est, [
+  linhaCamposAuto(doc, est, [
     { label: 'Título do RHE', valor: rhe.titulo ?? '', flex: 3 },
-    { label: 'Data da homologação', valor: fmtData(rhe.dataIdentificacao), flex: 1 },
+    // Data pura (meia-noite UTC): formatar no dia UTC para não recuar.
+    { label: 'Data da homologação', valor: fmtDataPura(rhe.dataIdentificacao), flex: 1 },
   ])
 
   // 2. Dados do fornecedor e produto
   tituloSecao(doc, est, '2. Dados do Fornecedor e Produto')
-  linhaCampos(doc, est, [
+  linhaCamposAuto(doc, est, [
     { label: 'Embalagem', valor: rhe.produto ? `${rhe.produto.codigo} — ${rhe.produto.descricao}` : '', flex: 1 },
     { label: 'Fornecedor', valor: rhe.fornecedor ? `${rhe.fornecedor.codigo} — ${rhe.fornecedor.razaoSocial}` : '', flex: 1 },
   ])
-  // Campo de até 200 caracteres: linha inteira e altura para 2 linhas.
-  linhaCampos(doc, est, [
+  linhaCamposAuto(doc, est, [
     { label: 'Tipo de produto / aplicação', valor: rhe.tipoProdutoAplicacao ?? '', flex: 1 },
-  ], 36)
-  linhaCampos(doc, est, [
+  ])
+  // Rastreabilidade em texto livre: a altura cresce com o conteúdo.
+  linhaCamposAuto(doc, est, [
     { label: 'Data de fabricação', valor: rhe.fabricacaoTexto ?? '', flex: 1.2 },
     { label: 'Validade', valor: rhe.validadeTexto ?? '', flex: 0.8 },
     { label: 'Lote', valor: rhe.lotes.map((l) => l.numero).join(' / '), flex: 1.4 },
     { label: 'Quantidade', valor: rhe.quantidadeTexto ?? '', flex: 0.8 },
     { label: 'Nota fiscal', valor: rhe.notasFiscais[0]?.numero ?? '', flex: 0.8 },
   ])
-  linhaCampos(doc, est, [
+  linhaCamposAuto(doc, est, [
     { label: 'Linha de envase', valor: rhe.linhaEnvase ?? '', flex: 1 },
   ], 24)
   // Texto longo (até 4000 caracteres): flui e pagina, nunca trunca.
@@ -1117,7 +1135,7 @@ export function montarRhePdf(doc: Doc, rhe: RncPdfData, fotos: RncPdfFoto[]) {
     'Avaliação, performance e considerações finais',
     rhe.avaliacaoConsideracoes ?? '',
   )
-  linhaCampos(doc, est, [
+  linhaCamposAuto(doc, est, [
     { label: 'Controle de qualidade (analistas)', valor: rhe.analisadoPor ?? '', flex: 2 },
     { label: 'Unidade', valor: rhe.filial?.codigo ?? '', flex: 0.8 },
     { label: 'Emitente', valor: rhe.criadoPor?.nome ?? '', flex: 1.4 },

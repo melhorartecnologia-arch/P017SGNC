@@ -213,6 +213,13 @@ export type DadosEmailConclusao = {
   docTipo?: 'RNC' | 'RAQ' | 'RVT' | 'RHE'
   /** Título do documento (RAQ/RHE) ou pauta (RVT). */
   titulo?: string | null
+  /**
+   * Omite IP, navegador, dispositivo e geolocalização dos signatários.
+   * Usar quando o e-mail vai também a destinatários externos (RHE: os
+   * representantes do fornecedor assinam e recebem a conclusão) — a
+   * evidência forense fica restrita ao registro interno.
+   */
+  ocultarForense?: boolean
 }
 
 /** E-mail de conclusão: todas as assinaturas do documento foram realizadas. */
@@ -230,9 +237,13 @@ export function montarEmailConclusao(d: DadosEmailConclusao) {
     return [
       `• ${a.areaNome}: ${a.nome}${a.cargo ? ` (${a.cargo})` : ''}`,
       `    Assinado em: ${fmtDataHora(a.assinadoEm)}`,
-      `    IP: ${a.ip ?? '—'} · ${a.navegador ?? '—'}`,
-      `    Dispositivo: ${[a.so, a.dispositivo].filter(Boolean).join(' · ') || '—'}`,
-      `    Localização: ${local}`,
+      ...(d.ocultarForense
+        ? []
+        : [
+            `    IP: ${a.ip ?? '—'} · ${a.navegador ?? '—'}`,
+            `    Dispositivo: ${[a.so, a.dispositivo].filter(Boolean).join(' · ') || '—'}`,
+            `    Localização: ${local}`,
+          ]),
     ].join('\n')
   })
 
@@ -264,12 +275,15 @@ export function montarEmailConclusao(d: DadosEmailConclusao) {
           ? `<a href="https://www.google.com/maps?q=${a.latitude},${a.longitude}">${a.latitude.toFixed(5)}, ${a.longitude.toFixed(5)}</a>`
           : '—'
       const disp = [a.so, a.dispositivo].filter(Boolean).join(' · ') || '—'
+      const colsForense = d.ocultarForense
+        ? ''
+        : `
+        <td style="padding:6px 8px;border:1px solid #e5e7eb">${escapeHtml(a.ip ?? '—')}<br><span style="color:#6b7280">${escapeHtml(a.navegador ?? '—')} · ${escapeHtml(disp)}</span></td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb">${local}</td>`
       return `<tr>
         <td style="padding:6px 8px;border:1px solid #e5e7eb">${escapeHtml(a.areaNome)}</td>
         <td style="padding:6px 8px;border:1px solid #e5e7eb"><b>${escapeHtml(a.nome)}</b>${a.cargo ? `<br><span style="color:#6b7280">${escapeHtml(a.cargo)}</span>` : ''}</td>
-        <td style="padding:6px 8px;border:1px solid #e5e7eb">${escapeHtml(fmtDataHora(a.assinadoEm))}</td>
-        <td style="padding:6px 8px;border:1px solid #e5e7eb">${escapeHtml(a.ip ?? '—')}<br><span style="color:#6b7280">${escapeHtml(a.navegador ?? '—')} · ${escapeHtml(disp)}</span></td>
-        <td style="padding:6px 8px;border:1px solid #e5e7eb">${local}</td>
+        <td style="padding:6px 8px;border:1px solid #e5e7eb">${escapeHtml(fmtDataHora(a.assinadoEm))}</td>${colsForense}
       </tr>`
     })
     .join('')
@@ -303,9 +317,13 @@ export function montarEmailConclusao(d: DadosEmailConclusao) {
         <tr style="background:#f9fafb;color:#6b7280">
           <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Área</th>
           <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Aprovador</th>
-          <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Assinado em</th>
+          <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Assinado em</th>${
+            d.ocultarForense
+              ? ''
+              : `
           <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Origem</th>
-          <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Local</th>
+          <th style="padding:6px 8px;border:1px solid #e5e7eb;text-align:left">Local</th>`
+          }
         </tr>
       </thead>
       <tbody>${linhasHtml}</tbody>
@@ -1481,7 +1499,7 @@ export function montarEmailRheFornecedor(d: DadosEmailRheFornecedor) {
     '',
     d.titulo ? `Título: ${d.titulo}` : '',
     d.homologacaoInicial
-      ? `Homologação inicial: ${rotuloHomologacao(d.homologacaoInicial)}${d.homologacaoInicialData ? ` em ${fmtData(d.homologacaoInicialData)}` : ''}`
+      ? `Homologação inicial: ${rotuloHomologacao(d.homologacaoInicial)}${d.homologacaoInicialData ? ` em ${fmtDataPura(d.homologacaoInicialData)}` : ''}`
       : '',
     '',
     'Este documento é o registro formal da homologação realizada.',
@@ -1508,7 +1526,7 @@ export function montarEmailRheFornecedor(d: DadosEmailRheFornecedor) {
       ${item(
         'Homologação inicial',
         d.homologacaoInicial
-          ? `${rotuloHomologacao(d.homologacaoInicial)}${d.homologacaoInicialData ? ` em ${fmtData(d.homologacaoInicialData)}` : ''}`
+          ? `${rotuloHomologacao(d.homologacaoInicial)}${d.homologacaoInicialData ? ` em ${fmtDataPura(d.homologacaoInicialData)}` : ''}`
           : '',
       )}
     </table>

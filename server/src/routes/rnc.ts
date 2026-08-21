@@ -412,10 +412,19 @@ rncRouter.patch('/:rncId/aprovadores/:id', async (req, res, next) => {
     const assinado = req.body?.assinado === true
     const alvo = await prisma.rncAprovador.findUnique({
       where: { id: req.params.id },
-      select: { id: true, rncId: true },
+      select: { id: true, rncId: true, aprovadorId: true },
     })
     if (!alvo || alvo.rncId !== req.params.rncId) {
       throw new HttpError(404, 'Aprovador não encontrado nesta RNC')
+    }
+    // Signatário externo (ex.: representante técnico do fornecedor no RHE)
+    // só assina pelo próprio link com a senha enviada por e-mail — não
+    // pode ser marcado (nem desmarcado) internamente.
+    if (!alvo.aprovadorId) {
+      throw new HttpError(
+        403,
+        'A assinatura do signatário externo só pode ser feita por ele mesmo, pelo link enviado por e-mail.',
+      )
     }
     await prisma.rncAprovador.update({
       where: { id: alvo.id },

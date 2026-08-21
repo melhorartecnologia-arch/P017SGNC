@@ -195,11 +195,26 @@ rheRouter.patch('/:id', async (req, res, next) => {
         status: true,
         filialId: true,
         aprovadores: { select: { assinadoEm: true } },
+        representantes: {
+          select: { nome: true, email: true },
+          orderBy: { ordem: 'asc' },
+        },
       },
     })
     if (!atual || atual.tipoDocumento !== 'RHE') {
       throw new HttpError(404, 'RHE não encontrado')
     }
+    // O front reenvia os representantes em todo save; um payload idêntico
+    // aos dados atuais NÃO remonta a matriz (remontar apaga os tokens e
+    // senhas já enviados por e-mail, matando os links de assinatura).
+    const repsMudaram =
+      representantes !== undefined &&
+      (representantes.length !== atual.representantes.length ||
+        representantes.some(
+          (r, i) =>
+            r.nome !== atual.representantes[i].nome ||
+            r.email !== atual.representantes[i].email,
+        ))
     // Documento encerrado é imutável (exceto a homologação final, que
     // tem rota própria).
     if (atual.status === 'CLOSED') {
@@ -224,7 +239,7 @@ rheRouter.patch('/:id', async (req, res, next) => {
     }
     // Trocar os signatários do fornecedor depois de alguém assinar
     // remontaria a matriz e apagaria assinaturas — proibido.
-    if (representantes !== undefined && temAssinatura) {
+    if (repsMudaram && temAssinatura) {
       throw new HttpError(
         409,
         'Os representantes técnicos não podem ser alterados depois que há assinaturas coletadas.',
@@ -248,7 +263,7 @@ rheRouter.patch('/:id', async (req, res, next) => {
           })
         }
       }
-      if (representantes !== undefined) {
+      if (repsMudaram && representantes !== undefined) {
         await tx.rheRepresentante.deleteMany({ where: { rncId: req.params.id } })
         await tx.rheRepresentante.createMany({
           data: representantes.map((r, i) => ({
@@ -264,11 +279,13 @@ rheRouter.patch('/:id', async (req, res, next) => {
         data: rest,
         include: includeRefsRhe,
       })
-      // Filial ou representantes alterados mudam quem assina — remonta a
-      // matriz (só chega aqui sem nenhuma assinatura coletada).
+      // Filial ou representantes REALMENTE alterados mudam quem assina —
+      // remonta a matriz. A guarda de temAssinatura foi lida fora desta
+      // transação; a revalidação final (assinatura em corrida) fica em
+      // montarMatrizAprovadores, que aborta se houver linha assinada.
       if (
         (rest.filialId !== undefined && rest.filialId !== atual.filialId) ||
-        representantes !== undefined
+        repsMudaram
       ) {
         await montarMatrizAprovadores(tx, salvo.id, salvo.filialId, null, 'RHE')
         await anexarRepresentantesRhe(tx, salvo.id)
@@ -294,13 +311,35 @@ rheRouter.post('/:id/homologacao-final', async (req, res, next) => {
     const { resultado, data } = rheHomologacaoFinalSchema.parse(req.body)
     const rhe = await prisma.relatorioNaoConformidade.findUnique({
       where: { id: req.params.id },
-      select: { tipoDocumento: true, homologacaoFinal: true },
+      select: {
+        tipoDocumento: true,
+        homologacaoFinal: true,
+        homologacaoInicialData: true,
+        assinaturasConcluidasEm: true,
+      },
     })
     if (!rhe || rhe.tipoDocumento !== 'RHE') {
       throw new HttpError(404, 'RHE não encontrado')
     }
     if (rhe.homologacaoFinal) {
       throw new HttpError(409, 'A homologação final já foi registrada.')
+    }
+    // Decisão definitiva e irreversível: só depois do documento assinado
+    // (o formulário deixa o campo em aberto até o fim do acompanhamento).
+    if (!rhe.assinaturasConcluidasEm) {
+      throw new HttpError(
+        409,
+        'A homologação final só pode ser registrada depois de concluídas as assinaturas do RHE.',
+      )
+    }
+    if (
+      rhe.homologacaoInicialData &&
+      data.getTime() < rhe.homologacaoInicialData.getTime()
+    ) {
+      throw new HttpError(
+        400,
+        'A data da homologação final não pode ser anterior à da homologação inicial.',
+      )
     }
     // Condicionado a ainda não existir: evita duas decisões em corrida.
     const r = await prisma.relatorioNaoConformidade.updateMany({

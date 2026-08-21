@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
+import { HttpError } from '../middleware/error.js'
 
 type Db = Prisma.TransactionClient | PrismaClient
 
@@ -106,7 +107,16 @@ export async function selecionarAprovadores(
   return escolhidos
 }
 
-/** Recalcula e grava a matriz de aprovação da RNC (substituição total). */
+/**
+ * Recalcula e grava a matriz de aprovação da RNC (substituição total).
+ *
+ * Uma assinatura já coletada nunca pode ser apagada por aqui: o delete é
+ * condicionado a assinadoEm nulo — sob Read Committed ele espera a
+ * transação de assinatura concorrente e reavalia o predicado, preservando
+ * a linha assinada. Se sobrar linha assinada, a remontagem aborta (as
+ * guardas das rotas leem o estado fora da transação e podem estar
+ * defasadas).
+ */
 export async function montarMatrizAprovadores(
   tx: Prisma.TransactionClient,
   rncId: string,
@@ -115,7 +125,14 @@ export async function montarMatrizAprovadores(
   tipoCodigo: string = 'RNC',
 ): Promise<void> {
   const escolhidos = await selecionarAprovadores(tx, filialId, turnoId, tipoCodigo)
-  await tx.rncAprovador.deleteMany({ where: { rncId } })
+  await tx.rncAprovador.deleteMany({ where: { rncId, assinadoEm: null } })
+  const assinados = await tx.rncAprovador.count({ where: { rncId } })
+  if (assinados > 0) {
+    throw new HttpError(
+      409,
+      'Há assinaturas coletadas neste documento; a matriz de aprovação não pode ser remontada.',
+    )
+  }
   if (escolhidos.length > 0) {
     await tx.rncAprovador.createMany({
       data: escolhidos.map((e) => ({ rncId, ...e })),

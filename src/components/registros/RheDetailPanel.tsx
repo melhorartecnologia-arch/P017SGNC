@@ -452,22 +452,28 @@ export function RheDetailPanel({ rhe, onClose, onEdit, onUpdated }: Props) {
                     </span>
                   )}
                 </Row>
-                {!rhe.homologacaoFinal && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-fit gap-1.5"
-                    onClick={() => {
-                      setFinalResultado('')
-                      setFinalData(todayISO())
-                      setFinalOpen(true)
-                    }}
-                  >
-                    <ClipboardCheck className="h-3.5 w-3.5" />
-                    Registrar homologação final
-                  </Button>
-                )}
+                {!rhe.homologacaoFinal &&
+                  (rhe.assinaturasConcluidasEm ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 w-fit gap-1.5"
+                      onClick={() => {
+                        setFinalResultado('')
+                        setFinalData(todayISO())
+                        setFinalOpen(true)
+                      }}
+                    >
+                      <ClipboardCheck className="h-3.5 w-3.5" />
+                      Registrar homologação final
+                    </Button>
+                  ) : (
+                    <p className="text-xs text-neutral-500">
+                      O registro da homologação final fica disponível depois
+                      de concluídas as assinaturas.
+                    </p>
+                  ))}
               </Section>
 
               <Section title="Envio ao fornecedor">
@@ -668,6 +674,7 @@ export function RheDetailPanel({ rhe, onClose, onEdit, onUpdated }: Props) {
               <Input
                 type="date"
                 value={finalData}
+                max={todayISO()}
                 onChange={(e) => setFinalData(e.target.value)}
                 disabled={registrandoFinal}
               />

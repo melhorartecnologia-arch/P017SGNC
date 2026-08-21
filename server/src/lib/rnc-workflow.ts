@@ -635,6 +635,9 @@ export async function finalizarSeConcluida(
     baseUrl,
     numero: rnc.numero,
     docTipo: rnc.tipoDocumento,
+    // RHE: os representantes do fornecedor estão entre os destinatários —
+    // não expor IP/geolocalização dos signatários internos a externos.
+    ocultarForense: rnc.tipoDocumento === 'RHE',
     titulo: rnc.titulo ?? rnc.pauta,
     filialNome: rnc.filial?.nome ?? '',
     fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',

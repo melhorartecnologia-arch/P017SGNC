@@ -20,7 +20,7 @@ const optionalString = (max: number) =>
     .max(max)
     .optional()
     .nullable()
-    .or(z.literal('').transform(() => null))
+    .transform((v) => (v === '' ? null : v))
 
 const optionalDate = (msg: string) =>
   z
@@ -135,10 +135,20 @@ export const rheUpdateSchema = rheBaseSchema
 
 /** Registro (posterior) da homologação final — o campo fica em aberto
  * no formulário até a decisão, que pode vir meses depois do encerramento. */
-export const rheHomologacaoFinalSchema = z.object({
-  resultado: homologacaoResultadoEnum,
-  data: z.coerce.date({ invalid_type_error: 'Data inválida' }),
-})
+export const rheHomologacaoFinalSchema = z
+  .object({
+    resultado: homologacaoResultadoEnum,
+    data: z.coerce.date({ invalid_type_error: 'Data inválida' }),
+  })
+  .superRefine((val, ctx) => {
+    if (diaOperacao(val.data) > diaOperacao(new Date())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['data'],
+        message: 'A data da homologação final não pode ser futura.',
+      })
+    }
+  })
 
 export const rheQuerySchema = z.object({
   fornecedorId: z.string().uuid().optional(),
