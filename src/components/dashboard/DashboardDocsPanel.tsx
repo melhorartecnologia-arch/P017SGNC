@@ -142,14 +142,18 @@ export function DashboardDocsPanel({
   const [data, setData] = React.useState<DashboardDocs | null>(null)
   const [recentes, setRecentes] = React.useState<Doc[] | null>(null)
   const [loading, setLoading] = React.useState(true)
+  const [atualizando, setAtualizando] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [filtro, setFiltro] = React.useState<Filtro | null>(null)
   const [viewing, setViewing] = React.useState<Doc | null>(null)
 
+  // Troca de período NÃO apaga o painel: os dados anteriores continuam na
+  // tela com um spinner discreto (mesmo padrão do painel de RNCs). A troca
+  // de aba remonta o componente (key no pai), então cai no loading cheio.
   React.useEffect(() => {
     let cancelled = false
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoading(true)
+    setAtualizando(true)
     setError(null)
     Promise.all([
       dashboardApi.documentos(tipo, periodo),
@@ -166,18 +170,24 @@ export function DashboardDocsPanel({
           err instanceof ApiError ? err.message : 'Não foi possível carregar o painel.',
         )
       })
-      .finally(() => !cancelled && setLoading(false))
+      .finally(() => {
+        if (cancelled) return
+        setLoading(false)
+        setAtualizando(false)
+      })
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo, periodo.de, periodo.ate])
 
+  // O período ambiente entra primeiro: parâmetros explícitos (ex.: o
+  // recorte de um mês clicado na evolução) prevalecem sobre ele.
   const drill = (
     titulo: string,
     params: ListParams,
     posFiltro?: (d: Doc) => boolean,
-  ) => setFiltro({ titulo, params: { ...params, ...periodo }, posFiltro })
+  ) => setFiltro({ titulo, params: { ...periodo, ...params }, posFiltro })
 
   if (loading) {
     return (
@@ -215,8 +225,10 @@ export function DashboardDocsPanel({
         titulo: 'Severidade',
         sub: 'Composição dos RAQs',
         rotulo: 'RAQs classificados',
+        // Sentinela 'null' idêntica dos dois lados: o groupBy produz no
+        // máximo um grupo sem severidade, então a chave permanece única.
         dados: data.porSeveridade.map((s, i) => ({
-          chave: s.id ?? `null-${i}`,
+          chave: s.id ?? 'null',
           label: s.label.replace('Nível ', 'Nv '),
           cor: s.nivel
             ? tons[Math.min(tons.length - 1, s.nivel - 1)]
@@ -225,7 +237,7 @@ export function DashboardDocsPanel({
         })),
         pick: (c) =>
           drill(`Severidade: ${c.label}`, {}, (d) =>
-            (d.severidadeId ?? 'null-x') === c.chave,
+            (d.severidadeId ?? 'null') === c.chave,
           ),
       }
     }
@@ -286,6 +298,9 @@ export function DashboardDocsPanel({
           <h1 className="text-lg font-semibold tracking-tight text-neutral-900">
             {cfg.titulo}
           </h1>
+          {atualizando && (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-neutral-300" />
+          )}
         </div>
         <p className="text-xs text-neutral-400">
           {total > 0

@@ -222,7 +222,11 @@ export function DashboardPage() {
       {painel === 'RNC' ? (
         <RncPanel periodo={periodo} />
       ) : (
-        <DashboardDocsPanel tipo={painel} periodo={periodo} />
+        // key: trocar de aba REMONTA o painel — sem ela, viewing/filtro do
+        // tipo anterior sobrevivem e o painel de detalhes do tipo novo
+        // renderia um documento de outro tipo (crash em participantes/
+        // representantes ausentes no payload).
+        <DashboardDocsPanel key={painel} tipo={painel} periodo={periodo} />
       )}
     </div>
   )
@@ -268,12 +272,14 @@ function RncPanel({ periodo }: { periodo: { de?: string; ate?: string } }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [periodo.de, periodo.ate])
 
-  // Abre o drill mesclando o período corrente nos parâmetros.
+  // Abre o drill mesclando o período corrente nos parâmetros — o período
+  // entra primeiro para que parâmetros explícitos (ex.: o recorte de um
+  // mês clicado na evolução) prevaleçam sobre ele.
   const drill = (
     titulo: string,
     params: Partial<RncListParams>,
     posFiltro?: (r: Rnc) => boolean,
-  ) => setFiltro({ titulo, params: { ...params, ...periodo }, posFiltro })
+  ) => setFiltro({ titulo, params: { ...periodo, ...params }, posFiltro })
 
   if (loading) {
     return (
