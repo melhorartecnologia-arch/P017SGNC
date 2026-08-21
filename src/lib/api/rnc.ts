@@ -290,6 +290,19 @@ export const rncApi = {
       method: 'POST',
     }),
 
+  /**
+   * Analisa a recusa do fornecedor pela plataforma: acata a recusa ou a
+   * nega — e nesse caso a RNC é enviada em definitivo ao fornecedor.
+   */
+  analisarRecusa: (
+    id: string,
+    body: { acatarRecusa: boolean; justificativa?: string | null },
+  ) =>
+    apiRequest<Rnc>(`/rnc/${id}/ciencia/analisar`, {
+      method: 'POST',
+      body,
+    }),
+
   /** Escalonamento manual: sobe um nível acima nas áreas pendentes. */
   escalonar: (id: string) =>
     apiRequest<{ rnc: Rnc; novos: number }>(`/rnc/${id}/escalonar`, {

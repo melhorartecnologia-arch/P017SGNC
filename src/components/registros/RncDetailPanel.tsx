@@ -692,7 +692,7 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
               </Section>
 
               <Section title="Ciência do fornecedor">
-                <CienciaFornecedorBloco rnc={rnc} />
+                <CienciaFornecedorBloco rnc={rnc} onUpdated={onUpdated} />
               </Section>
 
               <Section title="Origem & severidade">
@@ -761,7 +761,46 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
  * Situação da ciência do fornecedor: enviada após todas as assinaturas,
  * com aceite/recusa do fornecedor ou aceite automático por decurso.
  */
-function CienciaFornecedorBloco({ rnc }: { rnc: Rnc }) {
+function CienciaFornecedorBloco({
+  rnc,
+  onUpdated,
+}: {
+  rnc: Rnc
+  onUpdated?: (rnc: Rnc) => void
+}) {
+  const [modo, setModo] = React.useState<'acatar' | 'negar' | null>(null)
+  const [parecer, setParecer] = React.useState('')
+  const [decidindo, setDecidindo] = React.useState(false)
+
+  const decidir = async (acatarRecusa: boolean) => {
+    if (decidindo) return
+    if (!acatarRecusa && !parecer.trim()) {
+      toast.error('Informe o parecer que fundamenta a negativa da recusa.')
+      return
+    }
+    setDecidindo(true)
+    try {
+      const atualizado = await rncApi.analisarRecusa(rnc.id, {
+        acatarRecusa,
+        justificativa: parecer.trim() || null,
+      })
+      onUpdated?.(atualizado)
+      setModo(null)
+      setParecer('')
+      toast.success(
+        acatarRecusa
+          ? 'Recusa acatada'
+          : 'Recusa negada — RNC enviada em definitivo ao fornecedor',
+      )
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao registrar a análise.'
+      toast.error('Não foi possível registrar', { description: message })
+    } finally {
+      setDecidindo(false)
+    }
+  }
+
   const status = rnc.cienciaStatus
   if (!status) {
     return (
@@ -834,6 +873,89 @@ function CienciaFornecedorBloco({ rnc }: { rnc: Rnc }) {
             {rnc.cienciaAnaliseJustificativa}
           </span>
         </Row>
+      )}
+
+      {/* Decisão pela plataforma — mesma ação do link enviado por e-mail. */}
+      {recusada && (
+        <div className="mt-1 flex flex-col gap-2 rounded-md border border-neutral-200 bg-neutral-50/60 p-2.5">
+          <span className="text-xs font-medium text-neutral-700">
+            Analisar a recusa
+          </span>
+          {modo === null && (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => setModo('acatar')}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Acatar a recusa
+              </Button>
+              <Button
+                size="sm"
+                className="gap-1.5 bg-red-600 hover:bg-red-700"
+                onClick={() => setModo('negar')}
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Negar (tornar definitiva)
+              </Button>
+            </div>
+          )}
+          {modo !== null && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-neutral-600">
+                {modo === 'acatar'
+                  ? 'A justificativa do fornecedor será acatada e a ciência encerrada a favor dele.'
+                  : 'A RNC será mantida e enviada em definitivo ao fornecedor, sem possibilidade de nova recusa.'}
+              </p>
+              <textarea
+                value={parecer}
+                onChange={(e) => setParecer(e.target.value)}
+                rows={3}
+                maxLength={4000}
+                disabled={decidindo}
+                placeholder={
+                  modo === 'acatar'
+                    ? 'Parecer (opcional)'
+                    : 'Parecer que fundamenta a negativa (obrigatório)'
+                }
+                className="flex w-full rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className={cn(
+                    'gap-1.5',
+                    modo === 'acatar'
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-red-600 hover:bg-red-700',
+                  )}
+                  disabled={
+                    decidindo || (modo === 'negar' && !parecer.trim())
+                  }
+                  onClick={() => decidir(modo === 'acatar')}
+                >
+                  {decidindo && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {modo === 'acatar'
+                    ? 'Confirmar: acatar'
+                    : 'Confirmar: negar e tornar definitiva'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={decidindo}
+                  onClick={() => {
+                    setModo(null)
+                    setParecer('')
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

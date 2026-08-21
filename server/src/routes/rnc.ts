@@ -17,6 +17,7 @@ import { streamRncPdf } from '../lib/rnc-pdf-loader.js'
 import { pendenciasParaAssinatura } from '../lib/rnc-completude.js'
 import { criarTransporteSmtp } from '../lib/smtp.js'
 import { criarContextoWa } from '../lib/wa.js'
+import { registrarAnaliseRecusa } from '../lib/rnc-ciencia.js'
 import {
   processarWorkflows,
   enviarLembreteManual,
@@ -523,6 +524,68 @@ rncRouter.post('/:id/escalonar', async (req, res, next) => {
       include: includeRefs,
     })
     res.json({ rnc: atualizado, novos: r.novos })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Análise da recusa do fornecedor pela plataforma (usuário logado).
+// Mesma decisão disponível no link enviado por e-mail ao aprovador marcado.
+rncRouter.post('/:id/ciencia/analisar', async (req, res, next) => {
+  try {
+    if (!req.user) throw new HttpError(401, 'Não autenticado')
+    const acatarRecusa = req.body?.acatarRecusa
+    if (typeof acatarRecusa !== 'boolean') {
+      throw new HttpError(400, 'Informe se a recusa é acatada ou negada.')
+    }
+    const justificativa =
+      typeof req.body?.justificativa === 'string'
+        ? req.body.justificativa.trim()
+        : ''
+    // Negar torna a RNC definitiva: exige parecer fundamentado.
+    if (!acatarRecusa && !justificativa) {
+      throw new HttpError(
+        400,
+        'Informe o parecer que fundamenta a negativa da recusa.',
+      )
+    }
+
+    const rnc = await prisma.relatorioNaoConformidade.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, cienciaStatus: true },
+    })
+    if (!rnc) throw new HttpError(404, 'RNC não encontrada')
+    if (rnc.cienciaStatus !== 'RECUSADA') {
+      throw new HttpError(
+        409,
+        'A análise só é possível quando o fornecedor recusou a não conformidade.',
+      )
+    }
+
+    const usuario = await prisma.usuario.findUnique({
+      where: { id: req.user.sub },
+      select: { nome: true },
+    })
+
+    try {
+      await registrarAnaliseRecusa(prisma, rnc.id, {
+        acatarRecusa,
+        analisadoPor: usuario?.nome ?? req.user.email,
+        justificativa: justificativa || null,
+        baseUrl: baseUrlPublica(req),
+      })
+    } catch (err) {
+      throw new HttpError(
+        409,
+        err instanceof Error ? err.message : 'Não foi possível registrar.',
+      )
+    }
+
+    const atualizado = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
+      where: { id: rnc.id },
+      include: includeRefs,
+    })
+    res.json(atualizado)
   } catch (err) {
     next(err)
   }
