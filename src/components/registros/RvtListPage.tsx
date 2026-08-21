@@ -195,7 +195,7 @@ export function RvtListPage() {
               ) : items.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="px-3 py-10 text-center text-neutral-400">
-                    Nenhum RAQ cadastrado. Clique em "Novo RVT" para criar o
+                    Nenhum RVT cadastrado. Clique em "Novo RVT" para criar o
                     primeiro.
                   </td>
                 </tr>

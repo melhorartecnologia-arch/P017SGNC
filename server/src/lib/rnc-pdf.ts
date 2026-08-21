@@ -223,6 +223,33 @@ function blocoTexto(
   est.y += altura
 }
 
+/**
+ * Bloco de texto longo que FLUI por quantas páginas precisar (o pdfkit
+ * pagina sozinho). Usado nas seções de texto corrido do RVT, onde cortar
+ * com reticências perderia conteúdo do documento oficial.
+ */
+function blocoTextoFluido(doc: Doc, est: Estado, label: string, valor: string) {
+  novaPaginaSeNecessario(doc, est, 48)
+  doc
+    .fillColor(COR_LABEL)
+    .font('Helvetica-Bold')
+    .fontSize(6)
+    .text(label.toUpperCase(), LEFT + 4, est.y + 3, { width: CONTENT_W - 8 })
+  doc
+    .fillColor(COR_VALOR)
+    .font('Helvetica')
+    .fontSize(8.5)
+    .text(valor || '—', LEFT + 4, est.y + 13, { width: CONTENT_W - 8 })
+  // doc.y termina onde o texto parou — possivelmente em outra página.
+  est.y = doc.y + 8
+  doc
+    .moveTo(LEFT, est.y - 4)
+    .lineTo(RIGHT, est.y - 4)
+    .strokeColor(COR_BORDA)
+    .lineWidth(0.6)
+    .stroke()
+}
+
 function cabecalho(
   doc: Doc,
   est: Estado,
@@ -909,13 +936,14 @@ export function montarRvtPdf(doc: Doc, rvt: RncPdfData, fotos: RncPdfFoto[]) {
     est.y += celH
   }
 
-  // 4. Assuntos abordados
+  // 4. Assuntos abordados — texto corrido, sem corte: flui por quantas
+  // páginas precisar.
   tituloSecao(doc, est, '4. Assuntos Abordados')
-  blocoTexto(doc, est, 'Assuntos abordados na visita', rvt.assuntosAbordados ?? '', 90)
+  blocoTextoFluido(doc, est, 'Assuntos abordados na visita', rvt.assuntosAbordados ?? '')
 
   // 5. Conclusão
   tituloSecao(doc, est, '5. Conclusão')
-  blocoTexto(doc, est, 'Conclusão da visita técnica', rvt.conclusao ?? '', 70)
+  blocoTextoFluido(doc, est, 'Conclusão da visita técnica', rvt.conclusao ?? '')
   linhaCampos(doc, est, [
     { label: 'Emitente', valor: rvt.criadoPor ? `${rvt.criadoPor.nome} (${rvt.criadoPor.email})` : '' },
   ], 22)

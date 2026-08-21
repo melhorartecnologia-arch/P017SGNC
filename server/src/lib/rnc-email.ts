@@ -283,9 +283,10 @@ export function montarEmailConclusao(d: DadosEmailConclusao) {
     </div>
     <table style="border-collapse:collapse;width:100%;font-size:13px;margin:0 0 14px">
       ${[
+        ...(d.titulo ? [[rotuloTitulo(doc), d.titulo]] : []),
         ['Unidade', d.filialNome],
         ['Fornecedor', d.fornecedorNome],
-        ['Tipo de NC', d.tipoNc],
+        ...(d.tipoNc ? [['Tipo de NC', d.tipoNc]] : []),
         ...(d.severidade ? [['Severidade', d.severidade]] : []),
         ['Data da ocorrência', fmtData(d.dataIdentificacao)],
         ...(d.emitenteNome ? [['Emitente', d.emitenteNome]] : []),

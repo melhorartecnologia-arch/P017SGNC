@@ -132,7 +132,7 @@ raqRouter.post('/', async (req, res, next) => {
         const usados = new Set(
           (
             await tx.relatorioNaoConformidade.findMany({
-              where: { numero: { startsWith: prefixo } },
+              where: { numero: { startsWith: prefixo }, tipoDocumento: 'RAQ' },
               select: { numero: true },
             })
           ).map((r) => r.numero),

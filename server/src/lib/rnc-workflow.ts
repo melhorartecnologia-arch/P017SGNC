@@ -768,8 +768,7 @@ export async function enviarDocumentoAoFornecedor(
   if (!contato) {
     return {
       enviado: false,
-      motivo:
-        'Fornecedor sem contato de e-mail cadastrado — o RAQ não pôde ser enviado.',
+      motivo: `Fornecedor sem contato de e-mail cadastrado — o ${raq.tipoDocumento} não pôde ser enviado.`,
     }
   }
 

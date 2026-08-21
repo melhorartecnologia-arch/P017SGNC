@@ -148,6 +148,12 @@ export function AssinaturaPage({ token }: { token: string }) {
           </p>
 
           <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+            {rnc.titulo && (
+              <Info
+                label={rnc.tipoDocumento === 'RVT' ? 'Pauta' : 'Título'}
+                value={rnc.titulo}
+              />
+            )}
             <Info label="Unidade" value={rnc.filial?.nome} />
             <Info label="Fornecedor" value={rnc.fornecedor?.razaoSocial} />
             <Info
