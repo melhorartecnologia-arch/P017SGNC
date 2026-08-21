@@ -82,6 +82,45 @@ function fmtDataHora(d: Date | null | undefined): string {
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
+/**
+ * Situação da RNC em português. O banco guarda o enum em inglês
+ * (DRAFT, OPEN, ...); o PDF deve exibir o rótulo traduzido.
+ */
+const STATUS_PT: Record<string, string> = {
+  DRAFT: 'Rascunho',
+  OPEN: 'Aberta',
+  IN_PROGRESS: 'Em andamento',
+  CLOSED: 'Encerrada',
+  CANCELLED: 'Cancelada',
+}
+
+export function fmtStatus(s: string | null | undefined): string {
+  if (!s) return ''
+  return STATUS_PT[s] ?? s
+}
+
+/**
+ * Tipo de dispositivo em português. O ua-parser devolve os tipos em
+ * inglês ("mobile", "tablet", ...); quando há marca/modelo, o valor já
+ * é um nome próprio e é mantido como está.
+ */
+const DISPOSITIVO_PT: Record<string, string> = {
+  desktop: 'Computador',
+  mobile: 'Celular',
+  tablet: 'Tablet',
+  smarttv: 'Smart TV',
+  console: 'Console',
+  wearable: 'Dispositivo vestível',
+  embedded: 'Dispositivo embarcado',
+  xr: 'Realidade estendida',
+  unknown: 'Não identificado',
+}
+
+export function fmtDispositivo(s: string | null | undefined): string {
+  if (!s) return ''
+  return DISPOSITIVO_PT[s.trim().toLowerCase()] ?? s
+}
+
 const COR_ASSINADO_BORDA = '#86efac'
 const COR_ASSINADO_FUNDO = '#f0fdf4'
 const COR_ASSINADO_TEXTO = '#15803d'
@@ -284,7 +323,7 @@ function caixaAssinatura(
       linha([e.ip ? `IP ${e.ip}` : '', e.navegador].filter(Boolean).join(' · '))
     }
     if (e.so || e.dispositivo) {
-      linha([e.so, e.dispositivo].filter(Boolean).join(' · '))
+      linha([e.so, fmtDispositivo(e.dispositivo)].filter(Boolean).join(' · '))
     }
     if (e.lat != null && e.lng != null) {
       const prec = e.precisao != null ? ` (±${Math.round(e.precisao)} m)` : ''
@@ -333,7 +372,7 @@ export function montarRncPdf(
   linhaCampos(doc, est, [
     { label: 'Unidade', valor: rnc.filial ? `${rnc.filial.codigo} — ${rnc.filial.nome}` : '', flex: 2 },
     { label: 'Número sequencial', valor: rnc.numero, flex: 1.2 },
-    { label: 'Status', valor: rnc.status, flex: 1 },
+    { label: 'Situação', valor: fmtStatus(rnc.status), flex: 1 },
   ])
   linhaCampos(doc, est, [
     { label: 'Título do RNC', valor: rnc.tipoNaoConformidade ? `${rnc.tipoNaoConformidade.codigo} — ${rnc.tipoNaoConformidade.descricao}` : '', flex: 3 },

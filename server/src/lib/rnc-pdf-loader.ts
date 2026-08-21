@@ -102,7 +102,21 @@ export async function streamRncPdf(
     `${disposition}; filename="RNC-${rnc.numero}.pdf"`,
   )
 
-  const doc = new PDFDocument({ size: 'A4', margin: 28 })
+  // Propriedades do arquivo em português (aparecem na aba do navegador e
+  // em "Propriedades do documento" no leitor de PDF).
+  const doc = new PDFDocument({
+    size: 'A4',
+    margin: 28,
+    lang: 'pt-BR',
+    info: {
+      Title: `RNC ${rnc.numero} — Relatório de Não Conformidade`,
+      Author: 'SGNC — Cervejaria Cidade Imperial',
+      Subject: 'Relatório de Não Conformidade (FOR.IND.CQA.012)',
+      Creator: 'SGNC — Sistema de Gestão de Não Conformidade',
+      Producer: 'SGNC — Cervejaria Cidade Imperial',
+      Keywords: 'RNC, não conformidade, qualidade',
+    },
+  })
   doc.pipe(res)
   montarRncPdf(doc, { ...rnc, aprovadores } as unknown as RncPdfData, fotos)
   doc.end()
