@@ -916,3 +916,265 @@ export function montarEmailAnalisePlanoContingencia(d: DadosEmailAnalisePlano) {
 
   return { subject, text, html }
 }
+
+// ── Análise de causa: Ishikawa + 5W2H ───────────────────────────────
+
+export const ISHIKAWA_LABEL: Record<string, string> = {
+  METODO: 'Método',
+  MAQUINA: 'Máquina',
+  MAO_DE_OBRA: 'Mão de obra',
+  MATERIAL: 'Material',
+  MEDICAO: 'Medição',
+  MEIO_AMBIENTE: 'Meio ambiente',
+}
+
+export const CINCO_W_DOIS_H_LABEL: [string, string][] = [
+  ['oQue', 'O quê'],
+  ['porQue', 'Por quê'],
+  ['onde', 'Onde'],
+  ['quando', 'Quando'],
+  ['quem', 'Quem'],
+  ['como', 'Como'],
+  ['quantoCusta', 'Quanto custa'],
+]
+
+export type CausaIshikawa = { categoria: string; descricao: string }
+export type Cinco2H = Record<string, string | null>
+
+function ishikawaEmTexto(causas: CausaIshikawa[]): string {
+  const porCategoria = new Map<string, string[]>()
+  for (const c of causas) {
+    const lista = porCategoria.get(c.categoria) ?? []
+    lista.push(c.descricao)
+    porCategoria.set(c.categoria, lista)
+  }
+  return [...porCategoria.entries()]
+    .map(
+      ([cat, itens]) =>
+        `${ISHIKAWA_LABEL[cat] ?? cat}:\n${itens.map((i) => `  - ${i}`).join('\n')}`,
+    )
+    .join('\n\n')
+}
+
+function ishikawaEmHtml(causas: CausaIshikawa[]): string {
+  const porCategoria = new Map<string, string[]>()
+  for (const c of causas) {
+    const lista = porCategoria.get(c.categoria) ?? []
+    lista.push(c.descricao)
+    porCategoria.set(c.categoria, lista)
+  }
+  const blocos = [...porCategoria.entries()]
+    .map(
+      ([cat, itens]) => `
+      <tr>
+        <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:#6b7280;vertical-align:top;white-space:nowrap"><b>${escapeHtml(ISHIKAWA_LABEL[cat] ?? cat)}</b></td>
+        <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:#111827">
+          ${itens.map((i) => `• ${escapeHtml(i)}`).join('<br>')}
+        </td>
+      </tr>`,
+    )
+    .join('')
+  return `<table style="border-collapse:collapse;width:100%;margin:0 0 16px">${blocos}</table>`
+}
+
+function cinco2hEmTexto(d: Cinco2H): string {
+  return CINCO_W_DOIS_H_LABEL.map(
+    ([chave, rotulo]) => `${rotulo}: ${d[chave] ?? '—'}`,
+  ).join('\n')
+}
+
+function cinco2hEmHtml(d: Cinco2H): string {
+  const linhas = CINCO_W_DOIS_H_LABEL.map(
+    ([chave, rotulo]) => `
+      <tr>
+        <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:#6b7280;vertical-align:top;white-space:nowrap"><b>${escapeHtml(rotulo)}</b></td>
+        <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:#111827">${escapeHtml(d[chave] ?? '—')}</td>
+      </tr>`,
+  ).join('')
+  return `<table style="border-collapse:collapse;width:100%;margin:0 0 16px">${linhas}</table>`
+}
+
+export type DadosEmailCausaRaizSolicitada = {
+  numero: string
+  fornecedorNome: string
+  contatoNome: string | null
+  token: string
+  baseUrl?: string
+}
+
+/** Pede ao fornecedor a análise de causa, aberta com o envio das ações. */
+export function montarEmailCausaRaizSolicitada(
+  d: DadosEmailCausaRaizSolicitada,
+) {
+  const base = resolverBaseUrl(d.baseUrl)
+  const linkPagina = `${base}/?ciencia=${encodeURIComponent(d.token)}`
+  const subject = `RNC ${d.numero} — análise de causa necessária (Ishikawa e 5W2H)`
+
+  const text = [
+    `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
+    '',
+    `As ações de contingência da RNC ${d.numero} foram recebidas.`,
+    'A próxima etapa é a análise de causa, preenchida na própria plataforma:',
+    '',
+    '  • Diagrama de Ishikawa — as causas prováveis em cada uma das seis categorias',
+    '    (Método, Máquina, Mão de obra, Material, Medição e Meio ambiente);',
+    '  • 5W2H — O quê, Por quê, Onde, Quando, Quem, Como e Quanto custa.',
+    '',
+    'Com os dois preenchidos, envie para aprovação pela própria página.',
+    '',
+    `Preencher agora: ${linkPagina}`,
+  ].join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">Análise de causa — RNC ${escapeHtml(d.numero)}</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, as ações de contingência
+      de <b>${escapeHtml(d.fornecedorNome)}</b> foram recebidas. A próxima etapa é a análise de causa.
+    </p>
+    <p style="font-size:13px;color:#374151;margin:0 0 6px">Preencha na plataforma:</p>
+    <ul style="font-size:13px;color:#374151;margin:0 0 16px;padding-left:18px">
+      <li><b>Diagrama de Ishikawa</b> — causas prováveis em Método, Máquina, Mão de obra, Material, Medição e Meio ambiente.</li>
+      <li><b>5W2H</b> — O quê, Por quê, Onde, Quando, Quem, Como e Quanto custa.</li>
+    </ul>
+    <p style="margin:0 0 16px">
+      <a href="${linkPagina}" style="background:#111827;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        Preencher a análise de causa
+      </a>
+    </p>
+    <p style="font-size:13px;color:#374151;margin:0">
+      Com os dois itens completos, envie para aprovação pela própria página.
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
+export type DadosEmailCausaRaizEnviada = {
+  numero: string
+  rncId: string
+  fornecedorNome: string
+  enviadaPor: string | null
+  enviadaEm: Date
+  envio: number
+  causas: CausaIshikawa[]
+  cinco2h: Cinco2H
+  baseUrl?: string
+}
+
+/** Aviso ao aprovador marcado de que a análise de causa chegou. */
+export function montarEmailCausaRaizEnviada(d: DadosEmailCausaRaizEnviada) {
+  const base = resolverBaseUrl(d.baseUrl)
+  const linkRnc = `${base}/?rnc=${encodeURIComponent(d.rncId)}`
+  const subject = `RNC ${d.numero} — análise de causa para aprovação (Ishikawa e 5W2H)`
+
+  const text = [
+    `O fornecedor ${d.fornecedorNome} enviou a análise de causa da RNC ${d.numero}${d.envio > 1 ? ` (reenvio nº ${d.envio})` : ''}.`,
+    '',
+    `Data do envio: ${fmtDataHora(d.enviadaEm)}`,
+    d.enviadaPor ? `Registrado por: ${d.enviadaPor}` : '',
+    '',
+    'DIAGRAMA DE ISHIKAWA',
+    ishikawaEmTexto(d.causas),
+    '',
+    '5W2H',
+    cinco2hEmTexto(d.cinco2h),
+    '',
+    'A análise precisa ser APROVADA ou REJEITADA na plataforma.',
+    `Abrir a RNC: ${linkRnc}`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">RNC ${escapeHtml(d.numero)} — análise de causa</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">Fornecedor: <b>${escapeHtml(d.fornecedorNome)}</b></p>
+    <p style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:12px 14px;border-radius:8px;font-size:14px;margin:0 0 16px">
+      <b>Análise recebida para aprovação${d.envio > 1 ? ` — reenvio nº ${d.envio}` : ''}.</b><br>
+      <span style="color:#374151;font-size:13px">Em ${escapeHtml(fmtDataHora(d.enviadaEm))}${d.enviadaPor ? ` · por ${escapeHtml(d.enviadaPor)}` : ''}</span>
+    </p>
+    <p style="font-size:13px;color:#374151;margin:0 0 4px"><b>Diagrama de Ishikawa</b></p>
+    ${ishikawaEmHtml(d.causas)}
+    <p style="font-size:13px;color:#374151;margin:0 0 4px"><b>5W2H</b></p>
+    ${cinco2hEmHtml(d.cinco2h)}
+    <p style="margin:0 0 16px">
+      <a href="${linkRnc}" style="background:#111827;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        Analisar na plataforma
+      </a>
+    </p>
+    <p style="font-size:13px;color:#374151;margin:0">
+      A rejeição exige parecer e devolve a análise ao fornecedor para alteração.
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
+export type DadosEmailCausaRaizAnalisada = {
+  numero: string
+  fornecedorNome: string
+  contatoNome: string | null
+  aprovada: boolean
+  parecer: string | null
+  token: string
+  baseUrl?: string
+}
+
+/** Resultado da análise de causa para o fornecedor. */
+export function montarEmailCausaRaizAnalisada(
+  d: DadosEmailCausaRaizAnalisada,
+) {
+  const base = resolverBaseUrl(d.baseUrl)
+  const linkPagina = `${base}/?ciencia=${encodeURIComponent(d.token)}`
+  const subject = d.aprovada
+    ? `RNC ${d.numero} — análise de causa aprovada`
+    : `RNC ${d.numero} — análise de causa rejeitada: ajuste necessário`
+
+  const text = [
+    `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
+    '',
+    d.aprovada
+      ? `A análise de causa da RNC ${d.numero} (Ishikawa e 5W2H) foi APROVADA.`
+      : `A análise de causa da RNC ${d.numero} (Ishikawa e 5W2H) foi REJEITADA.`,
+    '',
+    d.parecer ? `Parecer do aprovador:\n${d.parecer}` : '',
+    '',
+    d.aprovada
+      ? 'Nenhuma providência adicional é necessária nesta etapa.'
+      : 'Altere o que foi preenchido na plataforma e envie novamente para aprovação.',
+    '',
+    `Acessar: ${linkPagina}`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">RNC ${escapeHtml(d.numero)} — análise de causa</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, a análise enviada por
+      <b>${escapeHtml(d.fornecedorNome)}</b> foi avaliada.
+    </p>
+    <p style="background:${d.aprovada ? '#f0fdf4' : '#fef2f2'};border:1px solid ${d.aprovada ? '#86efac' : '#fecaca'};color:${d.aprovada ? '#15803d' : '#991b1b'};padding:12px 14px;border-radius:8px;font-size:14px;margin:0 0 14px">
+      <b>${d.aprovada ? 'Análise de causa aprovada.' : 'Análise de causa rejeitada.'}</b>
+      ${d.aprovada ? '' : '<br><span style="color:#374151;font-size:13px">Altere o que foi preenchido e envie novamente para aprovação.</span>'}
+    </p>
+    ${
+      d.parecer
+        ? `<p style="font-size:13px;color:#374151;margin:0 0 4px"><b>Parecer do aprovador:</b></p>
+           <p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:10px 12px;border-radius:6px;font-size:13px;margin:0 0 16px">${escapeHtml(d.parecer)}</p>`
+        : ''
+    }
+    <p style="margin:0 0 16px">
+      <a href="${linkPagina}" style="background:${d.aprovada ? '#111827' : '#b91c1c'};color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        ${d.aprovada ? 'Consultar na plataforma' : 'Alterar a análise de causa'}
+      </a>
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}

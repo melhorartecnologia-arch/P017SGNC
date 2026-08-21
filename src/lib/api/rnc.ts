@@ -43,6 +43,27 @@ export const ACAO_CONTINGENCIA_LABEL: Record<AcaoContingenciaStatus, string> = {
   RECUSADA: 'Recusada',
 }
 
+/** Situação da análise de causa (Ishikawa + 5W2H). */
+export type CausaRaizRncStatus =
+  | 'PENDENTE'
+  | 'EM_ANALISE'
+  | 'APROVADA'
+  | 'AJUSTE_SOLICITADO'
+
+export const CAUSA_RAIZ_LABEL: Record<CausaRaizRncStatus, string> = {
+  PENDENTE: 'Aguardando o fornecedor',
+  EM_ANALISE: 'Análise para aprovar',
+  APROVADA: 'Análise aprovada',
+  AJUSTE_SOLICITADO: 'Rejeitada — em ajuste',
+}
+
+export type CausaIshikawaRnc = {
+  id: string
+  categoria: string
+  ordem: number
+  descricao: string
+}
+
 /** Uma ação do plano de contingência, com o veredito do aprovador. */
 export type AcaoContingencia = {
   id: string
@@ -114,6 +135,24 @@ export type Rnc = {
   contingenciaAnalisadaPor: string | null
   contingenciaAlertas: number
   acoesContingencia: AcaoContingencia[]
+
+  /** Análise de causa: Ishikawa + 5W2H, aberta com o envio do plano. */
+  causaRaizStatus: CausaRaizRncStatus | null
+  causaRaizSolicitadaEm: string | null
+  causaRaizEnviadaEm: string | null
+  causaRaizEnviadaPor: string | null
+  causaRaizAnalisadaEm: string | null
+  causaRaizAnalisadaPor: string | null
+  causaRaizParecer: string | null
+  causaRaizEnvios: number
+  causaOQue: string | null
+  causaPorQue: string | null
+  causaOnde: string | null
+  causaQuando: string | null
+  causaQuem: string | null
+  causaComo: string | null
+  causaQuantoCusta: string | null
+  causasIshikawa: CausaIshikawaRnc[]
 
   // Material & lote
   produtoId: string | null
@@ -223,6 +262,8 @@ export type RncListParams = {
   contingenciaStatus?: ContingenciaRncStatus | '__none__'
   /** Só as RNCs com ações de contingência fora do prazo. */
   contingenciaAtrasada?: boolean
+  /** Análise de causa; "__none__" = etapa ainda não aberta. */
+  causaRaizStatus?: CausaRaizRncStatus | '__none__'
   de?: string
   ate?: string
   limit?: number
@@ -308,6 +349,7 @@ export const rncApi = {
         cienciaStatus: params.cienciaStatus,
         contingenciaStatus: params.contingenciaStatus,
         contingenciaAtrasada: params.contingenciaAtrasada,
+        causaRaizStatus: params.causaRaizStatus,
         de: params.de,
         ate: params.ate,
         limit: params.limit,
@@ -368,6 +410,16 @@ export const rncApi = {
     body: { aprovada: boolean; parecer?: string | null },
   ) =>
     apiRequest<Rnc>(`/rnc/${rncId}/contingencia/acoes/${acaoId}`, {
+      method: 'POST',
+      body,
+    }),
+
+  /** Aprova ou rejeita a análise de causa (Ishikawa e 5W2H). */
+  analisarCausaRaiz: (
+    id: string,
+    body: { aprovada: boolean; parecer?: string | null },
+  ) =>
+    apiRequest<Rnc>(`/rnc/${id}/causa-raiz/analisar`, {
       method: 'POST',
       body,
     }),

@@ -267,6 +267,10 @@ export const rncQuerySchema = z.object({
       '__none__',
     ])
     .optional(),
+  /** Análise de causa. "__none__" = etapa ainda não aberta. */
+  causaRaizStatus: z
+    .enum(['PENDENTE', 'EM_ANALISE', 'APROVADA', 'AJUSTE_SOLICITADO', '__none__'])
+    .optional(),
   /** Só as RNCs com as ações de contingência fora do prazo. */
   contingenciaAtrasada: z
     .union([z.literal('true'), z.literal('false'), z.boolean()])

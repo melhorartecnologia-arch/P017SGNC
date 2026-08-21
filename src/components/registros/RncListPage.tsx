@@ -23,6 +23,7 @@ import {
   type AssinaturaStatus,
   type CienciaRncStatus,
   type ContingenciaRncStatus,
+  type CausaRaizRncStatus,
   type Rnc,
   type RncStatus,
 } from '@/lib/api/rnc'
@@ -181,6 +182,9 @@ export function RncListPage() {
   const [contingenciaFilter, setContingenciaFilter] = React.useState<
     '' | ContingenciaRncStatus | '__none__' | 'atrasada'
   >('')
+  const [causaFilter, setCausaFilter] = React.useState<
+    '' | CausaRaizRncStatus | '__none__'
+  >('')
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [wizardOpen, setWizardOpen] = React.useState(false)
@@ -206,6 +210,7 @@ export function RncListPage() {
       status?: RncStatus | ''
       ciencia?: CienciaRncStatus | '__none__' | ''
       contingencia?: ContingenciaRncStatus | '__none__' | 'atrasada' | ''
+      causa?: CausaRaizRncStatus | '__none__' | ''
       page: number
     }) => {
       setLoading(true)
@@ -219,6 +224,7 @@ export function RncListPage() {
               ? opts.contingencia
               : undefined,
           contingenciaAtrasada: opts.contingencia === 'atrasada' || undefined,
+          causaRaizStatus: opts.causa || undefined,
           page: opts.page,
           pageSize: DEFAULT_PAGE_SIZE,
         })
@@ -240,10 +246,11 @@ export function RncListPage() {
       status: statusFilter,
       ciencia: cienciaFilter,
       contingencia: contingenciaFilter,
+      causa: causaFilter,
       page: 1,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, cienciaFilter, contingenciaFilter])
+  }, [statusFilter, cienciaFilter, contingenciaFilter, causaFilter])
 
   const refresh = React.useCallback(
     () =>
@@ -251,9 +258,17 @@ export function RncListPage() {
         status: statusFilter,
         ciencia: cienciaFilter,
         contingencia: contingenciaFilter,
+        causa: causaFilter,
         page,
       }),
-    [fetchPage, statusFilter, cienciaFilter, contingenciaFilter, page],
+    [
+      fetchPage,
+      statusFilter,
+      cienciaFilter,
+      contingenciaFilter,
+      causaFilter,
+      page,
+    ],
   )
 
   const handleSubmitSearch = (e: React.FormEvent) => {
@@ -359,6 +374,21 @@ export function RncListPage() {
             <option value="AJUSTE_SOLICITADO">Devolvido para ajuste</option>
             <option value="APROVADA">Plano aprovado</option>
           </select>
+          <select
+            className={cn(selectClass, 'max-w-[13rem]')}
+            value={causaFilter}
+            onChange={(e) =>
+              setCausaFilter(e.target.value as '' | CausaRaizRncStatus | '__none__')
+            }
+            title="Análise de causa (Ishikawa e 5W2H)"
+          >
+            <option value="">Toda análise de causa</option>
+            <option value="__none__">Não iniciada</option>
+            <option value="PENDENTE">Aguardando o fornecedor</option>
+            <option value="EM_ANALISE">Análise para aprovar</option>
+            <option value="AJUSTE_SOLICITADO">Rejeitada — em ajuste</option>
+            <option value="APROVADA">Análise aprovada</option>
+          </select>
           <Button
             type="button"
             variant="ghost"
@@ -369,7 +399,14 @@ export function RncListPage() {
               setStatusFilter('')
               setCienciaFilter('')
               setContingenciaFilter('')
-              fetchPage({ status: '', ciencia: '', contingencia: '', page: 1 })
+              setCausaFilter('')
+              fetchPage({
+                status: '',
+                ciencia: '',
+                contingencia: '',
+                causa: '',
+                page: 1,
+              })
             }}
             title="Limpar filtros"
           >
@@ -575,6 +612,7 @@ export function RncListPage() {
               status: statusFilter,
               ciencia: cienciaFilter,
               contingencia: contingenciaFilter,
+              causa: causaFilter,
               page: next,
             })
           }

@@ -21,6 +21,7 @@ import { criarContextoWa } from '../lib/wa.js'
 import {
   registrarAnaliseRecusa,
   analisarAcaoContingencia,
+  analisarCausaRaiz,
 } from '../lib/rnc-ciencia.js'
 import {
   processarWorkflows,
@@ -64,6 +65,13 @@ const upload = multer({
     else cb(new Error('Formato não suportado (use JPG, PNG, WebP ou GIF).'))
   },
 })
+
+// Fora do `as const` do includeRefs: dentro dele o array vira readonly e
+// o Prisma exige um array mutável no orderBy.
+const ordemCausasIshikawa: Prisma.RncIshikawaCausaOrderByWithRelationInput[] = [
+  { categoria: 'asc' },
+  { ordem: 'asc' },
+]
 
 const includeRefs = {
   filial: { select: { id: true, codigo: true, nome: true } },
@@ -133,6 +141,10 @@ const includeRefs = {
       parecer: true,
     },
     orderBy: { ordem: 'asc' },
+  },
+  causasIshikawa: {
+    select: { id: true, categoria: true, ordem: true, descricao: true },
+    orderBy: ordemCausasIshikawa,
   },
   _count: { select: { fotos: true } },
 } as const
@@ -204,6 +216,7 @@ rncRouter.get('/', async (req, res, next) => {
       cienciaStatus,
       contingenciaStatus,
       contingenciaAtrasada,
+      causaRaizStatus,
       de,
       ate,
       limit,
@@ -235,6 +248,11 @@ rncRouter.get('/', async (req, res, next) => {
     if (contingenciaStatus) {
       where.contingenciaStatus =
         contingenciaStatus === '__none__' ? null : contingenciaStatus
+    }
+    // Análise de causa: "__none__" = etapa ainda não aberta.
+    if (causaRaizStatus) {
+      where.causaRaizStatus =
+        causaRaizStatus === '__none__' ? null : causaRaizStatus
     }
     // Em atraso: plano ainda devido (nunca enviado ou devolvido para
     // ajuste) com o prazo já vencido.
@@ -698,6 +716,81 @@ rncRouter.post(
     }
   },
 )
+
+/** Decisão do aprovador sobre a análise de causa: rejeitar exige parecer. */
+const causaRaizDecisaoSchema = z
+  .object({
+    aprovada: z.boolean({
+      required_error: 'Informe se a análise é aprovada ou rejeitada.',
+    }),
+    parecer: z
+      .string()
+      .trim()
+      .max(4000, 'O parecer não pode passar de 4000 caracteres.')
+      .optional()
+      .nullable()
+      .transform((v) => v || null),
+  })
+  .superRefine((d, ctx) => {
+    if (!d.aprovada && !d.parecer) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['parecer'],
+        message: 'Informe o parecer que fundamenta a rejeição da análise.',
+      })
+    }
+  })
+
+/**
+ * Aprova ou rejeita a análise de causa (Ishikawa e 5W2H) enviada pelo
+ * fornecedor. Restrito a ADMIN e aos aprovadores marcados da filial.
+ */
+rncRouter.post('/:id/causa-raiz/analisar', async (req, res, next) => {
+  try {
+    if (!req.user) throw new HttpError(401, 'Não autenticado')
+    const { aprovada, parecer } = causaRaizDecisaoSchema.parse(req.body)
+
+    const rnc = await prisma.relatorioNaoConformidade.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, causaRaizStatus: true },
+    })
+    if (!rnc) throw new HttpError(404, 'RNC não encontrada')
+    if (rnc.causaRaizStatus !== 'EM_ANALISE') {
+      throw new HttpError(
+        409,
+        'A aprovação só é possível enquanto a análise de causa está aguardando avaliação.',
+      )
+    }
+
+    const analista = await exigirAnalistaDoFornecedor(
+      req.user.sub,
+      req.user.email,
+      rnc.id,
+    )
+
+    try {
+      await analisarCausaRaiz(prisma, rnc.id, {
+        aprovada,
+        analisadaPor: analista.nome,
+        parecer,
+        baseUrl: baseUrlPublica(req),
+      })
+    } catch (err) {
+      throw new HttpError(
+        409,
+        err instanceof Error ? err.message : 'Não foi possível registrar.',
+      )
+    }
+
+    const atualizado = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
+      where: { id: rnc.id },
+      include: includeRefs,
+    })
+    res.json(atualizado)
+  } catch (err) {
+    next(err)
+  }
+})
 
 rncRouter.post('/:id/ciencia/analisar', async (req, res, next) => {
   try {

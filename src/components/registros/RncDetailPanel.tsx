@@ -13,6 +13,7 @@ import {
   MailWarning,
   ClipboardList,
   AlertTriangle,
+  GitBranch,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -24,6 +25,7 @@ import {
   pendenciasParaAssinatura,
   CIENCIA_RNC_LABEL,
   CONTINGENCIA_RNC_LABEL,
+  CAUSA_RAIZ_LABEL,
   ACAO_CONTINGENCIA_LABEL,
   type AcaoContingencia,
   type Rnc,
@@ -31,6 +33,7 @@ import {
 } from '@/lib/api/rnc'
 import { podeAnalisarRecusa } from '@/lib/api/auth'
 import { useAuth } from '@/lib/auth/AuthContext'
+import { IshikawaDiagrama } from '@/components/ciencia/IshikawaDiagrama'
 import { RncFotosSection } from './RncFotosSection'
 
 const STATUS_LABELS: Record<RncStatus, string> = {
@@ -708,6 +711,12 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                 </Section>
               )}
 
+              {rnc.causaRaizStatus && (
+                <Section title="Análise de causa — Ishikawa e 5W2H">
+                  <CausaRaizBloco rnc={rnc} onUpdated={onUpdated} />
+                </Section>
+              )}
+
               <Section title="Origem & severidade">
                 <Row label="Origem da NC">
                   {rnc.origem ? (
@@ -1083,6 +1092,252 @@ function ContingenciaBloco({
         <div className="rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
           A aprovação das ações cabe aos aprovadores marcados para receber as
           respostas do fornecedor nesta filial (ou a um administrador).
+        </div>
+      )}
+    </div>
+  )
+}
+
+const CAMPOS_5W2H_PAINEL: [keyof Rnc, string][] = [
+  ['causaOQue', 'O quê'],
+  ['causaPorQue', 'Por quê'],
+  ['causaOnde', 'Onde'],
+  ['causaQuando', 'Quando'],
+  ['causaQuem', 'Quem'],
+  ['causaComo', 'Como'],
+  ['causaQuantoCusta', 'Quanto custa'],
+]
+
+/**
+ * Análise de causa enviada pelo fornecedor: o aprovador marcado aprova ou
+ * rejeita o Ishikawa e o 5W2H como um conjunto — rejeitar devolve tudo
+ * para o fornecedor alterar.
+ */
+function CausaRaizBloco({
+  rnc,
+  onUpdated,
+}: {
+  rnc: Rnc
+  onUpdated?: (rnc: Rnc) => void
+}) {
+  const auth = useAuth()
+  const usuario = auth.status === 'authenticated' ? auth.user : null
+  const podeDecidir = podeAnalisarRecusa(usuario, rnc.filialId)
+  const [modo, setModo] = React.useState<'rejeitar' | null>(null)
+  const [parecer, setParecer] = React.useState('')
+  const [salvando, setSalvando] = React.useState(false)
+
+  const status = rnc.causaRaizStatus
+  if (!status) return null
+
+  const emAnalise = status === 'EM_ANALISE'
+  const aprovada = status === 'APROVADA'
+  const rejeitada = status === 'AJUSTE_SOLICITADO'
+  const enviada = status !== 'PENDENTE'
+
+  const decidir = async (aprovar: boolean) => {
+    if (salvando) return
+    if (!aprovar && !parecer.trim()) {
+      toast.error('Informe o parecer que fundamenta a rejeição da análise.')
+      return
+    }
+    setSalvando(true)
+    try {
+      const atualizado = await rncApi.analisarCausaRaiz(rnc.id, {
+        aprovada: aprovar,
+        parecer: parecer.trim() || null,
+      })
+      onUpdated?.(atualizado)
+      setModo(null)
+      setParecer('')
+      toast.success(
+        aprovar
+          ? 'Análise de causa aprovada'
+          : 'Análise rejeitada — o fornecedor foi avisado para ajustar',
+      )
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao registrar a decisão.'
+      toast.error('Não foi possível registrar', { description: message })
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  const cor = aprovada
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    : rejeitada
+      ? 'border-red-200 bg-red-50 text-red-800'
+      : emAnalise
+        ? 'border-sky-200 bg-sky-50 text-sky-800'
+        : 'border-amber-200 bg-amber-50 text-amber-800'
+  const Icone = aprovada
+    ? CheckCircle2
+    : rejeitada
+      ? XCircle
+      : emAnalise
+        ? GitBranch
+        : Clock
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className={cn('flex items-start gap-2 rounded-md border px-2.5 py-2', cor)}>
+        <Icone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="flex flex-col gap-0.5 text-xs">
+          <span className="font-semibold">{CAUSA_RAIZ_LABEL[status]}</span>
+          {emAnalise ? (
+            <span>
+              Enviada em {formatDataHoraBR(rnc.causaRaizEnviadaEm)}
+              {rnc.causaRaizEnviadaPor ? ` · por ${rnc.causaRaizEnviadaPor}` : ''}
+              {rnc.causaRaizEnvios > 1 ? ` — reenvio nº ${rnc.causaRaizEnvios}` : ''}
+            </span>
+          ) : aprovada || rejeitada ? (
+            <span>
+              {aprovada ? 'Aprovada' : 'Rejeitada'} em{' '}
+              {formatDataHoraBR(rnc.causaRaizAnalisadaEm)}
+              {rnc.causaRaizAnalisadaPor
+                ? ` · por ${rnc.causaRaizAnalisadaPor}`
+                : ''}
+            </span>
+          ) : (
+            <span>
+              Solicitada em {formatDataHoraBR(rnc.causaRaizSolicitadaEm)} — o
+              fornecedor ainda está preenchendo.
+            </span>
+          )}
+        </div>
+      </div>
+
+      {rnc.causaRaizParecer && (
+        <Row label="Parecer do aprovador">
+          <span className="whitespace-pre-wrap">{rnc.causaRaizParecer}</span>
+        </Row>
+      )}
+
+      {!enviada && (rnc.causasIshikawa ?? []).length === 0 ? (
+        <div className="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600">
+          <GitBranch className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          <span>
+            O fornecedor ainda não preencheu o diagrama de Ishikawa nem o 5W2H.
+          </span>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] uppercase tracking-wide text-neutral-400">
+              Diagrama de Ishikawa
+            </span>
+            <IshikawaDiagrama
+              causas={rnc.causasIshikawa ?? []}
+              efeito={rnc.descricaoDefeito ?? 'Não conformidade'}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] uppercase tracking-wide text-neutral-400">
+              5W2H
+            </span>
+            <div className="overflow-hidden rounded-md border border-neutral-200">
+              <table className="w-full text-[13px]">
+                <tbody>
+                  {CAMPOS_5W2H_PAINEL.map(([chave, rotulo]) => (
+                    <tr
+                      key={chave}
+                      className="border-b border-neutral-100 last:border-0"
+                    >
+                      <td className="w-28 bg-neutral-50/60 px-2.5 py-1.5 align-top text-xs font-medium text-neutral-500">
+                        {rotulo}
+                      </td>
+                      <td className="whitespace-pre-wrap px-2.5 py-1.5 text-neutral-900">
+                        {(rnc[chave] as string | null) || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {emAnalise && podeDecidir && (
+        <div className="mt-1 flex flex-col gap-2 rounded-md border border-neutral-200 bg-neutral-50/60 p-2.5">
+          <span className="text-xs font-medium text-neutral-700">
+            Aprovar a análise de causa
+          </span>
+          {modo === null ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => decidir(true)}
+                disabled={salvando}
+              >
+                {salvando ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                )}
+                Aprovar Ishikawa e 5W2H
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+                onClick={() => setModo('rejeitar')}
+                disabled={salvando}
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Rejeitar
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-neutral-600">
+                A análise volta editável para o fornecedor, que altera o que
+                for necessário e envia de novo.
+              </p>
+              <textarea
+                value={parecer}
+                onChange={(e) => setParecer(e.target.value)}
+                rows={3}
+                maxLength={4000}
+                disabled={salvando}
+                placeholder="Parecer que fundamenta a rejeição (obrigatório) — o fornecedor recebe este texto para corrigir."
+                className="flex w-full rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-red-600 hover:bg-red-700"
+                  disabled={salvando || !parecer.trim()}
+                  onClick={() => decidir(false)}
+                >
+                  {salvando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Confirmar rejeição
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={salvando}
+                  onClick={() => {
+                    setModo(null)
+                    setParecer('')
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {emAnalise && !podeDecidir && (
+        <div className="rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
+          A aprovação da análise de causa cabe aos aprovadores marcados para
+          receber as respostas do fornecedor nesta filial (ou a um
+          administrador).
         </div>
       )}
     </div>

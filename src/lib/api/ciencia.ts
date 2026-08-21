@@ -37,6 +37,31 @@ export const ACAO_CONTINGENCIA_LABEL: Record<AcaoContingenciaStatus, string> = {
   RECUSADA: 'Recusada',
 }
 
+/** Situação da análise de causa (Ishikawa + 5W2H). */
+export type CausaRaizStatus =
+  | 'PENDENTE'
+  | 'EM_ANALISE'
+  | 'APROVADA'
+  | 'AJUSTE_SOLICITADO'
+
+export type CausaIshikawa = {
+  id: string
+  categoria: string
+  ordem: number
+  descricao: string
+}
+
+/** Campos do 5W2H, como trafegam na API pública. */
+export type Cinco2H = {
+  oQue: string | null
+  porQue: string | null
+  onde: string | null
+  quando: string | null
+  quem: string | null
+  como: string | null
+  quantoCusta: string | null
+}
+
 export type CienciaRnc = {
   id: string
   numero: string
@@ -57,6 +82,21 @@ export type CienciaRnc = {
   contingenciaRespondidaPor: string | null
   contingenciaAnalisadaEm: string | null
   acoesContingencia: AcaoContingencia[]
+
+  causaRaizStatus: CausaRaizStatus | null
+  causaRaizSolicitadaEm: string | null
+  causaRaizEnviadaEm: string | null
+  causaRaizEnviadaPor: string | null
+  causaRaizAnalisadaEm: string | null
+  causaRaizParecer: string | null
+  causaOQue: string | null
+  causaPorQue: string | null
+  causaOnde: string | null
+  causaQuando: string | null
+  causaQuem: string | null
+  causaComo: string | null
+  causaQuantoCusta: string | null
+  causasIshikawa: CausaIshikawa[]
   filial: { codigo: string; nome: string } | null
   fornecedor: { razaoSocial: string; cnpj: string } | null
   tipoNaoConformidade: { codigo: string; descricao: string } | null
@@ -111,6 +151,31 @@ export const cienciaApi = {
   ) =>
     publicRequest<CienciaRnc>(`/${token}/contingencia`, {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  /**
+   * Grava a análise de causa. `enviar: false` salva rascunho; `true`
+   * valida a completude e manda para o aprovador marcado.
+   */
+  salvarCausaRaiz: (
+    token: string,
+    body: {
+      causas: { categoria: string; descricao: string }[]
+      oQue?: string | null
+      porQue?: string | null
+      onde?: string | null
+      quando?: string | null
+      quem?: string | null
+      como?: string | null
+      quantoCusta?: string | null
+      enviar: boolean
+      nome?: string | null
+    },
+  ) =>
+    publicRequest<CienciaRnc>(`/${token}/causa-raiz`, {
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),

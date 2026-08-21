@@ -360,6 +360,28 @@ enum ContingenciaStatus {
   AJUSTE_SOLICITADO
 }
 
+/// Situação da análise de causa (Ishikawa + 5W2H) que o fornecedor
+/// preenche na plataforma depois de enviar as ações de contingência.
+enum CausaRaizStatus {
+  /// Aberta para o fornecedor preencher (ou ainda em rascunho).
+  PENDENTE
+  /// Enviada pelo fornecedor, aguardando o aprovador marcado.
+  EM_ANALISE
+  APROVADA
+  /// Rejeitada: o fornecedor altera o que preencheu e reenvia.
+  AJUSTE_SOLICITADO
+}
+
+/// Os 6M do diagrama de Ishikawa (espinha de peixe).
+enum IshikawaCategoria {
+  METODO
+  MAQUINA
+  MAO_DE_OBRA
+  MATERIAL
+  MEDICAO
+  MEIO_AMBIENTE
+}
+
 /// Situação de cada ação de contingência informada pelo fornecedor.
 enum AcaoContingenciaStatus {
   /// Informada pelo fornecedor, aguardando a análise do aprovador.
@@ -441,6 +463,33 @@ model RelatorioNaoConformidade {
   contingenciaUltimoAlerta DateTime? @map("contingencia_ultimo_alerta")
   contingenciaAlertas      Int       @default(0) @map("contingencia_alertas")
 
+  // Análise de causa: enviadas as ações de contingência, o fornecedor
+  // preenche o diagrama de Ishikawa (causas em RncIshikawaCausa) e o
+  // 5W2H abaixo, e envia para o aprovador marcado aprovar ou rejeitar.
+  // Diferente das ações, este conteúdo é EDITÁVEL: rejeitado, o
+  // fornecedor altera o que preencheu e reenvia.
+  causaRaizStatus       CausaRaizStatus? @map("causa_raiz_status")
+  causaRaizSolicitadaEm DateTime? @map("causa_raiz_solicitada_em")
+  causaRaizEnviadaEm    DateTime? @map("causa_raiz_enviada_em")
+  causaRaizEnviadaPor   String?   @map("causa_raiz_enviada_por") @db.VarChar(160)
+  causaRaizAnalisadaEm  DateTime? @map("causa_raiz_analisada_em")
+  causaRaizAnalisadaPor String?   @map("causa_raiz_analisada_por") @db.VarChar(160)
+  /// Parecer do aprovador — obrigatório quando a análise é rejeitada.
+  causaRaizParecer      String?   @map("causa_raiz_parecer") @db.Text
+  causaRaizIp           String?   @map("causa_raiz_ip") @db.VarChar(64)
+  causaRaizNavegador    String?   @map("causa_raiz_navegador") @db.VarChar(160)
+  /// Quantas vezes o fornecedor já enviou a análise (1 = primeiro envio).
+  causaRaizEnvios       Int       @default(0) @map("causa_raiz_envios")
+
+  // 5W2H — um campo por pergunta.
+  causaOQue        String? @map("causa_o_que") @db.Text
+  causaPorQue      String? @map("causa_por_que") @db.Text
+  causaOnde        String? @map("causa_onde") @db.Text
+  causaQuando      String? @map("causa_quando") @db.Text
+  causaQuem        String? @map("causa_quem") @db.Text
+  causaComo        String? @map("causa_como") @db.Text
+  causaQuantoCusta String? @map("causa_quanto_custa") @db.Text
+
   // Material & lote
   produtoId          String?   @map("produto_id") @db.Uuid
   quantidadeDefeito  Float?    @map("quantidade_defeito")
@@ -468,6 +517,7 @@ model RelatorioNaoConformidade {
   aprovadores         RncAprovador[]
   enviosAssinatura    RncEnvioAssinatura[]
   acoesContingencia   RncAcaoContingencia[]
+  causasIshikawa      RncIshikawaCausa[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -512,6 +562,27 @@ model RncAcaoContingencia {
   @@index([rncId])
   @@index([status])
   @@map("rnc_acoes_contingencia")
+}
+
+/// Causa levantada no diagrama de Ishikawa da RNC, dentro de uma das
+/// seis categorias (6M). O conjunto é substituído a cada envio da análise
+/// de causa — o fornecedor pode alterar o que preencheu enquanto a
+/// análise não estiver aprovada.
+model RncIshikawaCausa {
+  id        String            @id @default(uuid()) @db.Uuid
+  rncId     String            @map("rnc_id") @db.Uuid
+  categoria IshikawaCategoria
+  /// Posição dentro da categoria (1, 2, 3…), na ordem informada.
+  ordem     Int
+  descricao String            @db.Text
+
+  rnc RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([rncId])
+  @@map("rnc_ishikawa_causas")
 }
 
 /// Foto anexada a um Relatório de Não Conformidade. O arquivo físico

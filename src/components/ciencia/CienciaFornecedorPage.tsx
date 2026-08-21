@@ -12,6 +12,9 @@ import {
   ClipboardList,
   Plus,
   Trash2,
+  Save,
+  Send,
+  GitBranch,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -27,6 +30,13 @@ import {
   type CienciaRnc,
   type CienciaStatus,
 } from '@/lib/api/ciencia'
+import { IshikawaDiagrama } from './IshikawaDiagrama'
+import {
+  ISHIKAWA_AJUDA,
+  ISHIKAWA_CATEGORIAS,
+  ISHIKAWA_LABEL,
+  type IshikawaCategoria,
+} from './ishikawa'
 
 function fmtData(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -164,6 +174,109 @@ function TabelaAcoesEnviadas({ acoes }: { acoes: AcaoContingencia[] }) {
   )
 }
 
+/** Rascunho da análise de causa em edição na tela. */
+type RascunhoCausa = {
+  causas: { categoria: IshikawaCategoria; descricao: string }[]
+  oQue: string
+  porQue: string
+  onde: string
+  quando: string
+  quem: string
+  como: string
+  quantoCusta: string
+}
+
+/** Os sete campos do 5W2H, com o texto de ajuda de cada um. */
+const CAMPOS_5W2H: {
+  chave: keyof Omit<RascunhoCausa, 'causas'>
+  rotulo: string
+  dica: string
+}[] = [
+  {
+    chave: 'oQue',
+    rotulo: 'O quê',
+    dica: 'Qual é exatamente o problema ou o desvio a ser tratado?',
+  },
+  {
+    chave: 'porQue',
+    rotulo: 'Por quê',
+    dica: 'Por que ele aconteceu? Qual a causa raiz identificada?',
+  },
+  {
+    chave: 'onde',
+    rotulo: 'Onde',
+    dica: 'Em que linha, setor, equipamento ou etapa ocorreu?',
+  },
+  {
+    chave: 'quando',
+    rotulo: 'Quando',
+    dica: 'Quando ocorreu e em que prazo a correção será concluída?',
+  },
+  {
+    chave: 'quem',
+    rotulo: 'Quem',
+    dica: 'Quem é o responsável por conduzir e por acompanhar?',
+  },
+  {
+    chave: 'como',
+    rotulo: 'Como',
+    dica: 'Como o problema será eliminado? Que método será usado?',
+  },
+  {
+    chave: 'quantoCusta',
+    rotulo: 'Quanto custa',
+    dica: 'Qual o custo estimado da correção (ou "sem custo", se for o caso)?',
+  },
+]
+
+/** Monta o rascunho a partir do que já está gravado na RNC. */
+function rascunhoDe(rnc: CienciaRnc): RascunhoCausa {
+  return {
+    causas: (rnc.causasIshikawa ?? []).map((c) => ({
+      categoria: c.categoria as IshikawaCategoria,
+      descricao: c.descricao,
+    })),
+    oQue: rnc.causaOQue ?? '',
+    porQue: rnc.causaPorQue ?? '',
+    onde: rnc.causaOnde ?? '',
+    quando: rnc.causaQuando ?? '',
+    quem: rnc.causaQuem ?? '',
+    como: rnc.causaComo ?? '',
+    quantoCusta: rnc.causaQuantoCusta ?? '',
+  }
+}
+
+/** Tabela somente leitura do 5W2H. */
+function Tabela5W2H({ rnc }: { rnc: CienciaRnc }) {
+  const valores: Record<string, string | null> = {
+    oQue: rnc.causaOQue,
+    porQue: rnc.causaPorQue,
+    onde: rnc.causaOnde,
+    quando: rnc.causaQuando,
+    quem: rnc.causaQuem,
+    como: rnc.causaComo,
+    quantoCusta: rnc.causaQuantoCusta,
+  }
+  return (
+    <div className="overflow-x-auto rounded-lg border border-neutral-200">
+      <table className="w-full text-sm">
+        <tbody>
+          {CAMPOS_5W2H.map(({ chave, rotulo }) => (
+            <tr key={chave} className="border-b border-neutral-100 last:border-0">
+              <td className="w-32 bg-neutral-50/60 px-3 py-2 align-top text-xs font-medium text-neutral-500">
+                {rotulo}
+              </td>
+              <td className="whitespace-pre-wrap px-3 py-2 text-neutral-900">
+                {valores[chave] || '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 /** Prazo já vencido? Fica fora do render para não depender do relógio. */
 function prazoVencido(prazo: string | null | undefined): boolean {
   if (!prazo) return false
@@ -194,6 +307,12 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
   // Linhas do plano em edição — uma por ação, adicionadas uma a uma.
   const [acoes, setAcoes] = React.useState<LinhaAcao[]>([])
   const [enviandoAcoes, setEnviandoAcoes] = React.useState(false)
+  // null = ainda não editado nesta sessão; o conteúdo vem do servidor.
+  // Evita um efeito de "semear estado" e mantém o rascunho salvo visível.
+  const [rascunho, setRascunho] = React.useState<RascunhoCausa | null>(null)
+  const [salvandoCausa, setSalvandoCausa] = React.useState<
+    'rascunho' | 'envio' | null
+  >(null)
 
   React.useEffect(() => {
     let cancelado = false
@@ -298,6 +417,49 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
     }
   }
 
+  const gravarCausaRaiz = async (enviar: boolean) => {
+    if (salvandoCausa || !rnc) return
+    const atual = rascunho ?? rascunhoDe(rnc)
+    const causas = atual.causas.filter((c) => c.descricao.trim() !== '')
+    setSalvandoCausa(enviar ? 'envio' : 'rascunho')
+    try {
+      const atualizado = await cienciaApi.salvarCausaRaiz(token, {
+        causas: causas.map((c) => ({
+          categoria: c.categoria,
+          descricao: c.descricao.trim(),
+        })),
+        oQue: atual.oQue.trim() || null,
+        porQue: atual.porQue.trim() || null,
+        onde: atual.onde.trim() || null,
+        quando: atual.quando.trim() || null,
+        quem: atual.quem.trim() || null,
+        como: atual.como.trim() || null,
+        quantoCusta: atual.quantoCusta.trim() || null,
+        enviar,
+        nome: nome.trim() || null,
+      })
+      setRnc(atualizado)
+      // Volta a derivar do servidor: o que está na tela passa a ser o
+      // que ficou gravado.
+      setRascunho(null)
+      toast.success(
+        enviar
+          ? 'Análise de causa enviada para aprovação.'
+          : 'Rascunho salvo. Você pode continuar depois.',
+      )
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : 'Não foi possível gravar a análise de causa.'
+      toast.error(enviar ? 'Falha ao enviar' : 'Falha ao salvar', {
+        description: msg,
+      })
+    } finally {
+      setSalvandoCausa(null)
+    }
+  }
+
   if (carregando) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-neutral-50">
@@ -335,6 +497,24 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
   const prazoAcoesTexto = restante(rnc.contingenciaPrazoEm)
   const acoesEnviadas = rnc.acoesContingencia ?? []
   const linhasEmEdicao = comLinhaInicial(acoes)
+
+  const causaStatus = rnc.causaRaizStatus
+  const causaEmAberto =
+    causaStatus === 'PENDENTE' || causaStatus === 'AJUSTE_SOLICITADO'
+  const causaRejeitada = causaStatus === 'AJUSTE_SOLICITADO'
+  const causaEmAnalise = causaStatus === 'EM_ANALISE'
+  const causaAprovada = causaStatus === 'APROVADA'
+  const causaAtual = rascunho ?? rascunhoDe(rnc)
+  const editarCausa = (patch: Partial<RascunhoCausa>) =>
+    setRascunho({ ...causaAtual, ...patch })
+  const addCausa = (categoria: IshikawaCategoria) =>
+    editarCausa({
+      causas: [...causaAtual.causas, { categoria, descricao: '' }],
+    })
+  const efeitoDaRnc =
+    rnc.descricaoDefeito ||
+    rnc.tipoNaoConformidade?.descricao ||
+    'Não conformidade'
 
   return (
     <div className="min-h-screen bg-neutral-50 px-4 py-8">
@@ -820,6 +1000,243 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
                       Máximo de {MAX_ACOES} ações por envio.
                     </span>
                   )}
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
+        {/* Análise de causa: Ishikawa + 5W2H */}
+        {causaStatus && (
+          <section
+            className={cn(
+              'rounded-xl border bg-white p-4 shadow-sm',
+              causaRejeitada ? 'border-red-300' : 'border-neutral-200',
+            )}
+          >
+            <div className="mb-1 flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-neutral-500" />
+              <h2 className="text-[13px] font-semibold text-neutral-800">
+                Análise de causa — Ishikawa e 5W2H
+              </h2>
+            </div>
+
+            {causaEmAnalise && (
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Enviada em {fmtDataHora(rnc.causaRaizEnviadaEm)} e aguardando
+                  a aprovação. Você será avisado do resultado.
+                </span>
+              </div>
+            )}
+            {causaAprovada && (
+              <div className="mb-3 flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Análise <b>aprovada</b> em {fmtDataHora(rnc.causaRaizAnalisadaEm)}.
+                </span>
+              </div>
+            )}
+            {causaRejeitada && (
+              <div className="mb-3 flex flex-col gap-1.5 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                <span className="flex items-start gap-2">
+                  <XCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    A análise foi <b>rejeitada</b> em{' '}
+                    {fmtDataHora(rnc.causaRaizAnalisadaEm)}. Altere o que for
+                    necessário e envie novamente para aprovação.
+                  </span>
+                </span>
+                {rnc.causaRaizParecer && (
+                  <p className="whitespace-pre-wrap rounded-md border border-red-200 bg-white px-2 py-1.5">
+                    <b>Parecer do aprovador:</b> {rnc.causaRaizParecer}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Somente leitura depois de enviada */}
+            {!causaEmAberto && (
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] uppercase tracking-wide text-neutral-400">
+                    Diagrama de Ishikawa
+                  </span>
+                  <IshikawaDiagrama
+                    causas={rnc.causasIshikawa ?? []}
+                    efeito={efeitoDaRnc}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[11px] uppercase tracking-wide text-neutral-400">
+                    5W2H
+                  </span>
+                  <Tabela5W2H rnc={rnc} />
+                </div>
+              </div>
+            )}
+
+            {/* Preenchimento */}
+            {causaEmAberto && (
+              <>
+                <p className="mb-3 text-xs text-neutral-500">
+                  Levante as causas prováveis em cada categoria do diagrama de
+                  Ishikawa e detalhe o plano no 5W2H. Você pode salvar um
+                  rascunho e continuar depois; o envio para aprovação exige ao
+                  menos uma causa e os sete campos do 5W2H preenchidos.
+                </p>
+
+                <div className="mb-4 flex flex-col gap-1.5 sm:max-w-sm">
+                  <Label htmlFor="nome-causa">Seu nome (opcional)</Label>
+                  <Input
+                    id="nome-causa"
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value)}
+                    placeholder="Quem está respondendo"
+                    maxLength={160}
+                    disabled={salvandoCausa !== null}
+                  />
+                </div>
+
+                {/* Ishikawa por categoria */}
+                <span className="text-[11px] uppercase tracking-wide text-neutral-400">
+                  Diagrama de Ishikawa
+                </span>
+                <div className="mb-4 mt-1.5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {ISHIKAWA_CATEGORIAS.map((categoria) => {
+                    const daCategoria = causaAtual.causas
+                      .map((c, idx) => ({ ...c, idx }))
+                      .filter((c) => c.categoria === categoria)
+                    return (
+                      <div
+                        key={categoria}
+                        className="flex flex-col gap-2 rounded-lg border border-neutral-200 p-3"
+                      >
+                        <div className="flex flex-col gap-0.5">
+                          <span className="text-[13px] font-semibold text-neutral-800">
+                            {ISHIKAWA_LABEL[categoria]}
+                          </span>
+                          <span className="text-[11px] leading-snug text-neutral-500">
+                            {ISHIKAWA_AJUDA[categoria]}
+                          </span>
+                        </div>
+                        {daCategoria.map((c) => (
+                          <div key={c.idx} className="flex items-center gap-1.5">
+                            <input
+                              className={inputAcaoClass}
+                              value={c.descricao}
+                              onChange={(e) =>
+                                editarCausa({
+                                  causas: causaAtual.causas.map((x, i) =>
+                                    i === c.idx
+                                      ? { ...x, descricao: e.target.value }
+                                      : x,
+                                  ),
+                                })
+                              }
+                              placeholder="Causa provável"
+                              maxLength={2000}
+                              disabled={salvandoCausa !== null}
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                editarCausa({
+                                  causas: causaAtual.causas.filter(
+                                    (_, i) => i !== c.idx,
+                                  ),
+                                })
+                              }
+                              disabled={salvandoCausa !== null}
+                              aria-label={`Remover causa de ${ISHIKAWA_LABEL[categoria]}`}
+                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => addCausa(categoria)}
+                          disabled={salvandoCausa !== null}
+                          className="inline-flex items-center gap-1 self-start rounded-md px-1.5 py-1 text-xs font-medium text-neutral-600 transition-colors hover:bg-neutral-100"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Adicionar causa
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Prévia do diagrama */}
+                {causaAtual.causas.some((c) => c.descricao.trim() !== '') && (
+                  <div className="mb-4 flex flex-col gap-1.5">
+                    <span className="text-[11px] uppercase tracking-wide text-neutral-400">
+                      Prévia do diagrama
+                    </span>
+                    <IshikawaDiagrama
+                      causas={causaAtual.causas.filter(
+                        (c) => c.descricao.trim() !== '',
+                      )}
+                      efeito={efeitoDaRnc}
+                    />
+                  </div>
+                )}
+
+                {/* 5W2H */}
+                <span className="text-[11px] uppercase tracking-wide text-neutral-400">
+                  5W2H
+                </span>
+                <div className="mt-1.5 flex flex-col gap-3">
+                  {CAMPOS_5W2H.map(({ chave, rotulo, dica }) => (
+                    <div key={chave} className="flex flex-col gap-1">
+                      <Label htmlFor={`campo-${chave}`}>
+                        {rotulo} <span className="text-red-600">*</span>
+                      </Label>
+                      <span className="text-[11px] text-neutral-500">{dica}</span>
+                      <textarea
+                        id={`campo-${chave}`}
+                        value={causaAtual[chave]}
+                        onChange={(e) => editarCausa({ [chave]: e.target.value })}
+                        rows={2}
+                        maxLength={4000}
+                        disabled={salvandoCausa !== null}
+                        className="flex w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => gravarCausaRaiz(false)}
+                    disabled={salvandoCausa !== null}
+                    className="gap-1.5"
+                  >
+                    {salvandoCausa === 'rascunho' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    Salvar rascunho
+                  </Button>
+                  <Button
+                    onClick={() => gravarCausaRaiz(true)}
+                    disabled={salvandoCausa !== null}
+                    className="gap-1.5"
+                  >
+                    {salvandoCausa === 'envio' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                    {causaRejeitada
+                      ? 'Enviar novamente para aprovação'
+                      : 'Enviar para aprovação'}
+                  </Button>
                 </div>
               </>
             )}

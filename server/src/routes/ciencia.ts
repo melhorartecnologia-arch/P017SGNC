@@ -10,6 +10,8 @@ import {
   registrarAnaliseRecusa,
   solicitarAcoesContingencia,
   registrarAcoesContingencia,
+  salvarCausaRaiz,
+  ISHIKAWA_CATEGORIAS,
 } from '../lib/rnc-ciencia.js'
 
 /**
@@ -93,6 +95,23 @@ async function carregarPorToken(token: string) {
           parecer: true,
         },
         orderBy: { ordem: 'asc' },
+      },
+      causaRaizStatus: true,
+      causaRaizSolicitadaEm: true,
+      causaRaizEnviadaEm: true,
+      causaRaizEnviadaPor: true,
+      causaRaizAnalisadaEm: true,
+      causaRaizParecer: true,
+      causaOQue: true,
+      causaPorQue: true,
+      causaOnde: true,
+      causaQuando: true,
+      causaQuem: true,
+      causaComo: true,
+      causaQuantoCusta: true,
+      causasIshikawa: {
+        orderBy: [{ categoria: 'asc' }, { ordem: 'asc' }],
+        select: { id: true, categoria: true, ordem: true, descricao: true },
       },
       filial: { select: { codigo: true, nome: true } },
       fornecedor: { select: { razaoSocial: true, cnpj: true } },
@@ -254,6 +273,85 @@ cienciaRouter.post('/:token/contingencia', async (req, res, next) => {
       await registrarAcoesContingencia(prisma, rnc.id, {
         acoes,
         respondidoPor: nome,
+        ip: ipDaRequisicao(req),
+        navegador,
+        baseUrl: baseUrlPublica(req),
+      })
+    } catch (err) {
+      throw new HttpError(
+        409,
+        err instanceof Error ? err.message : 'Não foi possível registrar.',
+      )
+    }
+
+    res.json(await carregarPorToken(req.params.token))
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── Análise de causa: Ishikawa + 5W2H ───────────────────────────────
+
+const causaRaizSchema = z.object({
+  causas: z
+    .array(
+      z.object({
+        categoria: z.enum(ISHIKAWA_CATEGORIAS, {
+          errorMap: () => ({ message: 'Categoria do Ishikawa inválida.' }),
+        }),
+        descricao: z.string().trim().max(2000),
+      }),
+    )
+    .max(60, 'Máximo de 60 causas no diagrama')
+    .default([]),
+  oQue: z.string().trim().max(4000).optional().nullable(),
+  porQue: z.string().trim().max(4000).optional().nullable(),
+  onde: z.string().trim().max(4000).optional().nullable(),
+  quando: z.string().trim().max(4000).optional().nullable(),
+  quem: z.string().trim().max(4000).optional().nullable(),
+  como: z.string().trim().max(4000).optional().nullable(),
+  quantoCusta: z.string().trim().max(4000).optional().nullable(),
+  /** false grava rascunho; true valida a completude e manda para aprovação. */
+  enviar: z.boolean().default(false),
+  nome: z.string().trim().max(160).optional().nullable(),
+})
+
+// Salva (rascunho) ou envia a análise de causa preenchida pelo fornecedor.
+cienciaRouter.put('/:token/causa-raiz', async (req, res, next) => {
+  try {
+    const dados = causaRaizSchema.parse(req.body)
+
+    const rnc = await prisma.relatorioNaoConformidade.findUnique({
+      where: { cienciaToken: req.params.token },
+      select: { id: true, causaRaizStatus: true },
+    })
+    if (!rnc) throw new HttpError(404, 'Link de ciência inválido ou expirado.')
+    if (
+      rnc.causaRaizStatus !== 'PENDENTE' &&
+      rnc.causaRaizStatus !== 'AJUSTE_SOLICITADO'
+    ) {
+      throw new HttpError(
+        409,
+        rnc.causaRaizStatus === 'EM_ANALISE'
+          ? 'A análise de causa já foi enviada e está aguardando aprovação.'
+          : rnc.causaRaizStatus === 'APROVADA'
+            ? 'A análise de causa já foi aprovada.'
+            : 'A análise de causa ainda não foi aberta para esta RNC.',
+      )
+    }
+
+    const ua = req.headers['user-agent'] ?? ''
+    const r = UAParser(ua)
+    const navegador = [r.browser.name, r.browser.version]
+      .filter(Boolean)
+      .join(' ')
+
+    try {
+      await salvarCausaRaiz(prisma, rnc.id, {
+        causas: dados.causas,
+        cinco2h: dados,
+        enviar: dados.enviar,
+        respondidoPor: dados.nome,
         ip: ipDaRequisicao(req),
         navegador,
         baseUrl: baseUrlPublica(req),

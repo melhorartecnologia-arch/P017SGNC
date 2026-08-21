@@ -10,6 +10,9 @@ import {
   montarEmailAlertaContingencia,
   montarEmailContingenciaRecebida,
   montarEmailAnalisePlanoContingencia,
+  montarEmailCausaRaizSolicitada,
+  montarEmailCausaRaizEnviada,
+  montarEmailCausaRaizAnalisada,
 } from './rnc-email.js'
 import {
   intervaloEntreAlertasMs,
@@ -712,6 +715,8 @@ export async function registrarAcoesContingencia(
   })
 
   await notificarContingenciaRecebida(prisma, rncId, opts.baseUrl)
+  // Enviado o plano, abre a análise de causa (Ishikawa + 5W2H).
+  await abrirCausaRaiz(prisma, rncId, opts.baseUrl)
   return { registradas: acoes.length }
 }
 
@@ -999,4 +1004,386 @@ export async function processarAlertasContingencia(
   }
 
   return { alertasEnviados }
+}
+
+// ── Análise de causa: Ishikawa + 5W2H ───────────────────────────────
+
+/**
+ * Enviadas as ações de contingência, o fornecedor preenche na plataforma
+ * o diagrama de Ishikawa e o 5W2H e manda para o aprovador marcado, que
+ * aprova ou rejeita. Rejeitada, a análise volta editável — diferente das
+ * ações de contingência, aqui o conteúdo é alterado, não acrescentado.
+ */
+
+export const ISHIKAWA_CATEGORIAS = [
+  'METODO',
+  'MAQUINA',
+  'MAO_DE_OBRA',
+  'MATERIAL',
+  'MEDICAO',
+  'MEIO_AMBIENTE',
+] as const
+
+export type IshikawaCategoriaValor = (typeof ISHIKAWA_CATEGORIAS)[number]
+
+export type CausaIshikawaEntrada = {
+  categoria: IshikawaCategoriaValor
+  descricao: string
+}
+
+export type Cinco2HEntrada = {
+  oQue?: string | null
+  porQue?: string | null
+  onde?: string | null
+  quando?: string | null
+  quem?: string | null
+  como?: string | null
+  quantoCusta?: string | null
+}
+
+/** Estados em que o fornecedor ainda pode mexer na análise. */
+const CAUSA_RAIZ_ABERTA = ['PENDENTE', 'AJUSTE_SOLICITADO'] as const
+
+const CAMPOS_5W2H: [keyof Cinco2HEntrada, string][] = [
+  ['oQue', 'O quê'],
+  ['porQue', 'Por quê'],
+  ['onde', 'Onde'],
+  ['quando', 'Quando'],
+  ['quem', 'Quem'],
+  ['como', 'Como'],
+  ['quantoCusta', 'Quanto custa'],
+]
+
+/**
+ * Abre a etapa de análise de causa. Idempotente: chamada a cada envio do
+ * plano de ações, só tem efeito na primeira vez.
+ */
+export async function abrirCausaRaiz(
+  prisma: PrismaClient,
+  rncId: string,
+  baseUrl?: string,
+): Promise<{ aberta: boolean; motivo?: string }> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      id: true,
+      numero: true,
+      cienciaToken: true,
+      causaRaizStatus: true,
+      fornecedor: {
+        select: {
+          razaoSocial: true,
+          contatos: {
+            select: { tipo: true, valor: true, nome: true, principal: true },
+          },
+        },
+      },
+    },
+  })
+  if (!rnc) return { aberta: false, motivo: 'RNC não encontrada' }
+  if (rnc.causaRaizStatus) {
+    return { aberta: false, motivo: 'Análise de causa já aberta' }
+  }
+
+  // Condicionado a ainda não existir: dois envios simultâneos do plano não
+  // abrem a etapa duas vezes nem mandam dois e-mails.
+  const r = await prisma.relatorioNaoConformidade.updateMany({
+    where: { id: rncId, causaRaizStatus: null },
+    data: { causaRaizStatus: 'PENDENTE', causaRaizSolicitadaEm: new Date() },
+  })
+  if (r.count === 0) {
+    return { aberta: false, motivo: 'Análise de causa já aberta' }
+  }
+
+  const contato = escolherEmailFornecedor(rnc.fornecedor?.contatos ?? [])
+  const transporte = await criarTransporteSmtp()
+  if (contato && transporte && rnc.cienciaToken) {
+    const { subject, text, html } = montarEmailCausaRaizSolicitada({
+      numero: rnc.numero,
+      fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+      contatoNome: contato.nome,
+      token: rnc.cienciaToken,
+      baseUrl,
+    })
+    try {
+      await transporte.transporter.sendMail({
+        from: transporte.remetente,
+        to: contato.email,
+        subject,
+        text,
+        html,
+      })
+    } catch {
+      // best-effort: a etapa já está aberta na plataforma
+    }
+  }
+
+  return { aberta: true }
+}
+
+/**
+ * Grava o que o fornecedor preencheu. Com `enviar`, valida a completude e
+ * manda para o aprovador marcado; sem, é só rascunho — o formulário é
+ * longo e perder o preenchimento seria cruel com quem está do outro lado.
+ */
+export async function salvarCausaRaiz(
+  prisma: PrismaClient,
+  rncId: string,
+  opts: {
+    causas: CausaIshikawaEntrada[]
+    cinco2h: Cinco2HEntrada
+    enviar: boolean
+    respondidoPor?: string | null
+    ip?: string | null
+    navegador?: string | null
+    baseUrl?: string
+  },
+): Promise<{ enviada: boolean; causas: number }> {
+  const causas = opts.causas
+    .map((c) => ({ categoria: c.categoria, descricao: c.descricao.trim() }))
+    .filter((c) => c.descricao !== '')
+
+  const texto = (v: string | null | undefined) => v?.trim() || null
+  const cinco2h = {
+    causaOQue: texto(opts.cinco2h.oQue),
+    causaPorQue: texto(opts.cinco2h.porQue),
+    causaOnde: texto(opts.cinco2h.onde),
+    causaQuando: texto(opts.cinco2h.quando),
+    causaQuem: texto(opts.cinco2h.quem),
+    causaComo: texto(opts.cinco2h.como),
+    causaQuantoCusta: texto(opts.cinco2h.quantoCusta),
+  }
+
+  if (opts.enviar) {
+    if (causas.length === 0) {
+      throw new Error(
+        'Informe ao menos uma causa no diagrama de Ishikawa antes de enviar.',
+      )
+    }
+    const faltando = CAMPOS_5W2H.filter(
+      ([chave]) => !texto(opts.cinco2h[chave]),
+    ).map(([, rotulo]) => rotulo)
+    if (faltando.length > 0) {
+      throw new Error(
+        `Preencha todos os campos do 5W2H antes de enviar. Faltam: ${faltando.join(', ')}.`,
+      )
+    }
+  }
+
+  const agora = new Date()
+
+  await prisma.$transaction(async (tx) => {
+    // Condicionado ao estado aberto: o fornecedor não mexe numa análise
+    // que já está em análise ou aprovada.
+    const r = await tx.relatorioNaoConformidade.updateMany({
+      where: { id: rncId, causaRaizStatus: { in: [...CAUSA_RAIZ_ABERTA] } },
+      data: {
+        ...cinco2h,
+        ...(opts.enviar
+          ? {
+              causaRaizStatus: 'EM_ANALISE',
+              causaRaizEnviadaEm: agora,
+              causaRaizEnviadaPor: opts.respondidoPor?.trim() || null,
+              causaRaizIp: opts.ip?.slice(0, 64) || null,
+              causaRaizNavegador: opts.navegador?.slice(0, 160) || null,
+              causaRaizEnvios: { increment: 1 },
+            }
+          : {}),
+      },
+    })
+    if (r.count === 0) {
+      throw new Error(
+        'A análise de causa não está aberta para edição neste momento.',
+      )
+    }
+
+    // O conteúdo é substituído: o fornecedor altera o que preencheu, então
+    // o conjunto de causas reflete sempre o último preenchimento.
+    await tx.rncIshikawaCausa.deleteMany({ where: { rncId } })
+    if (causas.length > 0) {
+      const porCategoria = new Map<string, number>()
+      await tx.rncIshikawaCausa.createMany({
+        data: causas.map((c) => {
+          const ordem = (porCategoria.get(c.categoria) ?? 0) + 1
+          porCategoria.set(c.categoria, ordem)
+          return {
+            rncId,
+            categoria: c.categoria,
+            ordem,
+            descricao: c.descricao,
+          }
+        }),
+      })
+    }
+  })
+
+  if (opts.enviar) {
+    await notificarCausaRaizEnviada(prisma, rncId, opts.baseUrl)
+  }
+  return { enviada: opts.enviar, causas: causas.length }
+}
+
+/** Avisa o aprovador marcado de que a análise chegou para aprovação. */
+async function notificarCausaRaizEnviada(
+  prisma: PrismaClient,
+  rncId: string,
+  baseUrl?: string,
+): Promise<void> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      id: true,
+      numero: true,
+      filialId: true,
+      causaRaizEnviadaEm: true,
+      causaRaizEnviadaPor: true,
+      causaRaizEnvios: true,
+      causaOQue: true,
+      causaPorQue: true,
+      causaOnde: true,
+      causaQuando: true,
+      causaQuem: true,
+      causaComo: true,
+      causaQuantoCusta: true,
+      fornecedor: { select: { razaoSocial: true } },
+      criadoPor: { select: { email: true } },
+      aprovadores: { select: { email: true } },
+      causasIshikawa: {
+        orderBy: [{ categoria: 'asc' }, { ordem: 'asc' }],
+        select: { categoria: true, descricao: true },
+      },
+    },
+  })
+  if (!rnc) return
+
+  const transporte = await criarTransporteSmtp()
+  if (!transporte) return
+
+  const destinatarios = await destinatariosRespostaFornecedor(prisma, rnc)
+  if (destinatarios.length === 0) return
+
+  const { subject, text, html } = montarEmailCausaRaizEnviada({
+    numero: rnc.numero,
+    rncId: rnc.id,
+    fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+    enviadaPor: rnc.causaRaizEnviadaPor,
+    enviadaEm: rnc.causaRaizEnviadaEm ?? new Date(),
+    envio: rnc.causaRaizEnvios,
+    causas: rnc.causasIshikawa,
+    cinco2h: {
+      oQue: rnc.causaOQue,
+      porQue: rnc.causaPorQue,
+      onde: rnc.causaOnde,
+      quando: rnc.causaQuando,
+      quem: rnc.causaQuem,
+      como: rnc.causaComo,
+      quantoCusta: rnc.causaQuantoCusta,
+    },
+    baseUrl,
+  })
+
+  try {
+    await transporte.transporter.sendMail({
+      from: transporte.remetente,
+      to: destinatarios.join(', '),
+      subject,
+      text,
+      html,
+    })
+  } catch {
+    // best-effort: o envio já está registrado
+  }
+}
+
+/**
+ * Aprova ou rejeita a análise de causa (Ishikawa e 5W2H juntos, como
+ * chegaram). Rejeitar exige parecer e devolve a análise para alteração.
+ */
+export async function analisarCausaRaiz(
+  prisma: PrismaClient,
+  rncId: string,
+  opts: {
+    aprovada: boolean
+    analisadaPor?: string | null
+    parecer?: string | null
+    baseUrl?: string
+  },
+): Promise<{ causaRaizStatus: 'APROVADA' | 'AJUSTE_SOLICITADO' }> {
+  const parecer = opts.parecer?.trim() || null
+  if (!opts.aprovada && !parecer) {
+    throw new Error('Informe o parecer que fundamenta a rejeição da análise.')
+  }
+
+  const novoStatus = opts.aprovada ? 'APROVADA' : 'AJUSTE_SOLICITADO'
+
+  // Condicionado ao status em análise: evita duas decisões simultâneas.
+  const r = await prisma.relatorioNaoConformidade.updateMany({
+    where: { id: rncId, causaRaizStatus: 'EM_ANALISE' },
+    data: {
+      causaRaizStatus: novoStatus,
+      causaRaizAnalisadaEm: new Date(),
+      causaRaizAnalisadaPor: opts.analisadaPor?.trim() || null,
+      causaRaizParecer: parecer,
+    },
+  })
+  if (r.count === 0) {
+    throw new Error('Esta análise de causa já foi avaliada.')
+  }
+
+  await notificarCausaRaizAnalisada(prisma, rncId, {
+    aprovada: opts.aprovada,
+    parecer,
+    baseUrl: opts.baseUrl,
+  })
+  return { causaRaizStatus: novoStatus }
+}
+
+/** Comunica ao fornecedor o resultado da análise de causa. */
+async function notificarCausaRaizAnalisada(
+  prisma: PrismaClient,
+  rncId: string,
+  opts: { aprovada: boolean; parecer: string | null; baseUrl?: string },
+): Promise<void> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      numero: true,
+      cienciaToken: true,
+      fornecedor: {
+        select: {
+          razaoSocial: true,
+          contatos: {
+            select: { tipo: true, valor: true, nome: true, principal: true },
+          },
+        },
+      },
+    },
+  })
+  if (!rnc || !rnc.cienciaToken) return
+
+  const contato = escolherEmailFornecedor(rnc.fornecedor?.contatos ?? [])
+  const transporte = await criarTransporteSmtp()
+  if (!contato || !transporte) return
+
+  const { subject, text, html } = montarEmailCausaRaizAnalisada({
+    numero: rnc.numero,
+    fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+    contatoNome: contato.nome,
+    aprovada: opts.aprovada,
+    parecer: opts.parecer,
+    token: rnc.cienciaToken,
+    baseUrl: opts.baseUrl,
+  })
+
+  try {
+    await transporte.transporter.sendMail({
+      from: transporte.remetente,
+      to: contato.email,
+      subject,
+      text,
+      html,
+    })
+  } catch {
+    // best-effort: a decisão já está registrada
+  }
 }
