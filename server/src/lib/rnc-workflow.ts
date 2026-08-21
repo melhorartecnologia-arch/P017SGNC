@@ -2,6 +2,7 @@ import { randomBytes, randomInt } from 'node:crypto'
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { criarTransporteSmtp, type Transporte } from './smtp.js'
 import { montarEmailAssinatura, montarEmailConclusao } from './rnc-email.js'
+import { enviarCienciaFornecedor } from './rnc-ciencia.js'
 import { candidatosPorArea } from './rnc-aprovadores.js'
 import {
   criarContextoWa,
@@ -655,6 +656,15 @@ export async function finalizarSeConcluida(
         '4': total,
       })
     }
+  }
+
+  // Com as assinaturas concluídas, o documento segue para a ciência do
+  // fornecedor (aceitar ou recusar/questionar, com prazo). Best-effort: a
+  // conclusão da RNC não depende do sucesso deste envio.
+  try {
+    await enviarCienciaFornecedor(prisma, rnc.id, baseUrl)
+  } catch {
+    // ignora: a ciência pode ser reenviada depois
   }
   return true
 }

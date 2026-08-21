@@ -331,6 +331,14 @@ model Aprovador {
   @@map("aprovadores")
 }
 
+/// Resposta do fornecedor à RNC concluída (ciência).
+enum CienciaFornecedorStatus {
+  PENDENTE
+  ACEITA
+  RECUSADA
+  ACEITA_POR_DECURSO
+}
+
 enum RncStatus {
   DRAFT
   OPEN
@@ -364,6 +372,20 @@ model RelatorioNaoConformidade {
   assinaturaEnviadaEm DateTime? @map("assinatura_enviada_em")
   escalonadoEm        DateTime? @map("escalonado_em")
   assinaturasConcluidasEm DateTime? @map("assinaturas_concluidas_em")
+
+  // Ciência do fornecedor: após todas as assinaturas, o documento é enviado
+  // ao contato do fornecedor, que pode aceitar ou recusar/questionar a não
+  // conformidade. Sem resposta no prazo, o aceite ocorre por decurso.
+  cienciaStatus        CienciaFornecedorStatus? @map("ciencia_status")
+  cienciaToken         String?   @unique @map("ciencia_token") @db.VarChar(64)
+  cienciaEmail         String?   @map("ciencia_email") @db.VarChar(160)
+  cienciaEnviadaEm     DateTime? @map("ciencia_enviada_em")
+  cienciaPrazoEm       DateTime? @map("ciencia_prazo_em")
+  cienciaRespondidaEm  DateTime? @map("ciencia_respondida_em")
+  cienciaRespondidaPor String?   @map("ciencia_respondida_por") @db.VarChar(160)
+  cienciaJustificativa String?   @map("ciencia_justificativa") @db.Text
+  cienciaIp            String?   @map("ciencia_ip") @db.VarChar(64)
+  cienciaNavegador     String?   @map("ciencia_navegador") @db.VarChar(160)
 
   // Material & lote
   produtoId          String?   @map("produto_id") @db.Uuid

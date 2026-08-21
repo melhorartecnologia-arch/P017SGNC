@@ -3,6 +3,7 @@ import cors from 'cors'
 import { env } from './env.js'
 import { prisma } from './db.js'
 import { processarWorkflows } from './lib/rnc-workflow.js'
+import { processarCienciaFornecedor } from './lib/rnc-ciencia.js'
 import { errorHandler } from './middleware/error.js'
 import { requireAuth } from './middleware/auth.js'
 import { authRouter } from './routes/auth.js'
@@ -24,6 +25,7 @@ import { iaRouter } from './routes/ia.js'
 import { configuracoesRouter } from './routes/configuracoes.js'
 import { dashboardRouter } from './routes/dashboard.js'
 import { assinaturaRouter } from './routes/assinatura.js'
+import { cienciaRouter } from './routes/ciencia.js'
 
 const app = express()
 
@@ -45,6 +47,7 @@ app.get('/health', async (_req, res) => {
 app.use('/api/auth', authRouter)
 // Acesso público por token (link mágico de assinatura por e-mail).
 app.use('/api/assinatura', assinaturaRouter)
+app.use('/api/ciencia', cienciaRouter)
 
 app.use('/api/usuarios', requireAuth, usuariosRouter)
 app.use('/api/filiais', requireAuth, filiaisRouter)
@@ -98,6 +101,19 @@ async function start() {
       }
     } catch (err) {
       console.error('SGNC workflow: falha ao processar SLA.', err)
+    }
+    // Ciência do fornecedor: aceite automático por decurso do prazo. Roda
+    // separado do SLA de assinatura, que sai antes se não houver política
+    // de resposta configurada.
+    try {
+      const c = await processarCienciaFornecedor(prisma)
+      if (c.aceitesAutomaticos) {
+        console.log(
+          `SGNC ciência: ${c.aceitesAutomaticos} aceite(s) automático(s) por decurso de prazo.`,
+        )
+      }
+    } catch (err) {
+      console.error('SGNC ciência: falha ao processar o prazo.', err)
     }
   }
   setTimeout(tick, 30_000) // primeiro tick logo após subir

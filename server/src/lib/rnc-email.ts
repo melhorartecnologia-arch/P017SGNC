@@ -280,3 +280,158 @@ export function montarEmailConclusao(d: DadosEmailConclusao) {
 
   return { subject, text, html }
 }
+
+// ── Ciência do fornecedor ───────────────────────────────────────────
+
+export type DadosEmailCiencia = {
+  numero: string
+  filialNome: string
+  fornecedorNome: string
+  contatoNome: string | null
+  tipoNc: string
+  severidade: string | null
+  dataIdentificacao: Date
+  descricaoDefeito: string | null
+  quantidadeDefeito: number | null
+  token: string
+  prazoEm: Date
+  baseUrl?: string
+}
+
+/**
+ * E-mail enviado ao contato do fornecedor quando todas as assinaturas
+ * internas foram concluídas. Traz o PDF e o link onde ele registra o
+ * aceite ou a recusa da não conformidade.
+ */
+export function montarEmailCiencia(d: DadosEmailCiencia) {
+  const base = resolverBaseUrl(d.baseUrl)
+  const linkCiencia = `${base}/?ciencia=${encodeURIComponent(d.token)}`
+  const linkPdf = `${base}/api/ciencia/${encodeURIComponent(d.token)}/pdf`
+  const prazo = fmtDataHora(d.prazoEm)
+
+  const subject = `RNC ${d.numero} — ciência do fornecedor necessária (prazo: ${prazo})`
+
+  const linhas = [
+    `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
+    '',
+    `Foi registrada uma não conformidade envolvendo ${d.fornecedorNome}. O relatório abaixo já foi analisado e assinado internamente e segue para a sua ciência.`,
+    '',
+    `RNC: ${d.numero}`,
+    `Unidade: ${d.filialNome}`,
+    `Tipo de não conformidade: ${d.tipoNc}`,
+    d.severidade ? `Severidade: ${d.severidade}` : '',
+    `Data da ocorrência: ${fmtData(d.dataIdentificacao)}`,
+    d.quantidadeDefeito != null
+      ? `Quantidade com defeito: ${d.quantidadeDefeito}`
+      : '',
+    d.descricaoDefeito ? `Defeito: ${d.descricaoDefeito}` : '',
+    '',
+    `Documento completo (PDF): ${linkPdf}`,
+    '',
+    `Registre a sua resposta: ${linkCiencia}`,
+    '',
+    'Na página acima é possível:',
+    '  • ACEITAR — reconhecer e aceitar a não conformidade;',
+    '  • RECUSAR — recusar ou questionar, informando a justificativa.',
+    '',
+    `IMPORTANTE: a resposta deve ser registrada até ${prazo}. Sem manifestação nesse prazo, a não conformidade será considerada ACEITA automaticamente por decurso de prazo.`,
+  ].filter((l) => l !== null)
+
+  const text = linhas.join('\n')
+
+  const item = (k: string, v: string) =>
+    v
+      ? `<tr><td style="padding:4px 10px 4px 0;color:#6b7280;font-size:13px">${escapeHtml(k)}</td><td style="padding:4px 0;color:#111827;font-size:13px"><b>${escapeHtml(v)}</b></td></tr>`
+      : ''
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">Ciência do fornecedor — RNC ${escapeHtml(d.numero)}</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, foi registrada uma não conformidade
+      envolvendo <b>${escapeHtml(d.fornecedorNome)}</b>. O relatório já foi assinado internamente e segue para a sua ciência.
+    </p>
+    <table style="border-collapse:collapse;margin-bottom:18px">
+      ${item('Unidade', d.filialNome)}
+      ${item('Tipo de não conformidade', d.tipoNc)}
+      ${item('Severidade', d.severidade ?? '')}
+      ${item('Data da ocorrência', fmtData(d.dataIdentificacao))}
+      ${item('Quantidade com defeito', d.quantidadeDefeito != null ? String(d.quantidadeDefeito) : '')}
+      ${item('Defeito', d.descricaoDefeito ?? '')}
+    </table>
+    <p style="margin:0 0 18px">
+      <a href="${linkCiencia}" style="background:#111827;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        Registrar minha resposta
+      </a>
+      <a href="${linkPdf}" style="margin-left:8px;color:#374151;text-decoration:none;border:1px solid #d1d5db;padding:10px 18px;border-radius:8px;display:inline-block;font-size:14px">
+        Ver documento (PDF)
+      </a>
+    </p>
+    <p style="font-size:13px;color:#374151;margin:0 0 6px">Na página você poderá:</p>
+    <ul style="font-size:13px;color:#374151;margin:0 0 16px;padding-left:18px">
+      <li><b>Aceitar</b> — reconhecer e aceitar a não conformidade.</li>
+      <li><b>Recusar</b> — recusar ou questionar, informando a justificativa.</li>
+    </ul>
+    <p style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;padding:10px 12px;border-radius:6px;font-size:13px;margin:0">
+      A resposta deve ser registrada até <b>${escapeHtml(prazo)}</b>. Sem manifestação nesse prazo,
+      a não conformidade será considerada <b>aceita automaticamente por decurso de prazo</b>.
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
+export type DadosEmailRespostaCiencia = {
+  numero: string
+  fornecedorNome: string
+  aceita: boolean
+  porDecurso: boolean
+  respondidaPor: string | null
+  respondidaEm: Date
+  justificativa: string | null
+}
+
+/** Aviso interno com a resposta do fornecedor (ou o aceite por decurso). */
+export function montarEmailRespostaCiencia(d: DadosEmailRespostaCiencia) {
+  const situacao = d.porDecurso
+    ? 'ACEITA automaticamente por decurso de prazo'
+    : d.aceita
+      ? 'ACEITA pelo fornecedor'
+      : 'RECUSADA/QUESTIONADA pelo fornecedor'
+  const subject = `RNC ${d.numero} — ${d.porDecurso ? 'aceite automático (decurso de prazo)' : d.aceita ? 'aceita pelo fornecedor' : 'recusada pelo fornecedor'}`
+
+  const text = [
+    `A RNC ${d.numero} (${d.fornecedorNome}) teve a ciência do fornecedor registrada.`,
+    '',
+    `Situação: ${situacao}`,
+    `Data da resposta: ${fmtDataHora(d.respondidaEm)}`,
+    d.respondidaPor ? `Respondido por: ${d.respondidaPor}` : '',
+    d.justificativa ? `\nJustificativa do fornecedor:\n${d.justificativa}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const cor = d.aceita ? '#15803d' : '#b91c1c'
+  const fundo = d.aceita ? '#f0fdf4' : '#fef2f2'
+  const borda = d.aceita ? '#86efac' : '#fecaca'
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">RNC ${escapeHtml(d.numero)} — ciência do fornecedor</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">Fornecedor: <b>${escapeHtml(d.fornecedorNome)}</b></p>
+    <p style="background:${fundo};border:1px solid ${borda};color:${cor};padding:12px 14px;border-radius:8px;font-size:14px;margin:0 0 14px">
+      <b>${escapeHtml(situacao)}</b><br>
+      <span style="color:#374151;font-size:13px">Em ${escapeHtml(fmtDataHora(d.respondidaEm))}${d.respondidaPor ? ` · por ${escapeHtml(d.respondidaPor)}` : ''}</span>
+    </p>
+    ${
+      d.justificativa
+        ? `<p style="font-size:13px;color:#374151;margin:0 0 4px"><b>Justificativa do fornecedor:</b></p>
+           <p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:10px 12px;border-radius:6px;font-size:13px;margin:0">${escapeHtml(d.justificativa)}</p>`
+        : ''
+    }
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
