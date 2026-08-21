@@ -38,6 +38,14 @@ function fmtData(d: Date): string {
   return d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
 }
 
+/**
+ * Prazo de ação é DATA PURA (gravada como meia-noite UTC). Formatar em
+ * America/Sao_Paulo puxaria o dia para trás — aqui o dia é lido em UTC.
+ */
+function fmtDataPura(d: Date): string {
+  return d.toLocaleDateString('pt-BR', { timeZone: 'UTC' })
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -737,7 +745,7 @@ function acoesEmTexto(acoes: AcaoDoPlano[]): string {
     .map((a) => {
       const partes = [`${a.ordem}. ${a.descricao}`]
       if (a.responsavel) partes.push(`   Responsável: ${a.responsavel}`)
-      if (a.prazo) partes.push(`   Prazo: ${fmtData(a.prazo)}`)
+      if (a.prazo) partes.push(`   Prazo: ${fmtDataPura(a.prazo)}`)
       if (a.status && a.status !== 'PENDENTE') {
         partes.push(`   Situação: ${a.status === 'APROVADA' ? 'APROVADA' : 'RECUSADA'}`)
       }
@@ -772,7 +780,7 @@ function acoesEmHtml(acoes: AcaoDoPlano[], comSituacao: boolean): string {
           ${a.parecer ? `<br><span style="font-size:12px;color:${cor}"><b>Parecer:</b> ${escapeHtml(a.parecer)}</span>` : ''}
         </td>
         <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:#111827">${escapeHtml(a.responsavel ?? '—')}</td>
-        <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:#111827">${a.prazo ? escapeHtml(fmtData(a.prazo)) : '—'}</td>
+        <td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:#111827">${a.prazo ? escapeHtml(fmtDataPura(a.prazo)) : '—'}</td>
         ${comSituacao ? `<td style="border:1px solid #e5e7eb;padding:6px 8px;font-size:13px;color:${cor}"><b>${rotulo}</b></td>` : ''}
       </tr>`
     })

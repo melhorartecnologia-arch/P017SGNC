@@ -10,6 +10,47 @@ import {
 
 export const aprovadoresRouter = Router()
 
+/**
+ * `recebeRespostaFornecedor` não é um dado cadastral qualquer: é uma
+ * concessão de permissão — quem está marcado decide sobre a recusa do
+ * fornecedor e sobre o plano de ações. Por isso só o ADMIN pode ligar a
+ * marcação, ou mexer no e-mail de alguém que já está marcado (senão
+ * bastaria apontar o registro marcado para o próprio e-mail).
+ */
+async function exigirAdminParaMarcacao(
+  req: { user?: { sub: string }; body?: unknown },
+  aprovadorId?: string,
+): Promise<void> {
+  const corpo = (req.body ?? {}) as Record<string, unknown>
+  const mexeNaMarcacao = corpo.recebeRespostaFornecedor !== undefined
+  const mexeNoEmail = corpo.email !== undefined
+  if (!mexeNaMarcacao && !mexeNoEmail) return
+
+  const jaMarcado = aprovadorId
+    ? (
+        await prisma.aprovador.findUnique({
+          where: { id: aprovadorId },
+          select: { recebeRespostaFornecedor: true },
+        })
+      )?.recebeRespostaFornecedor === true
+    : false
+
+  const viraMarcado = corpo.recebeRespostaFornecedor === true
+  if (!viraMarcado && !jaMarcado) return
+
+  if (!req.user) throw new HttpError(401, 'Não autenticado')
+  const usuario = await prisma.usuario.findUnique({
+    where: { id: req.user.sub },
+    select: { role: true, ativo: true },
+  })
+  if (usuario?.role !== 'ADMIN' || !usuario.ativo) {
+    throw new HttpError(
+      403,
+      'Apenas administradores podem marcar um aprovador como receptor das respostas do fornecedor ou alterar o e-mail de quem já está marcado.',
+    )
+  }
+}
+
 const includeRefs = {
   filial: { select: { id: true, codigo: true, nome: true } },
   area: { select: { id: true, codigo: true, nome: true } },
@@ -102,6 +143,7 @@ aprovadoresRouter.get('/:id', async (req, res, next) => {
 aprovadoresRouter.post('/', async (req, res, next) => {
   try {
     const data = aprovadorCreateSchema.parse(req.body)
+    await exigirAdminParaMarcacao(req)
     await ensureTurnoBelongsToFilial(data.turnoId, data.filialId)
     const created = await prisma.aprovador.create({
       data,
@@ -116,6 +158,7 @@ aprovadoresRouter.post('/', async (req, res, next) => {
 aprovadoresRouter.patch('/:id', async (req, res, next) => {
   try {
     const data = aprovadorUpdateSchema.parse(req.body)
+    await exigirAdminParaMarcacao(req, req.params.id)
     // Para validar o turno na atualização precisamos da filial atual (ou a nova).
     let filialId = data.filialId
     if (!filialId && data.turnoId !== undefined) {

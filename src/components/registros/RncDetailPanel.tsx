@@ -777,6 +777,16 @@ function prazoVencido(prazo: string | null | undefined): boolean {
   return !Number.isNaN(ms) && ms <= Date.now()
 }
 
+/**
+ * Prazo de ação é DATA PURA (chega como AAAA-MM-DDT00:00:00Z). Formatar
+ * pelo fuso local mostraria o dia anterior.
+ */
+function formatDataPuraBR(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const [ano, mes, dia] = iso.slice(0, 10).split('-')
+  return dia && mes && ano ? `${dia}/${mes}/${ano}` : ''
+}
+
 /** Selo de situação de uma ação do plano. */
 function SeloAcao({ status }: { status: AcaoContingencia['status'] }) {
   const cor =
@@ -865,7 +875,7 @@ function AcaoLinha({
             <span>
               Prazo:{' '}
               <span className="text-neutral-700">
-                {acao.prazo ? formatDataBR(acao.prazo) : '—'}
+                {formatDataPuraBR(acao.prazo) || '—'}
               </span>
             </span>
             {acao.analisadaEm && (

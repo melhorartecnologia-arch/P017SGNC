@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express'
 import { Prisma } from '@prisma/client'
+import { z } from 'zod'
 import multer from 'multer'
 import path from 'node:path'
 import { mkdirSync, createReadStream } from 'node:fs'
@@ -149,27 +150,37 @@ async function exigirAnalistaDoFornecedor(
 ): Promise<{ nome: string; email: string }> {
   const usuario = await prisma.usuario.findUnique({
     where: { id: usuarioId },
-    select: { nome: true, email: true, role: true },
+    select: { nome: true, email: true, role: true, ativo: true },
   })
-  const identidade = {
-    nome: usuario?.nome ?? emailFallback,
-    email: usuario?.email ?? emailFallback,
+  // O token vive algumas horas: um usuário desativado nesse intervalo
+  // ainda apresentaria um JWT válido, então a conta é conferida aqui.
+  if (!usuario || !usuario.ativo) {
+    throw new HttpError(403, 'Usuário inativo ou inexistente.')
   }
-  if (usuario?.role === 'ADMIN') return identidade
+  const identidade = {
+    nome: usuario.nome ?? emailFallback,
+    email: usuario.email ?? emailFallback,
+  }
+  if (usuario.role === 'ADMIN') return identidade
 
   const rnc = await prisma.relatorioNaoConformidade.findUnique({
     where: { id: rncId },
     select: { filialId: true },
   })
-  const marcado = await prisma.aprovador.findFirst({
-    where: {
-      filialId: rnc?.filialId,
-      ativo: true,
-      recebeRespostaFornecedor: true,
-      email: { equals: usuario?.email ?? '', mode: 'insensitive' },
-    },
-    select: { id: true },
-  })
+  // E-mail vazio nunca casa: sem isso um aprovador cadastrado sem e-mail
+  // abriria a decisão para qualquer usuário também sem e-mail.
+  const email = usuario.email?.trim() ?? ''
+  const marcado = email
+    ? await prisma.aprovador.findFirst({
+        where: {
+          filialId: rnc?.filialId,
+          ativo: true,
+          recebeRespostaFornecedor: true,
+          email: { equals: email, mode: 'insensitive' },
+        },
+        select: { id: true },
+      })
+    : null
   if (!marcado) {
     throw new HttpError(
       403,
@@ -606,6 +617,30 @@ rncRouter.post('/:id/escalonar', async (req, res, next) => {
 
 // Análise da recusa do fornecedor pela plataforma (usuário logado).
 // Mesma decisão disponível no link enviado por e-mail ao aprovador marcado.
+/** Decisão do aprovador sobre uma ação: recusar exige parecer. */
+const acaoDecisaoSchema = z
+  .object({
+    aprovada: z.boolean({
+      required_error: 'Informe se a ação é aprovada ou recusada.',
+    }),
+    parecer: z
+      .string()
+      .trim()
+      .max(4000, 'O parecer não pode passar de 4000 caracteres.')
+      .optional()
+      .nullable()
+      .transform((v) => v || null),
+  })
+  .superRefine((d, ctx) => {
+    if (!d.aprovada && !d.parecer) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['parecer'],
+        message: 'Informe o parecer que fundamenta a recusa da ação.',
+      })
+    }
+  })
+
 /**
  * Aprova ou recusa UMA ação do plano de contingência do fornecedor.
  * Restrito a ADMIN e aos aprovadores marcados da filial. A recusa exige
@@ -616,17 +651,9 @@ rncRouter.post(
   async (req, res, next) => {
     try {
       if (!req.user) throw new HttpError(401, 'Não autenticado')
-      const aprovada = req.body?.aprovada
-      if (typeof aprovada !== 'boolean') {
-        throw new HttpError(400, 'Informe se a ação é aprovada ou recusada.')
-      }
-      const parecer =
-        typeof req.body?.parecer === 'string' ? req.body.parecer.trim() : ''
-      if (!aprovada && !parecer) {
-        throw new HttpError(
-          400,
-          'Informe o parecer que fundamenta a recusa da ação.',
-        )
+      const { aprovada, parecer } = acaoDecisaoSchema.parse(req.body)
+      if (!/^[0-9a-f-]{36}$/i.test(req.params.acaoId)) {
+        throw new HttpError(400, 'Ação de contingência inválida.')
       }
 
       const rnc = await prisma.relatorioNaoConformidade.findUnique({
@@ -651,7 +678,7 @@ rncRouter.post(
         await analisarAcaoContingencia(prisma, rnc.id, req.params.acaoId, {
           aprovada,
           analisadaPor: analista.nome,
-          parecer: parecer || null,
+          parecer: parecer ?? null,
           baseUrl: baseUrlPublica(req),
         })
       } catch (err) {

@@ -42,6 +42,17 @@ function fmtDataHora(iso: string | null | undefined): string {
   return d.toLocaleString('pt-BR')
 }
 
+/**
+ * Prazo de ação é DATA PURA (chega como AAAA-MM-DDT00:00:00Z). Converter
+ * para o fuso local mostraria o dia anterior, então o dia é lido direto
+ * da string.
+ */
+function fmtDataPura(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const [ano, mes, dia] = iso.slice(0, 10).split('-')
+  return dia && mes && ano ? `${dia}/${mes}/${ano}` : '—'
+}
+
 /** Tempo restante até o prazo, em texto curto. */
 function restante(prazo: string | null): string | null {
   if (!prazo) return null
@@ -140,7 +151,7 @@ function TabelaAcoesEnviadas({ acoes }: { acoes: AcaoContingencia[] }) {
                 {a.responsavel || '—'}
               </td>
               <td className="px-2 py-2 align-top text-neutral-700">
-                {a.prazo ? fmtData(a.prazo) : '—'}
+                {fmtDataPura(a.prazo)}
               </td>
               <td className="px-2 py-2 align-top">
                 <SeloAcao status={a.status} />
@@ -241,6 +252,21 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
 
   const enviarAcoes = async () => {
     if (enviandoAcoes) return
+    // Linha totalmente em branco é só uma sobra do editor e pode sair;
+    // mas linha com responsável/prazo e SEM descrição é engano do usuário
+    // — descartar em silêncio faria o plano fechar sem a ação.
+    const jaEnviadas = (rnc?.acoesContingencia ?? []).length
+    const incompleta = acoes.findIndex(
+      (a) =>
+        a.descricao.trim() === '' &&
+        (a.responsavel.trim() !== '' || a.prazo !== ''),
+    )
+    if (incompleta >= 0) {
+      toast.error(
+        `Descreva a ação da linha ${jaEnviadas + incompleta + 1} ou remova a linha.`,
+      )
+      return
+    }
     const preenchidas = acoes.filter((a) => a.descricao.trim() !== '')
     if (preenchidas.length === 0) {
       toast.error('Informe ao menos uma ação de contingência.')
@@ -751,7 +777,7 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
                                 type="button"
                                 onClick={() => removeAcaoRow(idx)}
                                 disabled={enviandoAcoes}
-                                aria-label={`Remover ação ${idx + 1}`}
+                                aria-label={`Remover ação ${acoesEnviadas.length + idx + 1}`}
                                 className="inline-flex h-8 w-8 items-center justify-center rounded-md text-neutral-400 transition-colors hover:bg-red-50 hover:text-red-600"
                               >
                                 <Trash2 className="h-4 w-4" />

@@ -804,7 +804,7 @@ async function fecharAnalisePlano(
   const agora = new Date()
   const parametros = await obterParametrosWorkflow(prisma)
 
-  await prisma.relatorioNaoConformidade.updateMany({
+  const fechou = await prisma.relatorioNaoConformidade.updateMany({
     where: { id: rncId, contingenciaStatus: 'EM_ANALISE' },
     data: {
       contingenciaStatus: aprovado ? 'APROVADA' : 'AJUSTE_SOLICITADO',
@@ -824,6 +824,12 @@ async function fecharAnalisePlano(
           }),
     },
   })
+
+  // Se nada foi gravado, outra sessão já fechou o plano — não avisa o
+  // fornecedor duas vezes.
+  if (fechou.count === 0) {
+    return { contingenciaStatus: 'EM_ANALISE', pendentes: 0 }
+  }
 
   await notificarAnalisePlano(prisma, rncId, { aprovado, baseUrl })
   return {
@@ -951,6 +957,10 @@ export async function processarAlertasContingencia(
       where: {
         id: rnc.id,
         contingenciaStatus: { in: [...CONTINGENCIA_ABERTA] },
+        // Repete o filtro de prazo: entre a busca e este update o plano
+        // pode ter sido reaberto com prazo novo — cobrar aí seria cobrar
+        // algo que ainda nem venceu.
+        contingenciaPrazoEm: { lte: agora },
         OR: [
           { contingenciaUltimoAlerta: null },
           { contingenciaUltimoAlerta: { lte: desde } },
