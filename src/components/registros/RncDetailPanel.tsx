@@ -7,6 +7,10 @@ import {
   Send,
   BellRing,
   ArrowUpCircle,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  MailWarning,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -16,6 +20,7 @@ import {
   rncApi,
   resumoAssinaturas,
   pendenciasParaAssinatura,
+  CIENCIA_RNC_LABEL,
   type Rnc,
   type RncStatus,
 } from '@/lib/api/rnc'
@@ -686,6 +691,10 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                 )}
               </Section>
 
+              <Section title="Ciência do fornecedor">
+                <CienciaFornecedorBloco rnc={rnc} />
+              </Section>
+
               <Section title="Origem & severidade">
                 <Row label="Origem da NC">
                   {rnc.origem ? (
@@ -745,6 +754,65 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
         )}
       </aside>
     </>
+  )
+}
+
+/**
+ * Situação da ciência do fornecedor: enviada após todas as assinaturas,
+ * com aceite/recusa do fornecedor ou aceite automático por decurso.
+ */
+function CienciaFornecedorBloco({ rnc }: { rnc: Rnc }) {
+  const status = rnc.cienciaStatus
+  if (!status) {
+    return (
+      <div className="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600">
+        <MailWarning className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+        <span>
+          Ainda não enviada. O documento segue automaticamente ao contato de
+          e-mail do fornecedor quando todas as assinaturas forem concluídas.
+        </span>
+      </div>
+    )
+  }
+
+  const pendente = status === 'PENDENTE'
+  const recusada = status === 'RECUSADA'
+  const Icone = pendente ? Clock : recusada ? XCircle : CheckCircle2
+  const cor = pendente
+    ? 'border-amber-200 bg-amber-50 text-amber-800'
+    : recusada
+      ? 'border-red-200 bg-red-50 text-red-800'
+      : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className={cn('flex items-start gap-2 rounded-md border px-2.5 py-2', cor)}>
+        <Icone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="flex flex-col gap-0.5 text-xs">
+          <span className="font-semibold">{CIENCIA_RNC_LABEL[status]}</span>
+          {pendente ? (
+            <span>
+              Prazo até {formatDataHoraBR(rnc.cienciaPrazoEm)} — sem resposta, o
+              aceite é automático.
+            </span>
+          ) : (
+            <span>
+              Registrada em {formatDataHoraBR(rnc.cienciaRespondidaEm)}
+              {rnc.cienciaRespondidaPor ? ` · por ${rnc.cienciaRespondidaPor}` : ''}
+            </span>
+          )}
+        </div>
+      </div>
+      <Row label="Enviada para">
+        {rnc.cienciaEmail ?? <em className="text-neutral-400">—</em>}
+      </Row>
+      <Row label="Envio">{formatDataHoraBR(rnc.cienciaEnviadaEm) || '—'}</Row>
+      {rnc.cienciaJustificativa && (
+        <Row label={recusada ? 'Motivo / questionamento' : 'Observações'}>
+          <span className="whitespace-pre-wrap">{rnc.cienciaJustificativa}</span>
+        </Row>
+      )}
+    </div>
   )
 }
 

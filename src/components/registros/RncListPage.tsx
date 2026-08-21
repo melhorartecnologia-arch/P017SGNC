@@ -18,7 +18,9 @@ import { ApiError } from '@/lib/api/client'
 import {
   rncApi,
   resumoAssinaturas,
+  CIENCIA_RNC_LABEL,
   type AssinaturaStatus,
+  type CienciaRncStatus,
   type Rnc,
   type RncStatus,
 } from '@/lib/api/rnc'
@@ -51,6 +53,39 @@ const ASSINATURA_CLASS: Record<AssinaturaStatus['estado'], string> = {
   pendente: 'border-amber-200 bg-amber-50 text-amber-800',
   parcial: 'border-sky-200 bg-sky-50 text-sky-800',
   completo: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+}
+
+/** Selo da ciência do fornecedor na listagem. */
+function CienciaBadge({ rnc }: { rnc: Rnc }) {
+  const st = rnc.cienciaStatus
+  if (!st) {
+    return <span className="text-xs text-neutral-300">—</span>
+  }
+  const classe =
+    st === 'PENDENTE'
+      ? 'border-amber-200 bg-amber-50 text-amber-700'
+      : st === 'RECUSADA'
+        ? 'border-red-200 bg-red-50 text-red-700'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  const curto =
+    st === 'PENDENTE'
+      ? 'Aguardando'
+      : st === 'RECUSADA'
+        ? 'Recusada'
+        : st === 'ACEITA'
+          ? 'Aceita'
+          : 'Aceita (prazo)'
+  return (
+    <span
+      title={CIENCIA_RNC_LABEL[st]}
+      className={cn(
+        'inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-medium',
+        classe,
+      )}
+    >
+      {curto}
+    </span>
+  )
 }
 
 function AssinaturaBadge({ rnc }: { rnc: Rnc }) {
@@ -91,6 +126,9 @@ export function RncListPage() {
   const [error, setError] = React.useState<string | null>(null)
   const [q, setQ] = React.useState('')
   const [statusFilter, setStatusFilter] = React.useState<'' | RncStatus>('')
+  const [cienciaFilter, setCienciaFilter] = React.useState<
+    '' | CienciaRncStatus | '__none__'
+  >('')
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [wizardOpen, setWizardOpen] = React.useState(false)
@@ -112,12 +150,17 @@ export function RncListPage() {
   }
 
   const fetchPage = React.useCallback(
-    async (opts: { status?: RncStatus | ''; page: number }) => {
+    async (opts: {
+      status?: RncStatus | ''
+      ciencia?: CienciaRncStatus | '__none__' | ''
+      page: number
+    }) => {
       setLoading(true)
       setError(null)
       try {
         const res = await rncApi.list({
           status: opts.status || undefined,
+          cienciaStatus: opts.ciencia || undefined,
           page: opts.page,
           pageSize: DEFAULT_PAGE_SIZE,
         })
@@ -135,13 +178,13 @@ export function RncListPage() {
   )
 
   React.useEffect(() => {
-    fetchPage({ status: statusFilter, page: 1 })
+    fetchPage({ status: statusFilter, ciencia: cienciaFilter, page: 1 })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter])
+  }, [statusFilter, cienciaFilter])
 
   const refresh = React.useCallback(
-    () => fetchPage({ status: statusFilter, page }),
-    [fetchPage, statusFilter, page],
+    () => fetchPage({ status: statusFilter, ciencia: cienciaFilter, page }),
+    [fetchPage, statusFilter, cienciaFilter, page],
   )
 
   const handleSubmitSearch = (e: React.FormEvent) => {
@@ -207,6 +250,24 @@ export function RncListPage() {
               </option>
             ))}
           </select>
+          <select
+            className={cn(selectClass, 'max-w-[14rem]')}
+            value={cienciaFilter}
+            onChange={(e) =>
+              setCienciaFilter(
+                e.target.value as '' | CienciaRncStatus | '__none__',
+              )
+            }
+            title="Ciência do fornecedor"
+          >
+            <option value="">Toda ciência do fornecedor</option>
+            <option value="__none__">Ainda não enviada</option>
+            {(Object.keys(CIENCIA_RNC_LABEL) as CienciaRncStatus[]).map((c) => (
+              <option key={c} value={c}>
+                {CIENCIA_RNC_LABEL[c]}
+              </option>
+            ))}
+          </select>
           <Button
             type="button"
             variant="ghost"
@@ -215,7 +276,8 @@ export function RncListPage() {
             onClick={() => {
               setQ('')
               setStatusFilter('')
-              fetchPage({ status: '', page: 1 })
+              setCienciaFilter('')
+              fetchPage({ status: '', ciencia: '', page: 1 })
             }}
             title="Limpar filtros"
           >
@@ -253,6 +315,7 @@ export function RncListPage() {
                 <th className="px-3 py-2.5 text-left font-medium">Turno</th>
                 <th className="px-3 py-2.5 text-center font-medium">Status</th>
                 <th className="px-3 py-2.5 text-center font-medium">Assinaturas</th>
+                <th className="px-3 py-2.5 text-center font-medium">Ciência</th>
                 <th className="px-3 py-2.5 text-left font-medium">Criado por</th>
                 <th className="w-24 px-3 py-2.5"></th>
               </tr>
@@ -352,6 +415,9 @@ export function RncListPage() {
                     <td className="px-3 py-3 text-center">
                       <AssinaturaBadge rnc={r} />
                     </td>
+                    <td className="px-3 py-3 text-center">
+                      <CienciaBadge rnc={r} />
+                    </td>
                     <td className="px-3 py-3 text-neutral-700">
                       <div className="line-clamp-1 text-sm">
                         {r.criadoPor.nome}
@@ -408,7 +474,9 @@ export function RncListPage() {
           page={page}
           pageSize={DEFAULT_PAGE_SIZE}
           total={total}
-          onChange={(next) => fetchPage({ status: statusFilter, page: next })}
+          onChange={(next) =>
+            fetchPage({ status: statusFilter, ciencia: cienciaFilter, page: next })
+          }
           disabled={loading}
         />
       </Card>

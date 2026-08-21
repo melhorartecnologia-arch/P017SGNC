@@ -127,6 +127,7 @@ rncRouter.get('/', async (req, res, next) => {
       origemId,
       severidadeId,
       status,
+      cienciaStatus,
       de,
       ate,
       limit,
@@ -150,6 +151,10 @@ rncRouter.get('/', async (req, res, next) => {
     if (origemId) where.origemId = opt(origemId)
     if (severidadeId) where.severidadeId = opt(severidadeId)
     if (status) where.status = status
+    // Ciência do fornecedor: "__none__" = ainda não enviada (campo nulo).
+    if (cienciaStatus) {
+      where.cienciaStatus = cienciaStatus === '__none__' ? null : cienciaStatus
+    }
 
     const take = limit ?? pageSize
     const skip = limit ? 0 : (page - 1) * pageSize

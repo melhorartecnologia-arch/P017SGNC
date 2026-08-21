@@ -245,6 +245,16 @@ export const rncQuerySchema = z.object({
   origemId: z.string().optional(),
   severidadeId: z.string().optional(),
   status: rncStatusEnum.optional(),
+  /** Ciência do fornecedor. "__none__" = ainda não enviada. */
+  cienciaStatus: z
+    .enum([
+      'PENDENTE',
+      'ACEITA',
+      'RECUSADA',
+      'ACEITA_POR_DECURSO',
+      '__none__',
+    ])
+    .optional(),
   // Período por data de identificação (drill-down do dashboard).
   de: z.coerce.date().optional(),
   ate: z.coerce.date().optional(),

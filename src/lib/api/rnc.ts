@@ -2,6 +2,20 @@ import { ApiError, apiRequest, tokenStorage } from './client'
 
 export type RncStatus = 'DRAFT' | 'OPEN' | 'IN_PROGRESS' | 'CLOSED' | 'CANCELLED'
 
+/** Situação da ciência do fornecedor sobre a RNC concluída. */
+export type CienciaRncStatus =
+  | 'PENDENTE'
+  | 'ACEITA'
+  | 'RECUSADA'
+  | 'ACEITA_POR_DECURSO'
+
+export const CIENCIA_RNC_LABEL: Record<CienciaRncStatus, string> = {
+  PENDENTE: 'Aguardando fornecedor',
+  ACEITA: 'Aceita pelo fornecedor',
+  RECUSADA: 'Recusada/questionada',
+  ACEITA_POR_DECURSO: 'Aceita por decurso de prazo',
+}
+
 export type SeveridadeRef = {
   id: string
   codigo: string
@@ -34,6 +48,15 @@ export type Rnc = {
   assinaturaEnviadaEm: string | null
   escalonadoEm: string | null
   assinaturasConcluidasEm: string | null
+
+  /** Ciência do fornecedor (após todas as assinaturas). */
+  cienciaStatus: CienciaRncStatus | null
+  cienciaEmail: string | null
+  cienciaEnviadaEm: string | null
+  cienciaPrazoEm: string | null
+  cienciaRespondidaEm: string | null
+  cienciaRespondidaPor: string | null
+  cienciaJustificativa: string | null
 
   // Material & lote
   produtoId: string | null
@@ -137,6 +160,8 @@ export type RncListParams = {
   origemId?: string
   severidadeId?: string
   status?: RncStatus
+  /** Ciência do fornecedor; "__none__" = ainda não enviada. */
+  cienciaStatus?: CienciaRncStatus | '__none__'
   de?: string
   ate?: string
   limit?: number
@@ -219,6 +244,7 @@ export const rncApi = {
         origemId: params.origemId,
         severidadeId: params.severidadeId,
         status: params.status,
+        cienciaStatus: params.cienciaStatus,
         de: params.de,
         ate: params.ate,
         limit: params.limit,
