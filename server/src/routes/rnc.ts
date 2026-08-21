@@ -564,8 +564,32 @@ rncRouter.post('/:id/ciencia/analisar', async (req, res, next) => {
 
     const usuario = await prisma.usuario.findUnique({
       where: { id: req.user.sub },
-      select: { nome: true },
+      select: { nome: true, email: true, role: true },
     })
+
+    // Só decidem: perfil ADMIN ou aprovador marcado para receber as
+    // respostas do fornecedor na filial da RNC.
+    if (usuario?.role !== 'ADMIN') {
+      const rncFilial = await prisma.relatorioNaoConformidade.findUnique({
+        where: { id: rnc.id },
+        select: { filialId: true },
+      })
+      const marcado = await prisma.aprovador.findFirst({
+        where: {
+          filialId: rncFilial?.filialId,
+          ativo: true,
+          recebeRespostaFornecedor: true,
+          email: { equals: usuario?.email ?? '', mode: 'insensitive' },
+        },
+        select: { id: true },
+      })
+      if (!marcado) {
+        throw new HttpError(
+          403,
+          'Apenas administradores ou aprovadores marcados para receber as respostas do fornecedor podem analisar a recusa.',
+        )
+      }
+    }
 
     try {
       await registrarAnaliseRecusa(prisma, rnc.id, {
