@@ -211,10 +211,40 @@ raqRouter.patch('/:id', async (req, res, next) => {
 
     const atual = await prisma.relatorioNaoConformidade.findUnique({
       where: { id: req.params.id },
-      select: { id: true, tipoDocumento: true },
+      select: {
+        id: true,
+        tipoDocumento: true,
+        status: true,
+        filialId: true,
+        aprovadores: { select: { assinadoEm: true } },
+      },
     })
     if (!atual || atual.tipoDocumento !== 'RAQ') {
       throw new HttpError(404, 'RAQ não encontrado')
+    }
+    // Documento encerrado é imutável: já foi assinado e comunicado.
+    if (atual.status === 'CLOSED') {
+      throw new HttpError(
+        409,
+        'O RAQ está encerrado (assinado e enviado ao fornecedor) e não pode mais ser alterado.',
+      )
+    }
+    // O encerramento é do fluxo de assinaturas, nunca do PATCH.
+    if (rest.status === 'CLOSED') {
+      throw new HttpError(409, 'O RAQ é encerrado pelo fluxo de assinaturas.')
+    }
+    // Trocar a filial remonta a matriz do zero — proibido depois que
+    // alguém já assinou, senão as assinaturas coletadas seriam apagadas.
+    const temAssinatura = atual.aprovadores.some((a) => a.assinadoEm)
+    if (
+      rest.filialId !== undefined &&
+      rest.filialId !== atual.filialId &&
+      temAssinatura
+    ) {
+      throw new HttpError(
+        409,
+        'A filial não pode ser alterada depois que há assinaturas coletadas.',
+      )
     }
     await validarRelacionados(raqRelacionadosIds, req.params.id)
 
@@ -255,8 +285,9 @@ raqRouter.patch('/:id', async (req, res, next) => {
         },
         include: includeRefsRaq,
       })
-      // Filial alterada muda quem deve assinar — remonta a matriz.
-      if (rest.filialId !== undefined) {
+      // Filial alterada muda quem deve assinar — remonta a matriz (só
+      // chega aqui sem nenhuma assinatura coletada).
+      if (rest.filialId !== undefined && rest.filialId !== atual.filialId) {
         await montarMatrizAprovadores(tx, salvo.id, salvo.filialId, null, 'RAQ')
         return tx.relatorioNaoConformidade.findUniqueOrThrow({
           where: { id: salvo.id },

@@ -126,7 +126,8 @@ export function WorkflowAssinaturasPage() {
           </h1>
         </div>
         <p className="text-sm text-neutral-500">
-          Histórico de envios de RNC para assinatura e o status de cada um.
+          Histórico de envios para assinatura (RNCs e RAQs) e o status de
+          cada um.
         </p>
       </header>
 
@@ -181,7 +182,8 @@ export function WorkflowAssinaturasPage() {
                 <th className="px-3 py-2.5 text-left font-medium">Fornecedor</th>
                 <th className="px-3 py-2.5 text-center font-medium">Destinatários</th>
                 <th className="px-3 py-2.5 text-center font-medium">Assinaturas</th>
-                <th className="px-3 py-2.5 text-center font-medium">Status RNC</th>
+                <th className="px-3 py-2.5 text-center font-medium">Tipo</th>
+                <th className="px-3 py-2.5 text-center font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -201,7 +203,7 @@ export function WorkflowAssinaturasPage() {
               {!loading && items.length === 0 && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="px-3 py-10 text-center text-neutral-500"
                   >
                     {total === 0
@@ -264,6 +266,18 @@ export function WorkflowAssinaturasPage() {
                     </td>
                     <td className="px-3 py-3 text-center">
                       <AssinaturaBadge e={e} />
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <span
+                        className={cn(
+                          'inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-semibold',
+                          e.rnc?.tipoDocumento === 'RAQ'
+                            ? 'border-violet-200 bg-violet-50 text-violet-700'
+                            : 'border-neutral-200 bg-neutral-50 text-neutral-700',
+                        )}
+                      >
+                        {e.rnc?.tipoDocumento ?? 'RNC'}
+                      </span>
                     </td>
                     <td className="px-3 py-3 text-center">
                       {e.rnc ? (

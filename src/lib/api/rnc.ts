@@ -339,6 +339,7 @@ export type EnvioAssinatura = {
   enviadoEm: string
   rnc: {
     id: string
+    tipoDocumento: 'RNC' | 'RAQ'
     status: RncStatus
     filial: { codigo: string; nome: string } | null
     fornecedor: { codigo: string; razaoSocial: string } | null

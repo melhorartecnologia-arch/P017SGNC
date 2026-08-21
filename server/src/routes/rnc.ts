@@ -985,6 +985,7 @@ rncRouter.get('/envios', async (req, res, next) => {
           rnc: {
             select: {
               id: true,
+              tipoDocumento: true,
               status: true,
               filial: { select: { codigo: true, nome: true } },
               fornecedor: { select: { codigo: true, razaoSocial: true } },
@@ -1050,7 +1051,9 @@ rncRouter.post('/', async (req, res, next) => {
       // já usado e a própria quantidade de RNCs da filial (este piso cobre
       // registros legados sem sequencial preenchido).
       const agg = await tx.relatorioNaoConformidade.aggregate({
-        where: { filialId: data.filialId },
+        // Só RNCs: os RAQs da filial têm sequência própria — sem o filtro,
+        // a contagem deles empurraria (e pularia) a numeração da RNC.
+        where: { filialId: data.filialId, tipoDocumento: 'RNC' },
         _max: { sequencialFilial: true },
         _count: { _all: true },
       })

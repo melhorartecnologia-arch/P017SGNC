@@ -58,6 +58,15 @@ const includeRefs = {
   tiposRelatorio: { select: { id: true, codigo: true, descricao: true } },
 } as const
 
+/** Confere que os tipos de relatório vinculados existem. */
+async function validarTiposRelatorio(ids?: string[]): Promise<void> {
+  if (!ids || ids.length === 0) return
+  const achados = await prisma.tipoRelatorio.count({ where: { id: { in: ids } } })
+  if (achados !== ids.length) {
+    throw new HttpError(400, 'Tipo de relatório vinculado inexistente.')
+  }
+}
+
 function mapConflict(err: unknown) {
   if (
     err instanceof Prisma.PrismaClientKnownRequestError &&
@@ -144,6 +153,7 @@ aprovadoresRouter.get('/:id', async (req, res, next) => {
 aprovadoresRouter.post('/', async (req, res, next) => {
   try {
     const { tiposRelatorioIds, ...data } = aprovadorCreateSchema.parse(req.body)
+    await validarTiposRelatorio(tiposRelatorioIds)
     await exigirAdminParaMarcacao(req)
     await ensureTurnoBelongsToFilial(data.turnoId, data.filialId)
     const created = await prisma.aprovador.create({
@@ -164,6 +174,7 @@ aprovadoresRouter.post('/', async (req, res, next) => {
 aprovadoresRouter.patch('/:id', async (req, res, next) => {
   try {
     const { tiposRelatorioIds, ...data } = aprovadorUpdateSchema.parse(req.body)
+    await validarTiposRelatorio(tiposRelatorioIds)
     await exigirAdminParaMarcacao(req, req.params.id)
     // Para validar o turno na atualização precisamos da filial atual (ou a nova).
     let filialId = data.filialId

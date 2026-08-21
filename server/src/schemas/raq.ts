@@ -55,7 +55,10 @@ const raqBaseSchema = z.object({
 
   // Reincidência e RAQs relacionados (até 3).
   reincidente: z.boolean().optional().nullable(),
-  reincidenteVezes: optionalNumber('Quantidade de reincidências inválida'),
+  reincidenteVezes: optionalNumber('Quantidade de reincidências inválida').refine(
+    (v) => v === null || (Number.isInteger(v) && v >= 1),
+    { message: 'Informe um número inteiro de reincidências (mínimo 1)' },
+  ),
   raqRelacionadosIds: z
     .array(z.string().uuid('RAQ relacionado inválido'))
     .max(3, 'No máximo 3 RAQs relacionados')

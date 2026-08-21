@@ -538,7 +538,7 @@ export async function enviarLembreteManual(
   if (!transporte)
     return { enviados: 0, falhas: [], semSmtp: true, semPendentes: false }
 
-  const horas = await horasRespostaRnc(prisma)
+  const horas = await horasRespostaRnc(prisma, rnc.tipoDocumento)
   const wa = criarContextoWa()
   let enviados = 0
   const falhas: string[] = []
@@ -693,11 +693,15 @@ export async function finalizarSeConcluida(
 
   if (rnc.tipoDocumento === 'RAQ') {
     // RAQ: o fluxo termina aqui — o documento assinado vai por e-mail ao
-    // contato do fornecedor, sem ciência nem resposta esperada.
+    // contato do fornecedor, sem ciência nem resposta esperada. Falha não
+    // desfaz a conclusão; fica no log e o painel oferece o reenvio manual.
     try {
-      await enviarRaqAoFornecedor(prisma, rnc.id)
-    } catch {
-      // best-effort: o RAQ já está concluído
+      const r = await enviarRaqAoFornecedor(prisma, rnc.id)
+      if (!r.enviado && r.motivo !== 'RAQ já enviado ao fornecedor') {
+        console.warn(`SGNC RAQ ${rnc.numero}: envio ao fornecedor falhou — ${r.motivo}`)
+      }
+    } catch (err) {
+      console.warn(`SGNC RAQ ${rnc.numero}: envio ao fornecedor falhou.`, err)
     }
     return true
   }
@@ -759,6 +763,26 @@ export async function enviarRaqAoFornecedor(
   const transporte = await criarTransporteSmtp()
   if (!transporte) return { enviado: false, motivo: 'SMTP não configurado' }
 
+  // Reserva atômica: duas conclusões em corrida (última assinatura +
+  // reenvio manual) não podem mandar o e-mail duas vezes. Quem gravar o
+  // carimbo primeiro envia; se o envio falhar, o carimbo é desfeito.
+  const claim = await prisma.relatorioNaoConformidade.updateMany({
+    where: { id: raq.id, enviadoFornecedorEm: null },
+    data: {
+      enviadoFornecedorEm: new Date(),
+      enviadoFornecedorPara: contato.email,
+    },
+  })
+  if (claim.count === 0) {
+    return { enviado: false, motivo: 'RAQ já enviado ao fornecedor' }
+  }
+
+  const desfazerClaim = () =>
+    prisma.relatorioNaoConformidade.updateMany({
+      where: { id: raq.id },
+      data: { enviadoFornecedorEm: null, enviadoFornecedorPara: null },
+    })
+
   const pdf = await gerarPdfBuffer(raq.id)
   const { subject, text, html } = montarEmailRaqFornecedor({
     numero: raq.numero,
@@ -791,18 +815,12 @@ export async function enviarRaqAoFornecedor(
         : [],
     })
   } catch (err) {
+    await desfazerClaim()
     return {
       enviado: false,
       motivo: err instanceof Error ? err.message : 'Falha no envio do e-mail',
     }
   }
 
-  await prisma.relatorioNaoConformidade.update({
-    where: { id: raq.id },
-    data: {
-      enviadoFornecedorEm: new Date(),
-      enviadoFornecedorPara: contato.email,
-    },
-  })
   return { enviado: true, email: contato.email }
 }
