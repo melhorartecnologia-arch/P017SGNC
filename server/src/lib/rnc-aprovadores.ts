@@ -122,3 +122,30 @@ export async function montarMatrizAprovadores(
     })
   }
 }
+
+/**
+ * Anexa à matriz os representantes técnicos do fornecedor cadastrados no
+ * RHE — signatários avulsos, sem vínculo com o cadastro interno de
+ * aprovadores. Chamar SEMPRE depois de montarMatrizAprovadores (que
+ * substitui a matriz inteira). O fornecedor não tem devolução no RHE:
+ * apenas assina, pelo mesmo link/senha dos demais.
+ */
+export async function anexarRepresentantesRhe(
+  tx: Prisma.TransactionClient,
+  rncId: string,
+): Promise<void> {
+  const reps = await tx.rheRepresentante.findMany({
+    where: { rncId },
+    orderBy: { ordem: 'asc' },
+    select: { nome: true, email: true },
+  })
+  if (reps.length === 0) return
+  await tx.rncAprovador.createMany({
+    data: reps.map((r) => ({
+      rncId,
+      areaNome: 'Representante Técnico (Fornecedor)',
+      nome: r.nome,
+      email: r.email,
+    })),
+  })
+}

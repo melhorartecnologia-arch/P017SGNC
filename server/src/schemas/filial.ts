@@ -59,6 +59,7 @@ export const filialCreateSchema = z.object({
   rncNumeroInicial: z.coerce.number().int().min(0).max(9_999_999).optional().default(0),
   raqNumeroInicial: z.coerce.number().int().min(0).max(9_999_999).optional().default(0),
   rvtNumeroInicial: z.coerce.number().int().min(0).max(9_999_999).optional().default(0),
+  rheNumeroInicial: z.coerce.number().int().min(0).max(9_999_999).optional().default(0),
 })
 
 // Na edição o CNPJ valida apenas o formato; os dígitos verificadores são

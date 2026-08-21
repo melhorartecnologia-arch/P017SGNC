@@ -19,6 +19,7 @@ export type Filial = {
   rncNumeroInicial: number
   raqNumeroInicial: number
   rvtNumeroInicial: number
+  rheNumeroInicial: number
   createdAt: string
   updatedAt: string
 }

@@ -19,6 +19,7 @@ import {
   pendenciasParaAssinatura,
   pendenciasParaAssinaturaRaq,
   pendenciasParaAssinaturaRvt,
+  pendenciasParaAssinaturaRhe,
 } from '../lib/rnc-completude.js'
 import { criarTransporteSmtp } from '../lib/smtp.js'
 import { criarContextoWa } from '../lib/wa.js'
@@ -460,6 +461,7 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
         notasFiscais: { select: { id: true } },
         fotos: { select: { id: true } },
         participantes: { select: { id: true } },
+        representantes: { select: { id: true } },
         aprovadores: true,
       },
     })
@@ -470,7 +472,9 @@ rncRouter.post('/:id/enviar-assinatura', async (req, res, next) => {
         ? pendenciasParaAssinaturaRaq(rnc)
         : rnc.tipoDocumento === 'RVT'
           ? pendenciasParaAssinaturaRvt(rnc)
-          : pendenciasParaAssinatura(rnc)
+          : rnc.tipoDocumento === 'RHE'
+            ? pendenciasParaAssinaturaRhe(rnc)
+            : pendenciasParaAssinatura(rnc)
     if (pendencias.length > 0) {
       throw new HttpError(
         400,

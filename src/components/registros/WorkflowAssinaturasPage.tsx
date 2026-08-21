@@ -126,8 +126,8 @@ export function WorkflowAssinaturasPage() {
           </h1>
         </div>
         <p className="text-sm text-neutral-500">
-          Histórico de envios para assinatura (RNCs e RAQs) e o status de
-          cada um.
+          Histórico de envios para assinatura (RNCs, RAQs, RVTs e RHEs) e o
+          status de cada um.
         </p>
       </header>
 
@@ -275,7 +275,9 @@ export function WorkflowAssinaturasPage() {
                             ? 'border-violet-200 bg-violet-50 text-violet-700'
                             : e.rnc?.tipoDocumento === 'RVT'
                               ? 'border-sky-200 bg-sky-50 text-sky-700'
-                              : 'border-neutral-200 bg-neutral-50 text-neutral-700',
+                              : e.rnc?.tipoDocumento === 'RHE'
+                                ? 'border-teal-200 bg-teal-50 text-teal-700'
+                                : 'border-neutral-200 bg-neutral-50 text-neutral-700',
                         )}
                       >
                         {e.rnc?.tipoDocumento ?? 'RNC'}

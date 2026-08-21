@@ -100,3 +100,35 @@ export function pendenciasParaAssinaturaRvt(rvt: RvtParaValidar): string[] {
     faltando.push('Fotos da visita técnica')
   return faltando
 }
+
+/** Campos obrigatórios do RHE + ao menos uma foto para envio à assinatura. */
+export type RheParaValidar = {
+  filialId: string | null
+  fornecedorId: string | null
+  produtoId: string | null
+  titulo?: string | null
+  definicaoTeste?: string | null
+  avaliacaoConsideracoes?: string | null
+  homologacaoInicial?: string | null
+  representantes?: unknown[]
+  fotos: unknown[]
+}
+
+/** Pendências do RHE; vazio significa pronto para assinatura. */
+export function pendenciasParaAssinaturaRhe(rhe: RheParaValidar): string[] {
+  const faltando: string[] = []
+  if (!rhe.filialId) faltando.push('Unidade (filial)')
+  if (!rhe.titulo || !rhe.titulo.trim()) faltando.push('Título do RHE')
+  if (!rhe.fornecedorId) faltando.push('Fornecedor')
+  if (!rhe.produtoId) faltando.push('Embalagem (produto)')
+  if (!rhe.definicaoTeste || !rhe.definicaoTeste.trim())
+    faltando.push('Definição do teste')
+  if (!rhe.avaliacaoConsideracoes || !rhe.avaliacaoConsideracoes.trim())
+    faltando.push('Avaliação e considerações finais')
+  if (!rhe.homologacaoInicial) faltando.push('Homologação inicial')
+  if (!rhe.representantes || rhe.representantes.length === 0)
+    faltando.push('Representante técnico do fornecedor')
+  if (!rhe.fotos || rhe.fotos.length === 0)
+    faltando.push('Fotos da homologação')
+  return faltando
+}

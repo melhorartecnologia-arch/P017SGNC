@@ -32,9 +32,9 @@ export type DadosEmailAssinatura = {
   prazoTexto?: string | null
   /** URL pública do app (derivada da requisição) para os links do e-mail. */
   baseUrl?: string
-  /** RNC (padrão), RAQ ou RVT — muda os rótulos do e-mail. */
-  docTipo?: 'RNC' | 'RAQ' | 'RVT'
-  /** Título do documento (RAQ) ou pauta (RVT). */
+  /** RNC (padrão), RAQ, RVT ou RHE — muda os rótulos do e-mail. */
+  docTipo?: 'RNC' | 'RAQ' | 'RVT' | 'RHE'
+  /** Título do documento (RAQ/RHE) ou pauta (RVT). */
   titulo?: string | null
 }
 
@@ -209,9 +209,9 @@ export type DadosEmailConclusao = {
   assinaturas: AssinaturaResumo[]
   /** URL pública do app (derivada da requisição) para os links do e-mail. */
   baseUrl?: string
-  /** RNC (padrão), RAQ ou RVT — muda os rótulos do e-mail. */
-  docTipo?: 'RNC' | 'RAQ' | 'RVT'
-  /** Título do documento (RAQ) ou pauta (RVT). */
+  /** RNC (padrão), RAQ, RVT ou RHE — muda os rótulos do e-mail. */
+  docTipo?: 'RNC' | 'RAQ' | 'RVT' | 'RHE'
+  /** Título do documento (RAQ/RHE) ou pauta (RVT). */
   titulo?: string | null
 }
 
@@ -1440,6 +1440,80 @@ export function montarEmailRvtFornecedor(d: DadosEmailRvtFornecedor) {
     </table>
     <p style="background:#f0f9ff;border:1px solid #bae6fd;color:#075985;padding:10px 12px;border-radius:6px;font-size:13px;margin:0">
       Este documento é o <b>registro formal</b> da visita técnica e das tratativas acordadas.
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
+// ── RHE: envio do documento assinado ao fornecedor ─────────────────
+
+/** Rótulo em português do resultado da homologação. */
+export function rotuloHomologacao(r: string | null | undefined): string {
+  if (r === 'APROVADO') return 'APROVADO'
+  if (r === 'REPROVADO') return 'REPROVADO'
+  if (r === 'APROVADO_COM_RESTRICAO') return 'APROVADO COM RESTRIÇÃO'
+  return '—'
+}
+
+export type DadosEmailRheFornecedor = {
+  numero: string
+  titulo: string | null
+  filialNome: string
+  fornecedorNome: string
+  contatoNome: string | null
+  homologacaoInicial: string | null
+  homologacaoInicialData: Date | null
+}
+
+/**
+ * Relatório de homologação assinado (inclusive pelo representante
+ * técnico do fornecedor), enviado com o PDF anexo. Etapa final do RHE.
+ */
+export function montarEmailRheFornecedor(d: DadosEmailRheFornecedor) {
+  const subject = `Relatório de Homologação ${d.numero}${d.titulo ? ` — ${d.titulo}` : ''}`
+
+  const text = [
+    `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
+    '',
+    `Segue em anexo o Relatório de Homologação de Embalagem ${d.numero}, emitido por ${d.filialNome} e assinado por todos os responsáveis — incluindo o representante técnico de ${d.fornecedorNome}.`,
+    '',
+    d.titulo ? `Título: ${d.titulo}` : '',
+    d.homologacaoInicial
+      ? `Homologação inicial: ${rotuloHomologacao(d.homologacaoInicial)}${d.homologacaoInicialData ? ` em ${fmtData(d.homologacaoInicialData)}` : ''}`
+      : '',
+    '',
+    'Este documento é o registro formal da homologação realizada.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const item = (k: string, v: string) =>
+    v
+      ? `<tr><td style="padding:4px 10px 4px 0;color:#6b7280;font-size:13px">${escapeHtml(k)}</td><td style="padding:4px 0;color:#111827;font-size:13px"><b>${escapeHtml(v)}</b></td></tr>`
+      : ''
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">Relatório de Homologação — RHE ${escapeHtml(d.numero)}</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, segue em anexo o
+      relatório de homologação emitido por <b>${escapeHtml(d.filialNome)}</b> e assinado por
+      todos os responsáveis — incluindo o representante técnico de
+      <b>${escapeHtml(d.fornecedorNome)}</b>.
+    </p>
+    <table style="border-collapse:collapse;margin-bottom:18px">
+      ${item('Título', d.titulo ?? '')}
+      ${item(
+        'Homologação inicial',
+        d.homologacaoInicial
+          ? `${rotuloHomologacao(d.homologacaoInicial)}${d.homologacaoInicialData ? ` em ${fmtData(d.homologacaoInicialData)}` : ''}`
+          : '',
+      )}
+    </table>
+    <p style="background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;padding:10px 12px;border-radius:6px;font-size:13px;margin:0">
+      Este documento é o <b>registro formal</b> da homologação realizada.
     </p>
     <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
   </div>`

@@ -6,6 +6,19 @@ export type RncPdfData = {
   dataIdentificacao: Date
   status: string
   createdAt?: Date
+  // Campos próprios do RHE.
+  tipoProdutoAplicacao?: string | null
+  definicaoTeste?: string | null
+  linhaEnvase?: string | null
+  fabricacaoTexto?: string | null
+  validadeTexto?: string | null
+  quantidadeTexto?: string | null
+  analisadoPor?: string | null
+  avaliacaoConsideracoes?: string | null
+  homologacaoInicial?: string | null
+  homologacaoInicialData?: Date | null
+  homologacaoFinal?: string | null
+  homologacaoFinalData?: Date | null
   // Campos próprios do RVT.
   pauta?: string | null
   assuntosAbordados?: string | null
@@ -98,6 +111,16 @@ function fmtDataHora(d: Date | null | undefined): string {
   if (!d) return ''
   const p = (n: number) => String(n).padStart(2, '0')
   return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/**
+ * Data "pura" (sem hora): valores date-only chegam como meia-noite UTC,
+ * então o dia é lido em UTC para não recuar um dia no fuso local.
+ */
+function fmtDataPura(d: Date | null | undefined): string {
+  if (!d) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getUTCDate())}/${p(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`
 }
 
 /**
@@ -972,6 +995,166 @@ export function montarRvtPdf(doc: Doc, rvt: RncPdfData, fotos: RncPdfFoto[]) {
       'Controle de Qualidade',
       'Gestão Controle de Qualidade',
       'Gerência Envase/Processo',
+      'Representante Técnico',
+    ].map((papel) => ({ papel, nome: '', assinadoEm: null }))
+  }
+
+  for (let i = 0; i < entradas.length; i += 2) {
+    const a = entradas[i]
+    const b = entradas[i + 1]
+    const rowH = Math.max(alturaCaixa(a), b ? alturaCaixa(b) : 0)
+    novaPaginaSeNecessario(doc, est, rowH + 4)
+    caixaAssinatura(doc, LEFT, est.y, colW, rowH, a)
+    if (b) caixaAssinatura(doc, LEFT + colW + 8, est.y, colW, rowH, b)
+    est.y += rowH + 4
+  }
+}
+
+/** Rótulo em português do resultado da homologação. */
+function rotuloHomolog(r: string | null | undefined): string {
+  if (r === 'APROVADO') return 'APROVADO'
+  if (r === 'REPROVADO') return 'REPROVADO'
+  if (r === 'APROVADO_COM_RESTRICAO') return 'APROVADO COM RESTRIÇÃO'
+  return ''
+}
+
+/**
+ * Monta o PDF do RHE (Relatório de Homologação de Embalagem) no layout
+ * do formulário FOR.IND.CQA.031. Não chama doc.end().
+ */
+export function montarRhePdf(doc: Doc, rhe: RncPdfData, fotos: RncPdfFoto[]) {
+  const est: Estado = { y: MARGIN }
+
+  cabecalho(doc, est, rhe, {
+    titulo: 'RELATÓRIO DE HOMOLOGAÇÃO DE EMBALAGEM (RHE)',
+    codigo: 'FOR.IND.CQA.031',
+    versao: '.001',
+    emissao: '28/11/2024',
+  })
+
+  // 1. Identificação
+  tituloSecao(doc, est, '1. Identificação do RHE')
+  linhaCampos(doc, est, [
+    { label: 'Unidade', valor: rhe.filial ? `${rhe.filial.codigo} — ${rhe.filial.nome}` : '', flex: 2 },
+    { label: 'Número sequencial', valor: rhe.numero, flex: 1.2 },
+    { label: 'Situação', valor: fmtStatus(rhe.status), flex: 1 },
+  ])
+  linhaCampos(doc, est, [
+    { label: 'Título do RHE', valor: rhe.titulo ?? '', flex: 3 },
+    { label: 'Data da homologação', valor: fmtData(rhe.dataIdentificacao), flex: 1 },
+  ])
+
+  // 2. Dados do fornecedor e produto
+  tituloSecao(doc, est, '2. Dados do Fornecedor e Produto')
+  linhaCampos(doc, est, [
+    { label: 'Embalagem', valor: rhe.produto ? `${rhe.produto.codigo} — ${rhe.produto.descricao}` : '', flex: 1 },
+    { label: 'Fornecedor', valor: rhe.fornecedor ? `${rhe.fornecedor.codigo} — ${rhe.fornecedor.razaoSocial}` : '', flex: 1 },
+  ])
+  // Campo de até 200 caracteres: linha inteira e altura para 2 linhas.
+  linhaCampos(doc, est, [
+    { label: 'Tipo de produto / aplicação', valor: rhe.tipoProdutoAplicacao ?? '', flex: 1 },
+  ], 36)
+  linhaCampos(doc, est, [
+    { label: 'Data de fabricação', valor: rhe.fabricacaoTexto ?? '', flex: 1.2 },
+    { label: 'Validade', valor: rhe.validadeTexto ?? '', flex: 0.8 },
+    { label: 'Lote', valor: rhe.lotes.map((l) => l.numero).join(' / '), flex: 1.4 },
+    { label: 'Quantidade', valor: rhe.quantidadeTexto ?? '', flex: 0.8 },
+    { label: 'Nota fiscal', valor: rhe.notasFiscais[0]?.numero ?? '', flex: 0.8 },
+  ])
+  linhaCampos(doc, est, [
+    { label: 'Linha de envase', valor: rhe.linhaEnvase ?? '', flex: 1 },
+  ], 24)
+  // Texto longo (até 4000 caracteres): flui e pagina, nunca trunca.
+  blocoTextoFluido(doc, est, 'Definição do teste', rhe.definicaoTeste ?? '')
+
+  // 3. Resultado de análise — fotos da homologação (até 6)
+  tituloSecao(doc, est, '3. Resultado de Análise — Fotos da Homologação')
+  const fotosUsaveis = fotos.filter((f) =>
+    ['image/jpeg', 'image/jpg', 'image/png'].includes(f.mimeType),
+  )
+  const celW = CONTENT_W / 2
+  const celH = 112
+  for (let i = 0; i < 6; i += 2) {
+    novaPaginaSeNecessario(doc, est, celH)
+    for (let j = 0; j < 2; j++) {
+      const idx = i + j
+      const x = LEFT + j * celW
+      doc.rect(x, est.y, celW, celH).strokeColor(COR_BORDA).lineWidth(0.6).stroke()
+      doc
+        .fillColor(COR_LABEL)
+        .font('Helvetica-Bold')
+        .fontSize(6)
+        .text(`FOTO 0${idx + 1}`, x + 4, est.y + 3)
+      const foto = fotosUsaveis[idx]
+      if (foto) {
+        try {
+          doc.image(foto.buffer, x + 6, est.y + 14, {
+            fit: [celW - 12, celH - 32],
+            align: 'center',
+            valign: 'center',
+          })
+        } catch {
+          // imagem inválida — ignora
+        }
+        doc
+          .fillColor(COR_VALOR)
+          .font('Helvetica')
+          .fontSize(7)
+          .text(foto.legenda ?? '', x + 4, est.y + celH - 14, {
+            width: celW - 8,
+            ellipsis: true,
+          })
+      }
+    }
+    est.y += celH
+  }
+
+  // 4. Avaliação, performance e considerações finais
+  tituloSecao(doc, est, '4. Avaliação, Performance e Considerações Finais')
+  blocoTextoFluido(
+    doc,
+    est,
+    'Avaliação, performance e considerações finais',
+    rhe.avaliacaoConsideracoes ?? '',
+  )
+  linhaCampos(doc, est, [
+    { label: 'Controle de qualidade (analistas)', valor: rhe.analisadoPor ?? '', flex: 2 },
+    { label: 'Unidade', valor: rhe.filial?.codigo ?? '', flex: 0.8 },
+    { label: 'Emitente', valor: rhe.criadoPor?.nome ?? '', flex: 1.4 },
+  ], 24)
+  linhaCampos(doc, est, [
+    { label: 'Homologação inicial', valor: rotuloHomolog(rhe.homologacaoInicial), flex: 1.4 },
+    { label: 'Data', valor: rhe.homologacaoInicialData ? fmtDataPura(rhe.homologacaoInicialData) : '', flex: 0.8 },
+    { label: 'Homologação final', valor: rotuloHomolog(rhe.homologacaoFinal) || '—', flex: 1.4 },
+    { label: 'Data', valor: rhe.homologacaoFinalData ? fmtDataPura(rhe.homologacaoFinalData) : '', flex: 0.8 },
+  ], 26)
+
+  // 5. Assinaturas — internos do tipo RHE + representantes do fornecedor.
+  tituloSecao(doc, est, '5. Assinaturas')
+  const colW = (CONTENT_W - 8) / 2
+
+  let entradas: AssinaturaEntrada[]
+  if (rhe.aprovadores.length > 0) {
+    entradas = rhe.aprovadores.map((a) => ({
+      papel: a.areaNome + (a.cargo ? ` — ${a.cargo}` : ''),
+      nome: a.nome,
+      assinadoEm: a.assinadoEm,
+      ip: a.assinaturaIp,
+      navegador: a.assinaturaNavegador,
+      so: a.assinaturaSo,
+      dispositivo: a.assinaturaDispositivo,
+      lat: a.assinaturaLatitude,
+      lng: a.assinaturaLongitude,
+      precisao: a.assinaturaPrecisao,
+    }))
+  } else {
+    // Sem matriz: papéis padrão do formulário, em branco.
+    entradas = [
+      'Controle de Qualidade',
+      'Gestão Controle de Qualidade',
+      'Gestão Envase/Processo',
+      'Gerência Envase/Processo',
+      'Representante Técnico',
       'Representante Técnico',
     ].map((papel) => ({ papel, nome: '', assinadoEm: null }))
   }

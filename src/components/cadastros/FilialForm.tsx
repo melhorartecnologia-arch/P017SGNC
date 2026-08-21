@@ -33,6 +33,7 @@ const empty: FilialInput = {
   rncNumeroInicial: 0,
   raqNumeroInicial: 0,
   rvtNumeroInicial: 0,
+  rheNumeroInicial: 0,
 }
 
 function toInput(f: Filial): FilialInput {
@@ -53,6 +54,7 @@ function toInput(f: Filial): FilialInput {
     rncNumeroInicial: f.rncNumeroInicial ?? 0,
     raqNumeroInicial: f.raqNumeroInicial ?? 0,
     rvtNumeroInicial: f.rvtNumeroInicial ?? 0,
+    rheNumeroInicial: f.rheNumeroInicial ?? 0,
   }
 }
 
@@ -275,6 +277,22 @@ export function FilialForm({ initial, onSaved, onCancel }: Props) {
             value={String(form.rvtNumeroInicial ?? 0)}
             onChange={(e) =>
               set('rvtNumeroInicial', Math.max(0, Math.floor(Number(e.target.value) || 0)))
+            }
+            placeholder="0"
+          />
+        </Field>
+        <Field
+          label="Numeração inicial de RHE"
+          error={fieldError('rheNumeroInicial')}
+          className="sm:col-span-4"
+        >
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={String(form.rheNumeroInicial ?? 0)}
+            onChange={(e) =>
+              set('rheNumeroInicial', Math.max(0, Math.floor(Number(e.target.value) || 0)))
             }
             placeholder="0"
           />

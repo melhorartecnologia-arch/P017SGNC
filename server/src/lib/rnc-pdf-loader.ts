@@ -7,6 +7,7 @@ import {
   montarRncPdf,
   montarRaqPdf,
   montarRvtPdf,
+  montarRhePdf,
   type RncPdfData,
   type RncPdfFoto,
 } from './rnc-pdf.js'
@@ -16,6 +17,10 @@ const UPLOAD_DIR = path.resolve(process.cwd(), 'uploads', 'rnc-fotos')
 const IMAGENS_PDF = ['image/jpeg', 'image/jpg', 'image/png']
 
 const pdfInclude = {
+  representantes: {
+    select: { ordem: true, nome: true, email: true },
+    orderBy: { ordem: 'asc' },
+  },
   participantes: {
     select: { ordem: true, nome: true },
     orderBy: { ordem: 'asc' },
@@ -146,6 +151,11 @@ function criarDocumento(numero: string, tipoDocumento: string) {
       subject: 'Relatório de Visita Técnica',
       keywords: 'RVT, visita técnica, fornecedor, qualidade',
     },
+    RHE: {
+      title: `RHE ${numero} — Relatório de Homologação de Embalagem`,
+      subject: 'Relatório de Homologação de Embalagem (FOR.IND.CQA.031)',
+      keywords: 'RHE, homologação, embalagem, fornecedor, qualidade',
+    },
   }
   const p = props[tipoDocumento] ?? props.RNC
   return new PDFDocument({
@@ -187,6 +197,7 @@ export async function streamRncPdf(
   doc.pipe(res)
   if (rnc.tipoDocumento === 'RAQ') montarRaqPdf(doc, rnc, fotos)
   else if (rnc.tipoDocumento === 'RVT') montarRvtPdf(doc, rnc, fotos)
+  else if (rnc.tipoDocumento === 'RHE') montarRhePdf(doc, rnc, fotos)
   else montarRncPdf(doc, rnc, fotos)
   doc.end()
   return true
@@ -210,6 +221,7 @@ export async function gerarPdfBuffer(rncId: string): Promise<Buffer | null> {
   })
   if (rnc.tipoDocumento === 'RAQ') montarRaqPdf(doc, rnc, fotos)
   else if (rnc.tipoDocumento === 'RVT') montarRvtPdf(doc, rnc, fotos)
+  else if (rnc.tipoDocumento === 'RHE') montarRhePdf(doc, rnc, fotos)
   else montarRncPdf(doc, rnc, fotos)
   doc.end()
   return pronto

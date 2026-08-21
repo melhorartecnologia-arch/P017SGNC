@@ -26,6 +26,8 @@ import { RaqListPage } from '@/components/registros/RaqListPage'
 import { RaqWizard } from '@/components/registros/RaqWizard'
 import { RvtListPage } from '@/components/registros/RvtListPage'
 import { RvtWizard } from '@/components/registros/RvtWizard'
+import { RheListPage } from '@/components/registros/RheListPage'
+import { RheWizard } from '@/components/registros/RheWizard'
 import { WorkflowAssinaturasPage } from '@/components/registros/WorkflowAssinaturasPage'
 import { DashboardPage } from '@/components/dashboard/DashboardPage'
 import { useAuth } from '@/lib/auth/AuthContext'
@@ -37,6 +39,7 @@ function App() {
   const [rncWizardOpen, setRncWizardOpen] = useState(false)
   const [raqWizardOpen, setRaqWizardOpen] = useState(false)
   const [rvtWizardOpen, setRvtWizardOpen] = useState(false)
+  const [rheWizardOpen, setRheWizardOpen] = useState(false)
 
   if (auth.status === 'loading') {
     return (
@@ -82,6 +85,10 @@ function App() {
       setRvtWizardOpen(true)
       return
     }
+    if (key === 'rhe') {
+      setRheWizardOpen(true)
+      return
+    }
     // Demais tipos ainda não têm wizard — caem na tela "Em construção".
     setActiveKey(`registro-${key}`)
     setActiveLabel(`${sigla} — ${label}`)
@@ -108,6 +115,7 @@ function App() {
   const isRncList = activeKey === 'rnc-list'
   const isRaqList = activeKey === 'raq-list'
   const isRvtList = activeKey === 'rvt-list'
+  const isRheList = activeKey === 'rhe-list'
   const isWorkflows = activeKey === 'workflows-assinatura'
   const isDashboard = activeKey === 'dashboard'
 
@@ -144,6 +152,7 @@ function App() {
       <RncWizard open={rncWizardOpen} onOpenChange={setRncWizardOpen} />
       <RaqWizard open={raqWizardOpen} onOpenChange={setRaqWizardOpen} />
       <RvtWizard open={rvtWizardOpen} onOpenChange={setRvtWizardOpen} />
+      <RheWizard open={rheWizardOpen} onOpenChange={setRheWizardOpen} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar title={pageTitle} />
         <main className="flex flex-1 flex-col overflow-y-auto bg-white">
@@ -183,6 +192,8 @@ function App() {
             <RaqListPage />
           ) : isRvtList ? (
             <RvtListPage />
+          ) : isRheList ? (
+            <RheListPage />
           ) : isWorkflows ? (
             <WorkflowAssinaturasPage />
           ) : isDashboard ? (

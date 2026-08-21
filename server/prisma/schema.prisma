@@ -272,6 +272,8 @@ model Filial {
   raqNumeroInicial Int @default(0) @map("raq_numero_inicial")
   /// Sequencial inicial dos RVTs da filial (sistemas com histórico prévio).
   rvtNumeroInicial Int @default(0) @map("rvt_numero_inicial")
+  /// Sequencial inicial dos RHEs da filial (sistemas com histórico prévio).
+  rheNumeroInicial Int @default(0) @map("rhe_numero_inicial")
 
   aprovadores               Aprovador[]
   turnos                    TurnoTrabalho[]
@@ -351,6 +353,7 @@ enum TipoDocumento {
   RNC
   RAQ
   RVT
+  RHE
 }
 
 /// Resposta do fornecedor à RNC concluída (ciência).
@@ -377,6 +380,13 @@ enum ContingenciaStatus {
   APROVADA
   /// Ao menos uma ação foi recusada: o fornecedor precisa corrigir o plano.
   AJUSTE_SOLICITADO
+}
+
+/// Resultado da homologação (inicial ou final) de um RHE.
+enum HomologacaoResultado {
+  APROVADO
+  REPROVADO
+  APROVADO_COM_RESTRICAO
 }
 
 /// Situação da análise de causa (Ishikawa + 5W2H) que o fornecedor
@@ -544,6 +554,21 @@ model RelatorioNaoConformidade {
   quantidadeDefeito  Float?    @map("quantidade_defeito")
   tempoParadaMinutos Int?      @map("tempo_parada_minutos")
 
+  // Campos próprios do RHE (Relatório de Homologação de Embalagem).
+  tipoProdutoAplicacao   String? @map("tipo_produto_aplicacao") @db.VarChar(200)
+  definicaoTeste         String? @map("definicao_teste") @db.Text
+  linhaEnvase            String? @map("linha_envase") @db.VarChar(80)
+  fabricacaoTexto        String? @map("fabricacao_texto") @db.VarChar(200)
+  validadeTexto          String? @map("validade_texto") @db.VarChar(100)
+  quantidadeTexto        String? @map("quantidade_texto") @db.VarChar(100)
+  analisadoPor           String? @map("analisado_por") @db.VarChar(200)
+  avaliacaoConsideracoes String? @map("avaliacao_consideracoes") @db.Text
+  homologacaoInicial     HomologacaoResultado? @map("homologacao_inicial")
+  homologacaoInicialData DateTime? @map("homologacao_inicial_data")
+  homologacaoFinal       HomologacaoResultado? @map("homologacao_final")
+  homologacaoFinalData   DateTime? @map("homologacao_final_data")
+  representantes         RheRepresentante[]
+
   // Campos próprios do RVT (Relatório de Visita Técnica).
   pauta             String? @db.VarChar(200)
   assuntosAbordados String? @map("assuntos_abordados") @db.Text
@@ -651,6 +676,24 @@ model RncIshikawaCausa {
 
   @@index([rncId])
   @@map("rnc_ishikawa_causas")
+}
+
+/// Representante técnico do fornecedor que ASSINA o RHE. Vira uma linha
+/// avulsa na matriz de assinaturas (sem vínculo com o cadastro interno
+/// de aprovadores) — o fornecedor não tem devolução, apenas assinatura.
+model RheRepresentante {
+  id    String @id @default(uuid()) @db.Uuid
+  rncId String @map("rnc_id") @db.Uuid
+  ordem Int
+  nome  String @db.VarChar(160)
+  email String @db.VarChar(160)
+
+  rnc RelatorioNaoConformidade @relation(fields: [rncId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([rncId])
+  @@map("rhe_representantes")
 }
 
 /// Participante da visita técnica registrada em um RVT — um nome por

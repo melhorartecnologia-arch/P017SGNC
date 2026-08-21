@@ -6,6 +6,7 @@ import {
   montarEmailConclusao,
   montarEmailRaqFornecedor,
   montarEmailRvtFornecedor,
+  montarEmailRheFornecedor,
 } from './rnc-email.js'
 import {
   enviarCienciaFornecedor,
@@ -339,6 +340,7 @@ export async function processarWorkflows(
     RNC: await horasRespostaRnc(prisma, 'RNC'),
     RAQ: await horasRespostaRnc(prisma, 'RAQ'),
     RVT: await horasRespostaRnc(prisma, 'RVT'),
+    RHE: await horasRespostaRnc(prisma, 'RHE'),
   }
   if (!Object.values(horasPorTipo).some((h) => h && h > 0)) return out
 
@@ -744,6 +746,8 @@ export async function enviarDocumentoAoFornecedor(
       titulo: true,
       pauta: true,
       conclusao: true,
+      homologacaoInicial: true,
+      homologacaoInicialData: true,
       dataIdentificacao: true,
       descricaoDefeito: true,
       enviadoFornecedorEm: true,
@@ -797,7 +801,17 @@ export async function enviarDocumentoAoFornecedor(
 
   const pdf = await gerarPdfBuffer(raq.id)
   const { subject, text, html } =
-    raq.tipoDocumento === 'RVT'
+    raq.tipoDocumento === 'RHE'
+      ? montarEmailRheFornecedor({
+          numero: raq.numero,
+          titulo: raq.titulo,
+          filialNome: raq.filial?.nome ?? '',
+          fornecedorNome: raq.fornecedor?.razaoSocial ?? '',
+          contatoNome: contato.nome,
+          homologacaoInicial: raq.homologacaoInicial,
+          homologacaoInicialData: raq.homologacaoInicialData,
+        })
+      : raq.tipoDocumento === 'RVT'
       ? montarEmailRvtFornecedor({
           numero: raq.numero,
           pauta: raq.pauta,

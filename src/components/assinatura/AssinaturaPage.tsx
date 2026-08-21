@@ -142,9 +142,19 @@ export function AssinaturaPage({ token }: { token: string }) {
             {rnc.tipoDocumento ?? 'RNC'} {rnc.numero}
           </h1>
           <p className="mt-1 text-sm text-neutral-600">
-            Olá, <b>{aprovador.nome}</b>. Você é o aprovador da área{' '}
-            <b>{aprovador.areaNome}</b>
-            {aprovador.cargo ? ` (${aprovador.cargo})` : ''} para este documento.
+            {aprovador.areaNome?.startsWith('Representante') ? (
+              <>
+                Olá, <b>{aprovador.nome}</b>. Você assina este documento como{' '}
+                <b>{aprovador.areaNome}</b>.
+              </>
+            ) : (
+              <>
+                Olá, <b>{aprovador.nome}</b>. Você é o aprovador da área{' '}
+                <b>{aprovador.areaNome}</b>
+                {aprovador.cargo ? ` (${aprovador.cargo})` : ''} para este
+                documento.
+              </>
+            )}
           </p>
 
           <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
@@ -173,7 +183,13 @@ export function AssinaturaPage({ token }: { token: string }) {
               }
             />
             <Info
-              label="Data da ocorrência"
+              label={
+                rnc.tipoDocumento === 'RVT'
+                  ? 'Data da visita'
+                  : rnc.tipoDocumento === 'RHE'
+                    ? 'Data da homologação'
+                    : 'Data da ocorrência'
+              }
               value={fmtData(rnc.dataIdentificacao)}
             />
           </dl>
