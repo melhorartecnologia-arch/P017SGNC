@@ -21,6 +21,7 @@ import {
   CIENCIA_RNC_LABEL,
   type AssinaturaStatus,
   type CienciaRncStatus,
+  type ContingenciaRncStatus,
   type Rnc,
   type RncStatus,
 } from '@/lib/api/rnc'
@@ -135,6 +136,10 @@ export function RncListPage() {
   const [cienciaFilter, setCienciaFilter] = React.useState<
     '' | CienciaRncStatus | '__none__'
   >('')
+  // "atrasada" é um recorte de PENDENTE: só as fora do prazo.
+  const [contingenciaFilter, setContingenciaFilter] = React.useState<
+    '' | ContingenciaRncStatus | '__none__' | 'atrasada'
+  >('')
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [wizardOpen, setWizardOpen] = React.useState(false)
@@ -159,6 +164,7 @@ export function RncListPage() {
     async (opts: {
       status?: RncStatus | ''
       ciencia?: CienciaRncStatus | '__none__' | ''
+      contingencia?: ContingenciaRncStatus | '__none__' | 'atrasada' | ''
       page: number
     }) => {
       setLoading(true)
@@ -167,6 +173,11 @@ export function RncListPage() {
         const res = await rncApi.list({
           status: opts.status || undefined,
           cienciaStatus: opts.ciencia || undefined,
+          contingenciaStatus:
+            opts.contingencia && opts.contingencia !== 'atrasada'
+              ? opts.contingencia
+              : undefined,
+          contingenciaAtrasada: opts.contingencia === 'atrasada' || undefined,
           page: opts.page,
           pageSize: DEFAULT_PAGE_SIZE,
         })
@@ -184,13 +195,24 @@ export function RncListPage() {
   )
 
   React.useEffect(() => {
-    fetchPage({ status: statusFilter, ciencia: cienciaFilter, page: 1 })
+    fetchPage({
+      status: statusFilter,
+      ciencia: cienciaFilter,
+      contingencia: contingenciaFilter,
+      page: 1,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, cienciaFilter])
+  }, [statusFilter, cienciaFilter, contingenciaFilter])
 
   const refresh = React.useCallback(
-    () => fetchPage({ status: statusFilter, ciencia: cienciaFilter, page }),
-    [fetchPage, statusFilter, cienciaFilter, page],
+    () =>
+      fetchPage({
+        status: statusFilter,
+        ciencia: cienciaFilter,
+        contingencia: contingenciaFilter,
+        page,
+      }),
+    [fetchPage, statusFilter, cienciaFilter, contingenciaFilter, page],
   )
 
   const handleSubmitSearch = (e: React.FormEvent) => {
@@ -274,6 +296,26 @@ export function RncListPage() {
               </option>
             ))}
           </select>
+          <select
+            className={cn(selectClass, 'max-w-[14rem]')}
+            value={contingenciaFilter}
+            onChange={(e) =>
+              setContingenciaFilter(
+                e.target.value as
+                  | ''
+                  | ContingenciaRncStatus
+                  | '__none__'
+                  | 'atrasada',
+              )
+            }
+            title="Ações de contingência do fornecedor"
+          >
+            <option value="">Todas as ações de contingência</option>
+            <option value="__none__">Não solicitadas</option>
+            <option value="PENDENTE">Ações pendentes</option>
+            <option value="atrasada">Ações em atraso</option>
+            <option value="RESPONDIDA">Ações recebidas</option>
+          </select>
           <Button
             type="button"
             variant="ghost"
@@ -283,7 +325,8 @@ export function RncListPage() {
               setQ('')
               setStatusFilter('')
               setCienciaFilter('')
-              fetchPage({ status: '', ciencia: '', page: 1 })
+              setContingenciaFilter('')
+              fetchPage({ status: '', ciencia: '', contingencia: '', page: 1 })
             }}
             title="Limpar filtros"
           >
@@ -481,7 +524,12 @@ export function RncListPage() {
           pageSize={DEFAULT_PAGE_SIZE}
           total={total}
           onChange={(next) =>
-            fetchPage({ status: statusFilter, ciencia: cienciaFilter, page: next })
+            fetchPage({
+              status: statusFilter,
+              ciencia: cienciaFilter,
+              contingencia: contingenciaFilter,
+              page: next,
+            })
           }
           disabled={loading}
         />

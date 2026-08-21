@@ -3,7 +3,10 @@ import cors from 'cors'
 import { env } from './env.js'
 import { prisma } from './db.js'
 import { processarWorkflows } from './lib/rnc-workflow.js'
-import { processarCienciaFornecedor } from './lib/rnc-ciencia.js'
+import {
+  processarCienciaFornecedor,
+  processarAlertasContingencia,
+} from './lib/rnc-ciencia.js'
 import { errorHandler } from './middleware/error.js'
 import { requireAuth } from './middleware/auth.js'
 import { authRouter } from './routes/auth.js'
@@ -114,6 +117,18 @@ async function start() {
       }
     } catch (err) {
       console.error('SGNC ciência: falha ao processar o prazo.', err)
+    }
+    // Ações de contingência: cobra o fornecedor depois de vencido o prazo,
+    // na cadência de alertas por dia definida nos parâmetros do workflow.
+    try {
+      const a = await processarAlertasContingencia(prisma)
+      if (a.alertasEnviados) {
+        console.log(
+          `SGNC contingência: ${a.alertasEnviados} alerta(s) de ações em atraso.`,
+        )
+      }
+    } catch (err) {
+      console.error('SGNC contingência: falha ao processar os alertas.', err)
     }
   }
   setTimeout(tick, 30_000) // primeiro tick logo após subir

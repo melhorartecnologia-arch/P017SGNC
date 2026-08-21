@@ -347,6 +347,15 @@ enum CienciaFornecedorStatus {
   MANTIDA_DEFINITIVA
 }
 
+/// Situação da devolutiva das ações de contingência que o fornecedor
+/// precisa executar depois de confirmada a não conformidade.
+enum ContingenciaStatus {
+  /// Solicitada ao fornecedor, aguardando o envio das ações.
+  PENDENTE
+  /// Fornecedor enviou o plano de ações de contingência.
+  RESPONDIDA
+}
+
 enum RncStatus {
   DRAFT
   OPEN
@@ -401,6 +410,21 @@ model RelatorioNaoConformidade {
   cienciaAnalisePor    String?   @map("ciencia_analise_por") @db.VarChar(160)
   cienciaAnaliseJustificativa String? @map("ciencia_analise_justificativa") @db.Text
   cienciaDefinitivaEm  DateTime? @map("ciencia_definitiva_em")
+
+  // Ações de contingência: confirmada a não conformidade (aceite do
+  // fornecedor, decurso de prazo ou recusa negada), o fornecedor precisa
+  // informar as ações que vai executar. Vencido o prazo, passa a receber
+  // alertas diários até enviar a devolutiva.
+  contingenciaStatus       ContingenciaStatus? @map("contingencia_status")
+  contingenciaSolicitadaEm DateTime? @map("contingencia_solicitada_em")
+  contingenciaPrazoEm      DateTime? @map("contingencia_prazo_em")
+  contingenciaRespondidaEm DateTime? @map("contingencia_respondida_em")
+  contingenciaRespondidaPor String?  @map("contingencia_respondida_por") @db.VarChar(160)
+  contingenciaAcoes        String?   @map("contingencia_acoes") @db.Text
+  contingenciaIp           String?   @map("contingencia_ip") @db.VarChar(64)
+  contingenciaNavegador    String?   @map("contingencia_navegador") @db.VarChar(160)
+  contingenciaUltimoAlerta DateTime? @map("contingencia_ultimo_alerta")
+  contingenciaAlertas      Int       @default(0) @map("contingencia_alertas")
 
   // Material & lote
   produtoId          String?   @map("produto_id") @db.Uuid
@@ -523,6 +547,26 @@ model ConfiguracaoSmtp {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("configuracoes_smtp")
+}
+
+/// Parâmetros dos workflows de resposta do fornecedor. Linha única
+/// (id = 1); quando ausente, valem os padrões declarados aqui.
+model ConfiguracaoWorkflow {
+  id Int @id @default(1)
+  /// Prazo (horas, fracionárias) para o fornecedor dar ciência da RNC
+  /// antes do aceite automático por decurso de prazo.
+  cienciaPrazoHoras Float @default(48) @map("ciencia_prazo_horas")
+  /// Prazo (horas, fracionárias) para o fornecedor devolver as ações de
+  /// contingência depois de confirmada a não conformidade.
+  contingenciaPrazoHoras Float @default(72) @map("contingencia_prazo_horas")
+  /// Quantos alertas por dia o fornecedor recebe depois de vencido o
+  /// prazo das ações de contingência, até que a devolutiva chegue.
+  contingenciaAlertasPorDia Int @default(2) @map("contingencia_alertas_por_dia")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("configuracoes_workflow")
 }
 
 /// Matriz de aprovação de uma RNC — quem deve assinar o documento.

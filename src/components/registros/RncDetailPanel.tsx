@@ -11,6 +11,8 @@ import {
   XCircle,
   Clock,
   MailWarning,
+  ClipboardList,
+  AlertTriangle,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -24,6 +26,8 @@ import {
   type Rnc,
   type RncStatus,
 } from '@/lib/api/rnc'
+import { podeAnalisarRecusa } from '@/lib/api/auth'
+import { useAuth } from '@/lib/auth/AuthContext'
 import { RncFotosSection } from './RncFotosSection'
 
 const STATUS_LABELS: Record<RncStatus, string> = {
@@ -695,6 +699,12 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                 <CienciaFornecedorBloco rnc={rnc} onUpdated={onUpdated} />
               </Section>
 
+              {rnc.contingenciaStatus && (
+                <Section title="Ações de contingência">
+                  <ContingenciaBloco rnc={rnc} />
+                </Section>
+              )}
+
               <Section title="Origem & severidade">
                 <Row label="Origem da NC">
                   {rnc.origem ? (
@@ -757,6 +767,82 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
   )
 }
 
+/** Prazo já vencido? Fica fora do render para não depender do relógio. */
+function prazoVencido(prazo: string | null | undefined): boolean {
+  if (!prazo) return false
+  const ms = new Date(prazo).getTime()
+  return !Number.isNaN(ms) && ms <= Date.now()
+}
+
+/**
+ * Devolutiva das ações de contingência: aberta quando a não conformidade
+ * é confirmada e cobrada por alertas enquanto o fornecedor não responde.
+ */
+function ContingenciaBloco({ rnc }: { rnc: Rnc }) {
+  const respondida = rnc.contingenciaStatus === 'RESPONDIDA'
+  const atrasada = !respondida && prazoVencido(rnc.contingenciaPrazoEm)
+
+  const cor = respondida
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    : atrasada
+      ? 'border-red-200 bg-red-50 text-red-800'
+      : 'border-amber-200 bg-amber-50 text-amber-800'
+  const Icone = respondida ? CheckCircle2 : atrasada ? AlertTriangle : Clock
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className={cn('flex items-start gap-2 rounded-md border px-2.5 py-2', cor)}>
+        <Icone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="flex flex-col gap-0.5 text-xs">
+          <span className="font-semibold">
+            {respondida
+              ? 'Ações de contingência recebidas'
+              : atrasada
+                ? 'Ações de contingência em atraso'
+                : 'Aguardando as ações de contingência'}
+          </span>
+          {respondida ? (
+            <span>
+              Registradas em {formatDataHoraBR(rnc.contingenciaRespondidaEm)}
+              {rnc.contingenciaRespondidaPor
+                ? ` · por ${rnc.contingenciaRespondidaPor}`
+                : ''}
+            </span>
+          ) : (
+            <span>
+              Prazo até {formatDataHoraBR(rnc.contingenciaPrazoEm)}
+              {atrasada
+                ? ` — ${rnc.contingenciaAlertas} alerta(s) enviado(s) ao fornecedor.`
+                : '.'}
+            </span>
+          )}
+        </div>
+      </div>
+      <Row label="Solicitadas em">
+        {formatDataHoraBR(rnc.contingenciaSolicitadaEm) || '—'}
+      </Row>
+      {rnc.contingenciaAcoes ? (
+        <div className="flex flex-col gap-1">
+          <span className="text-[11px] uppercase tracking-wide text-neutral-400">
+            Ações informadas pelo fornecedor
+          </span>
+          <p className="whitespace-pre-wrap rounded-md border border-neutral-200 bg-neutral-50/60 p-2.5 text-[13px] leading-relaxed text-neutral-800">
+            {rnc.contingenciaAcoes}
+          </p>
+        </div>
+      ) : (
+        <div className="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600">
+          <ClipboardList className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          <span>
+            O fornecedor ainda não informou as ações. A cobrança automática se
+            repete até a devolutiva chegar.
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /**
  * Situação da ciência do fornecedor: enviada após todas as assinaturas,
  * com aceite/recusa do fornecedor ou aceite automático por decurso.
@@ -768,6 +854,11 @@ function CienciaFornecedorBloco({
   rnc: Rnc
   onUpdated?: (rnc: Rnc) => void
 }) {
+  const auth = useAuth()
+  const usuario = auth.status === 'authenticated' ? auth.user : null
+  // Só admins e aprovadores marcados na filial decidem sobre a recusa;
+  // a API aplica a mesma regra ao registrar a análise.
+  const podeDecidir = podeAnalisarRecusa(usuario, rnc.filialId)
   const [modo, setModo] = React.useState<'acatar' | 'negar' | null>(null)
   const [parecer, setParecer] = React.useState('')
   const [decidindo, setDecidindo] = React.useState(false)
@@ -876,7 +967,13 @@ function CienciaFornecedorBloco({
       )}
 
       {/* Decisão pela plataforma — mesma ação do link enviado por e-mail. */}
-      {recusada && (
+      {recusada && !podeDecidir && (
+        <div className="mt-1 rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
+          A decisão sobre a recusa cabe aos aprovadores marcados para receber
+          as respostas do fornecedor nesta filial (ou a um administrador).
+        </div>
+      )}
+      {recusada && podeDecidir && (
         <div className="mt-1 flex flex-col gap-2 rounded-md border border-neutral-200 bg-neutral-50/60 p-2.5">
           <span className="text-xs font-medium text-neutral-700">
             Analisar a recusa

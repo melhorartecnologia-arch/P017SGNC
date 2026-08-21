@@ -20,6 +20,14 @@ export const CIENCIA_RNC_LABEL: Record<CienciaRncStatus, string> = {
   MANTIDA_DEFINITIVA: 'Mantida em definitivo',
 }
 
+/** Devolutiva das ações de contingência do fornecedor. */
+export type ContingenciaRncStatus = 'PENDENTE' | 'RESPONDIDA'
+
+export const CONTINGENCIA_RNC_LABEL: Record<ContingenciaRncStatus, string> = {
+  PENDENTE: 'Ações pendentes',
+  RESPONDIDA: 'Ações recebidas',
+}
+
 export type SeveridadeRef = {
   id: string
   codigo: string
@@ -65,6 +73,15 @@ export type Rnc = {
   cienciaAnalisePor: string | null
   cienciaAnaliseJustificativa: string | null
   cienciaDefinitivaEm: string | null
+
+  /** Ações de contingência devidas depois de confirmada a NC. */
+  contingenciaStatus: ContingenciaRncStatus | null
+  contingenciaSolicitadaEm: string | null
+  contingenciaPrazoEm: string | null
+  contingenciaRespondidaEm: string | null
+  contingenciaRespondidaPor: string | null
+  contingenciaAcoes: string | null
+  contingenciaAlertas: number
 
   // Material & lote
   produtoId: string | null
@@ -170,6 +187,10 @@ export type RncListParams = {
   status?: RncStatus
   /** Ciência do fornecedor; "__none__" = ainda não enviada. */
   cienciaStatus?: CienciaRncStatus | '__none__'
+  /** Ações de contingência; "__none__" = ainda não solicitadas. */
+  contingenciaStatus?: ContingenciaRncStatus | '__none__'
+  /** Só as RNCs com ações de contingência fora do prazo. */
+  contingenciaAtrasada?: boolean
   de?: string
   ate?: string
   limit?: number
@@ -253,6 +274,8 @@ export const rncApi = {
         severidadeId: params.severidadeId,
         status: params.status,
         cienciaStatus: params.cienciaStatus,
+        contingenciaStatus: params.contingenciaStatus,
+        contingenciaAtrasada: params.contingenciaAtrasada,
         de: params.de,
         ate: params.ate,
         limit: params.limit,

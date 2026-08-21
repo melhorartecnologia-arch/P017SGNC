@@ -574,3 +574,179 @@ export function montarEmailCienciaDefinitiva(d: DadosEmailDefinitiva) {
 
   return { subject, text, html }
 }
+
+// ── Ações de contingência do fornecedor ─────────────────────────────
+
+export type DadosEmailContingencia = {
+  numero: string
+  fornecedorNome: string
+  contatoNome: string | null
+  tipoNc: string
+  descricaoDefeito: string | null
+  /** Como a não conformidade foi confirmada (aceite, decurso, definitiva). */
+  confirmacao: string
+  prazoEm: Date
+  alertasPorDia: number
+  token: string
+  baseUrl?: string
+}
+
+/**
+ * Pedido das ações de contingência ao fornecedor, aberto assim que a não
+ * conformidade é confirmada. Vencido o prazo, o fornecedor passa a receber
+ * alertas diários até enviar a devolutiva.
+ */
+export function montarEmailContingencia(d: DadosEmailContingencia) {
+  const base = resolverBaseUrl(d.baseUrl)
+  const linkPagina = `${base}/?ciencia=${encodeURIComponent(d.token)}`
+  const linkPdf = `${base}/api/ciencia/${encodeURIComponent(d.token)}/pdf`
+  const prazo = fmtDataHora(d.prazoEm)
+
+  const subject = `RNC ${d.numero} — ações de contingência necessárias (prazo: ${prazo})`
+
+  const text = [
+    `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
+    '',
+    `A não conformidade da RNC ${d.numero} foi confirmada (${d.confirmacao}).`,
+    'É necessário informar as ações de contingência que serão executadas.',
+    '',
+    `Tipo de não conformidade: ${d.tipoNc}`,
+    d.descricaoDefeito ? `Defeito: ${d.descricaoDefeito}` : '',
+    '',
+    `Registre as ações de contingência: ${linkPagina}`,
+    `Documento completo (PDF): ${linkPdf}`,
+    '',
+    `Prazo para a devolutiva: ${prazo}.`,
+    `Vencido o prazo, serão enviados ${d.alertasPorDia} alertas por dia até o envio das ações.`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">Ações de contingência — RNC ${escapeHtml(d.numero)}</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, a não conformidade
+      registrada para <b>${escapeHtml(d.fornecedorNome)}</b> foi confirmada
+      (${escapeHtml(d.confirmacao)}).
+    </p>
+    <table style="border-collapse:collapse;margin-bottom:18px">
+      <tr><td style="padding:4px 10px 4px 0;color:#6b7280;font-size:13px">Tipo de não conformidade</td><td style="padding:4px 0;color:#111827;font-size:13px"><b>${escapeHtml(d.tipoNc)}</b></td></tr>
+      ${
+        d.descricaoDefeito
+          ? `<tr><td style="padding:4px 10px 4px 0;color:#6b7280;font-size:13px">Defeito</td><td style="padding:4px 0;color:#111827;font-size:13px"><b>${escapeHtml(d.descricaoDefeito)}</b></td></tr>`
+          : ''
+      }
+    </table>
+    <p style="margin:0 0 18px">
+      <a href="${linkPagina}" style="background:#111827;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        Registrar as ações de contingência
+      </a>
+      <a href="${linkPdf}" style="margin-left:8px;color:#374151;text-decoration:none;border:1px solid #d1d5db;padding:10px 18px;border-radius:8px;display:inline-block;font-size:14px">
+        Ver documento (PDF)
+      </a>
+    </p>
+    <p style="background:#fef3c7;border:1px solid #fde68a;color:#92400e;padding:10px 12px;border-radius:6px;font-size:13px;margin:0">
+      A devolutiva deve ser registrada até <b>${escapeHtml(prazo)}</b>. Vencido o prazo,
+      serão enviados <b>${d.alertasPorDia} alertas por dia</b> até o envio das ações.
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
+export type DadosEmailAlertaContingencia = {
+  numero: string
+  fornecedorNome: string
+  contatoNome: string | null
+  prazoEm: Date
+  /** Quantos alertas já foram enviados, contando este. */
+  alerta: number
+  token: string
+  baseUrl?: string
+}
+
+/** Alerta recorrente enquanto as ações de contingência não chegam. */
+export function montarEmailAlertaContingencia(d: DadosEmailAlertaContingencia) {
+  const base = resolverBaseUrl(d.baseUrl)
+  const linkPagina = `${base}/?ciencia=${encodeURIComponent(d.token)}`
+  const prazo = fmtDataHora(d.prazoEm)
+
+  const subject = `URGENTE — RNC ${d.numero}: ações de contingência em atraso (alerta ${d.alerta})`
+
+  const text = [
+    `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
+    '',
+    `As ações de contingência da RNC ${d.numero} continuam pendentes.`,
+    `O prazo venceu em ${prazo}.`,
+    '',
+    `Registre as ações agora: ${linkPagina}`,
+    '',
+    'Este alerta será repetido enquanto a devolutiva não for registrada.',
+  ].join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">Ações de contingência em atraso — RNC ${escapeHtml(d.numero)}</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, as ações de contingência
+      de <b>${escapeHtml(d.fornecedorNome)}</b> continuam pendentes.
+    </p>
+    <p style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:12px 14px;border-radius:8px;font-size:14px;margin:0 0 16px">
+      <b>Prazo vencido em ${escapeHtml(prazo)}.</b><br>
+      <span style="color:#374151;font-size:13px">Alerta ${d.alerta} — a cobrança se repete até o registro das ações.</span>
+    </p>
+    <p style="margin:0 0 16px">
+      <a href="${linkPagina}" style="background:#b91c1c;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        Registrar as ações de contingência
+      </a>
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
+export type DadosEmailContingenciaRecebida = {
+  numero: string
+  fornecedorNome: string
+  respondidaPor: string | null
+  respondidaEm: Date
+  acoes: string
+  emAtraso: boolean
+}
+
+/** Aviso interno com as ações de contingência enviadas pelo fornecedor. */
+export function montarEmailContingenciaRecebida(
+  d: DadosEmailContingenciaRecebida,
+) {
+  const subject = `RNC ${d.numero} — ações de contingência recebidas${d.emAtraso ? ' (em atraso)' : ''}`
+
+  const text = [
+    `O fornecedor ${d.fornecedorNome} registrou as ações de contingência da RNC ${d.numero}.`,
+    '',
+    `Data da devolutiva: ${fmtDataHora(d.respondidaEm)}${d.emAtraso ? ' (fora do prazo)' : ''}`,
+    d.respondidaPor ? `Registrado por: ${d.respondidaPor}` : '',
+    '',
+    'Ações informadas:',
+    d.acoes,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">RNC ${escapeHtml(d.numero)} — ações de contingência</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">Fornecedor: <b>${escapeHtml(d.fornecedorNome)}</b></p>
+    <p style="background:${d.emAtraso ? '#fffbeb' : '#f0fdf4'};border:1px solid ${d.emAtraso ? '#fde68a' : '#86efac'};color:${d.emAtraso ? '#92400e' : '#15803d'};padding:12px 14px;border-radius:8px;font-size:14px;margin:0 0 14px">
+      <b>Devolutiva registrada${d.emAtraso ? ' fora do prazo' : ' dentro do prazo'}.</b><br>
+      <span style="color:#374151;font-size:13px">Em ${escapeHtml(fmtDataHora(d.respondidaEm))}${d.respondidaPor ? ` · por ${escapeHtml(d.respondidaPor)}` : ''}</span>
+    </p>
+    <p style="font-size:13px;color:#374151;margin:0 0 4px"><b>Ações informadas:</b></p>
+    <p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:10px 12px;border-radius:6px;font-size:13px;margin:0">${escapeHtml(d.acoes)}</p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}

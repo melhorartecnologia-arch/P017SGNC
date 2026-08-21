@@ -42,4 +42,44 @@ export const configuracoesApi = {
       method: 'POST',
       body: { para },
     }),
+
+  getWorkflow: () =>
+    apiRequest<ConfiguracaoWorkflow>('/configuracoes/workflow'),
+
+  saveWorkflow: (input: ConfiguracaoWorkflowInput) =>
+    apiRequest<ConfiguracaoWorkflow>('/configuracoes/workflow', {
+      method: 'PUT',
+      body: input,
+    }),
+}
+
+/** Parâmetros dos workflows de resposta do fornecedor. */
+export type ConfiguracaoWorkflow = {
+  /** Prazo da ciência em horas fracionárias (1.5 = 1h30). */
+  cienciaPrazoHoras: number
+  /** Prazo das ações de contingência em horas fracionárias. */
+  contingenciaPrazoHoras: number
+  /** Alertas por dia depois de vencido o prazo das ações. */
+  contingenciaAlertasPorDia: number
+  updatedAt: string | null
+}
+
+export type ConfiguracaoWorkflowInput = {
+  cienciaPrazoHoras: number
+  contingenciaPrazoHoras: number
+  contingenciaAlertasPorDia: number
+}
+
+/** Horas fracionárias → horas e minutos inteiros (48.5 → 48h 30min). */
+export function horasParaHoraMinuto(horas: number): {
+  horas: number
+  minutos: number
+} {
+  const total = Math.max(0, Math.round(horas * 60))
+  return { horas: Math.floor(total / 60), minutos: total % 60 }
+}
+
+/** Horas e minutos inteiros → horas fracionárias (48h 30min → 48.5). */
+export function horaMinutoParaHoras(horas: number, minutos: number): number {
+  return Math.round((horas * 60 + minutos)) / 60
 }

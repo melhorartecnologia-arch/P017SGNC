@@ -7,6 +7,24 @@ import { loginSchema } from '../schemas/auth.js'
 
 export const authRouter = Router()
 
+/**
+ * Filiais em que o usuário é aprovador marcado para receber as respostas
+ * do fornecedor — quem pode analisar uma recusa pela plataforma (junto
+ * com o perfil ADMIN). O front usa a lista para exibir ou não a decisão;
+ * a autorização de fato é feita na rota que registra a análise.
+ */
+async function filiaisRespostaFornecedor(email: string): Promise<string[]> {
+  const marcados = await prisma.aprovador.findMany({
+    where: {
+      ativo: true,
+      recebeRespostaFornecedor: true,
+      email: { equals: email, mode: 'insensitive' },
+    },
+    select: { filialId: true },
+  })
+  return [...new Set(marcados.map((m) => m.filialId))]
+}
+
 authRouter.post('/login', async (req, res, next) => {
   try {
     const { email, senha } = loginSchema.parse(req.body)
@@ -35,6 +53,9 @@ authRouter.post('/login', async (req, res, next) => {
         role: usuario.role,
         filialPadraoId: usuario.filialPadraoId,
         filialPadrao: usuario.filialPadrao,
+        filiaisRespostaFornecedor: await filiaisRespostaFornecedor(
+          usuario.email,
+        ),
       },
     })
   } catch (err) {
@@ -59,7 +80,10 @@ authRouter.get('/me', requireAuth, async (req, res, next) => {
     if (!usuario || !usuario.ativo) {
       throw new HttpError(401, 'Usuário inválido')
     }
-    res.json(usuario)
+    res.json({
+      ...usuario,
+      filiaisRespostaFornecedor: await filiaisRespostaFornecedor(usuario.email),
+    })
   } catch (err) {
     next(err)
   }

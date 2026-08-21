@@ -18,6 +18,7 @@ import { TurnoTrabalhoPage } from '@/components/cadastros/TurnoTrabalhoPage'
 import { PoliticaRespostaPage } from '@/components/cadastros/PoliticaRespostaPage'
 import { UsuarioPage } from '@/components/cadastros/UsuarioPage'
 import { SmtpConfigPage } from '@/components/configuracoes/SmtpConfigPage'
+import { WorkflowConfigPage } from '@/components/configuracoes/WorkflowConfigPage'
 import { LoginPage } from '@/components/auth/LoginPage'
 import { RncWizard } from '@/components/registros/RncWizard'
 import { RncListPage } from '@/components/registros/RncListPage'
@@ -88,6 +89,8 @@ function App() {
   const isPoliticaResposta = activeKey === 'cad-politica-resposta'
   const isUsuario = activeKey === 'cad-usuario' && auth.user.role === 'ADMIN'
   const isSmtpConfig = activeKey === 'cfg-smtp' && auth.user.role === 'ADMIN'
+  const isWorkflowConfig =
+    activeKey === 'cfg-workflow' && auth.user.role === 'ADMIN'
   const isRncList = activeKey === 'rnc-list'
   const isWorkflows = activeKey === 'workflows-assinatura'
   const isDashboard = activeKey === 'dashboard'
@@ -107,6 +110,7 @@ function App() {
   else if (isPoliticaResposta) pageTitle = 'Cadastro de Políticas de Resposta'
   else if (isUsuario) pageTitle = 'Cadastro de Usuários'
   else if (isSmtpConfig) pageTitle = 'Configurações — Servidor de E-mail (SMTP)'
+  else if (isWorkflowConfig) pageTitle = 'Configurações — Prazos do Fornecedor'
   else if (isRncList) pageTitle = 'Relatórios de Não Conformidade'
   else if (isWorkflows) pageTitle = 'Workflows de Assinatura'
   else if (isCadastro) pageTitle = `Cadastro de ${activeLabel}`
@@ -151,6 +155,8 @@ function App() {
             <UsuarioPage />
           ) : isSmtpConfig ? (
             <SmtpConfigPage />
+          ) : isWorkflowConfig ? (
+            <WorkflowConfigPage />
           ) : isRncList ? (
             <RncListPage />
           ) : isWorkflows ? (

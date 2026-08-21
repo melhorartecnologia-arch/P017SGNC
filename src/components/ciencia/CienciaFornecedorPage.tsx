@@ -9,6 +9,7 @@ import {
   XCircle,
   Clock,
   AlertTriangle,
+  ClipboardList,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -49,6 +50,13 @@ function restante(prazo: string | null): string | null {
   return `faltam ${Math.max(1, m)} min`
 }
 
+/** Prazo já vencido? Fica fora do render para não depender do relógio. */
+function prazoVencido(prazo: string | null | undefined): boolean {
+  if (!prazo) return false
+  const ms = new Date(prazo).getTime()
+  return !Number.isNaN(ms) && ms <= Date.now()
+}
+
 function Campo({ rotulo, valor }: { rotulo: string; valor: string }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -69,6 +77,8 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
   const [nome, setNome] = React.useState('')
   const [justificativa, setJustificativa] = React.useState('')
   const [verPdf, setVerPdf] = React.useState(false)
+  const [acoes, setAcoes] = React.useState('')
+  const [enviandoAcoes, setEnviandoAcoes] = React.useState(false)
 
   React.useEffect(() => {
     let cancelado = false
@@ -114,6 +124,32 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
     }
   }
 
+  const enviarAcoes = async () => {
+    if (enviandoAcoes) return
+    if (!acoes.trim()) {
+      toast.error('Descreva as ações de contingência que serão executadas.')
+      return
+    }
+    setEnviandoAcoes(true)
+    try {
+      const atualizado = await cienciaApi.registrarContingencia(token, {
+        acoes: acoes.trim(),
+        nome: nome.trim() || null,
+      })
+      setRnc(atualizado)
+      setAcoes('')
+      toast.success('Ações de contingência registradas.')
+    } catch (e) {
+      const msg =
+        e instanceof ApiError
+          ? e.message
+          : 'Não foi possível registrar as ações de contingência.'
+      toast.error('Falha ao registrar', { description: msg })
+    } finally {
+      setEnviandoAcoes(false)
+    }
+  }
+
   if (carregando) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-neutral-50">
@@ -139,6 +175,11 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
   const status = (rnc.cienciaStatus ?? 'PENDENTE') as CienciaStatus
   const respondido = status !== 'PENDENTE'
   const prazoTexto = restante(rnc.cienciaPrazoEm)
+  const contingenciaPendente = rnc.contingenciaStatus === 'PENDENTE'
+  const contingenciaRespondida = rnc.contingenciaStatus === 'RESPONDIDA'
+  const contingenciaAtrasada =
+    contingenciaPendente && prazoVencido(rnc.contingenciaPrazoEm)
+  const prazoAcoesTexto = restante(rnc.contingenciaPrazoEm)
 
   return (
     <div className="min-h-screen bg-neutral-50 px-4 py-8">
@@ -404,6 +445,113 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
                 </div>
               </div>
             )}
+          </section>
+        )}
+
+        {/* Ações de contingência — devidas depois de confirmada a NC */}
+        {contingenciaPendente && (
+          <section
+            className={cn(
+              'rounded-xl border bg-white p-4 shadow-sm',
+              contingenciaAtrasada ? 'border-red-300' : 'border-neutral-200',
+            )}
+          >
+            <div className="mb-1 flex items-center gap-2">
+              <ClipboardList className="h-4 w-4 text-neutral-500" />
+              <h2 className="text-[13px] font-semibold text-neutral-800">
+                Ações de contingência
+              </h2>
+            </div>
+            <div
+              className={cn(
+                'mb-3 flex items-start gap-2 rounded-lg border p-3 text-xs',
+                contingenciaAtrasada
+                  ? 'border-red-200 bg-red-50 text-red-800'
+                  : 'border-amber-200 bg-amber-50 text-amber-800',
+              )}
+            >
+              {contingenciaAtrasada ? (
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              ) : (
+                <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+              )}
+              <span>
+                {contingenciaAtrasada ? (
+                  <>
+                    O prazo venceu em {fmtDataHora(rnc.contingenciaPrazoEm)}. Os
+                    alertas se repetem até o registro das ações.
+                  </>
+                ) : (
+                  <>
+                    Informe as ações até {fmtDataHora(rnc.contingenciaPrazoEm)}
+                    {prazoAcoesTexto ? ` (${prazoAcoesTexto})` : ''}. Vencido o
+                    prazo, você passa a receber alertas diários.
+                  </>
+                )}
+              </span>
+            </div>
+            <p className="mb-3 text-xs text-neutral-500">
+              Com a não conformidade confirmada, descreva as ações de
+              contingência que serão executadas — o que será feito, por quem e
+              em que prazo.
+            </p>
+            <div className="mb-3 flex flex-col gap-1.5">
+              <Label htmlFor="nome-acoes">Seu nome (opcional)</Label>
+              <Input
+                id="nome-acoes"
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                placeholder="Quem está respondendo"
+                maxLength={160}
+                disabled={enviandoAcoes}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="acoes-contingencia">
+                Ações de contingência *
+              </Label>
+              <textarea
+                id="acoes-contingencia"
+                value={acoes}
+                onChange={(e) => setAcoes(e.target.value)}
+                rows={6}
+                maxLength={8000}
+                required
+                disabled={enviandoAcoes}
+                placeholder="Ex.: 1) Bloqueio do lote remanescente em estoque — Qualidade — até 22/08; 2) Inspeção 100% na próxima remessa — Produção — a partir de 23/08."
+                className="flex w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+              />
+            </div>
+            <div className="mt-3">
+              <Button
+                onClick={enviarAcoes}
+                disabled={enviandoAcoes || !acoes.trim()}
+                className="gap-1.5"
+              >
+                {enviandoAcoes && <Loader2 className="h-4 w-4 animate-spin" />}
+                Enviar ações de contingência
+              </Button>
+            </div>
+          </section>
+        )}
+
+        {contingenciaRespondida && (
+          <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+            <div className="mb-1 flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+              <h2 className="text-[13px] font-semibold text-emerald-900">
+                Ações de contingência registradas
+              </h2>
+            </div>
+            <p className="mb-2 text-xs text-neutral-600">
+              Em {fmtDataHora(rnc.contingenciaRespondidaEm)}
+              {rnc.contingenciaRespondidaPor
+                ? ` · por ${rnc.contingenciaRespondidaPor}`
+                : ''}
+            </p>
+            <p className="whitespace-pre-wrap rounded-md border border-emerald-200 bg-white p-3 text-sm text-neutral-800">
+              {rnc.contingenciaAcoes}
+            </p>
           </section>
         )}
 

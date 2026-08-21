@@ -7,6 +7,11 @@ import {
   configuracaoSmtpSchema,
   smtpTesteSchema,
 } from '../schemas/configuracao-smtp.js'
+import { configuracaoWorkflowSchema } from '../schemas/configuracao-workflow.js'
+import {
+  CONFIG_WORKFLOW_ID,
+  PARAMETROS_WORKFLOW_PADRAO,
+} from '../lib/workflow-config.js'
 
 /**
  * Configurações técnicas do sistema. Somente administradores; a senha
@@ -126,6 +131,43 @@ configuracoesRouter.post('/smtp/teste', async (req, res, next) => {
     }
 
     res.json({ ok: true, para })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── Parâmetros dos workflows de resposta do fornecedor ──────────────
+
+const workflowSelect = {
+  cienciaPrazoHoras: true,
+  contingenciaPrazoHoras: true,
+  contingenciaAlertasPorDia: true,
+  updatedAt: true,
+} as const
+
+configuracoesRouter.get('/workflow', async (_req, res, next) => {
+  try {
+    const cfg = await prisma.configuracaoWorkflow.findUnique({
+      where: { id: CONFIG_WORKFLOW_ID },
+      select: workflowSelect,
+    })
+    // Sem linha gravada, devolve os padrões para a tela abrir preenchida.
+    res.json(cfg ?? { ...PARAMETROS_WORKFLOW_PADRAO, updatedAt: null })
+  } catch (err) {
+    next(err)
+  }
+})
+
+configuracoesRouter.put('/workflow', async (req, res, next) => {
+  try {
+    const data = configuracaoWorkflowSchema.parse(req.body)
+    const salvo = await prisma.configuracaoWorkflow.upsert({
+      where: { id: CONFIG_WORKFLOW_ID },
+      create: { id: CONFIG_WORKFLOW_ID, ...data },
+      update: data,
+      select: workflowSelect,
+    })
+    res.json(salvo)
   } catch (err) {
     next(err)
   }

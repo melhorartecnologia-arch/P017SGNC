@@ -6,7 +6,14 @@ import {
   montarEmailRespostaCiencia,
   montarEmailAnaliseRecusa,
   montarEmailCienciaDefinitiva,
+  montarEmailContingencia,
+  montarEmailAlertaContingencia,
+  montarEmailContingenciaRecebida,
 } from './rnc-email.js'
+import {
+  intervaloEntreAlertasMs,
+  obterParametrosWorkflow,
+} from './workflow-config.js'
 
 /**
  * Ciência do fornecedor.
@@ -17,7 +24,10 @@ import {
  * o aceite é registrado automaticamente por decurso de prazo.
  */
 
-/** Prazo (horas) para o fornecedor responder antes do aceite automático. */
+/**
+ * Prazo (horas) para o fornecedor responder antes do aceite automático.
+ * Padrão de fábrica — o valor em uso vem dos parâmetros do workflow.
+ */
 export const PRAZO_CIENCIA_HORAS = 48
 
 /** Seleciona o e-mail do fornecedor: o principal tem precedência. */
@@ -95,8 +105,11 @@ export async function enviarCienciaFornecedor(
     return { enviado: false, motivo: 'SMTP não configurado' }
   }
 
+  const parametros = await obterParametrosWorkflow(prisma)
   const token = randomBytes(24).toString('hex')
-  const prazoEm = new Date(Date.now() + PRAZO_CIENCIA_HORAS * 3600_000)
+  const prazoEm = new Date(
+    Date.now() + parametros.cienciaPrazoHoras * 3600_000,
+  )
 
   const { subject, text, html } = montarEmailCiencia({
     numero: rnc.numero,
@@ -236,6 +249,7 @@ export async function notificarRespostaCiencia(
  */
 export async function processarCienciaFornecedor(
   prisma: PrismaClient,
+  baseUrl?: string,
 ): Promise<{ aceitesAutomaticos: number }> {
   const vencidas = await prisma.relatorioNaoConformidade.findMany({
     where: {
@@ -258,6 +272,8 @@ export async function processarCienciaFornecedor(
     if (r.count === 0) continue
     aceitesAutomaticos++
     await notificarRespostaCiencia(prisma, id, { porDecurso: true })
+    // Confirmada a não conformidade, abre o prazo das ações de contingência.
+    await solicitarAcoesContingencia(prisma, id, baseUrl)
   }
   return { aceitesAutomaticos }
 }
@@ -347,6 +363,10 @@ export async function registrarAnaliseRecusa(
         // best-effort: a decisão já está registrada
       }
     }
+
+    // RNC mantida em definitivo: o fornecedor precisa devolver as ações
+    // de contingência dentro do prazo parametrizado.
+    await solicitarAcoesContingencia(prisma, rnc.id, opts.baseUrl)
   }
 
   return { status: novoStatus }
@@ -415,4 +435,312 @@ export async function solicitarAnaliseRecusa(
   } catch {
     // best-effort
   }
+}
+
+// ── Ações de contingência do fornecedor ─────────────────────────────
+
+/**
+ * Situações em que a não conformidade está confirmada e o fornecedor
+ * precisa devolver o plano de ações de contingência. RECUSA_ACEITA fica
+ * de fora: nesse caso a recusa foi acatada e não há o que executar.
+ */
+const CONFIRMACAO_LABEL: Record<string, string> = {
+  ACEITA: 'aceite do fornecedor',
+  ACEITA_POR_DECURSO: 'aceite automático por decurso de prazo',
+  MANTIDA_DEFINITIVA: 'decisão final após a análise da recusa',
+}
+
+export function cienciaConfirmaNaoConformidade(
+  status: string | null | undefined,
+): boolean {
+  return !!status && status in CONFIRMACAO_LABEL
+}
+
+export type ResultadoContingencia = {
+  solicitado: boolean
+  motivo?: string
+  email?: string
+}
+
+/**
+ * Abre o prazo das ações de contingência e pede a devolutiva ao contato do
+ * fornecedor. Idempotente: não reabre se o pedido já foi feito.
+ */
+export async function solicitarAcoesContingencia(
+  prisma: PrismaClient,
+  rncId: string,
+  baseUrl?: string,
+): Promise<ResultadoContingencia> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      id: true,
+      numero: true,
+      descricaoDefeito: true,
+      cienciaStatus: true,
+      cienciaToken: true,
+      contingenciaStatus: true,
+      fornecedor: {
+        select: {
+          razaoSocial: true,
+          contatos: {
+            select: { tipo: true, valor: true, nome: true, principal: true },
+          },
+        },
+      },
+      tipoNaoConformidade: { select: { codigo: true, descricao: true } },
+    },
+  })
+  if (!rnc) return { solicitado: false, motivo: 'RNC não encontrada' }
+  if (rnc.contingenciaStatus) {
+    return { solicitado: false, motivo: 'Ações de contingência já solicitadas' }
+  }
+  if (!cienciaConfirmaNaoConformidade(rnc.cienciaStatus)) {
+    return {
+      solicitado: false,
+      motivo: 'A não conformidade ainda não está confirmada pelo fornecedor.',
+    }
+  }
+  if (!rnc.cienciaToken) {
+    return { solicitado: false, motivo: 'RNC sem link de ciência do fornecedor' }
+  }
+
+  const contato = escolherEmailFornecedor(rnc.fornecedor?.contatos ?? [])
+  if (!contato) {
+    return {
+      solicitado: false,
+      motivo: 'Fornecedor sem contato de e-mail cadastrado.',
+    }
+  }
+
+  const transporte = await criarTransporteSmtp()
+  if (!transporte) return { solicitado: false, motivo: 'SMTP não configurado' }
+
+  const parametros = await obterParametrosWorkflow(prisma)
+  const prazoEm = new Date(
+    Date.now() + parametros.contingenciaPrazoHoras * 3600_000,
+  )
+
+  const { subject, text, html } = montarEmailContingencia({
+    numero: rnc.numero,
+    fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+    contatoNome: contato.nome,
+    tipoNc: rnc.tipoNaoConformidade
+      ? `${rnc.tipoNaoConformidade.codigo} — ${rnc.tipoNaoConformidade.descricao}`
+      : '',
+    descricaoDefeito: rnc.descricaoDefeito,
+    confirmacao: CONFIRMACAO_LABEL[rnc.cienciaStatus as string] ?? 'confirmada',
+    prazoEm,
+    alertasPorDia: parametros.contingenciaAlertasPorDia,
+    token: rnc.cienciaToken,
+    baseUrl,
+  })
+
+  try {
+    await transporte.transporter.sendMail({
+      from: transporte.remetente,
+      to: contato.email,
+      subject,
+      text,
+      html,
+    })
+  } catch (err) {
+    return {
+      solicitado: false,
+      motivo: err instanceof Error ? err.message : 'Falha no envio do e-mail',
+    }
+  }
+
+  // Condicionado a ainda não haver pedido: evita abrir dois prazos.
+  const r = await prisma.relatorioNaoConformidade.updateMany({
+    where: { id: rnc.id, contingenciaStatus: null },
+    data: {
+      contingenciaStatus: 'PENDENTE',
+      contingenciaSolicitadaEm: new Date(),
+      contingenciaPrazoEm: prazoEm,
+    },
+  })
+  if (r.count === 0) {
+    return { solicitado: false, motivo: 'Ações de contingência já solicitadas' }
+  }
+
+  return { solicitado: true, email: contato.email }
+}
+
+/** Aviso interno com as ações de contingência enviadas pelo fornecedor. */
+async function notificarContingenciaRecebida(
+  prisma: PrismaClient,
+  rncId: string,
+): Promise<void> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      numero: true,
+      filialId: true,
+      contingenciaAcoes: true,
+      contingenciaPrazoEm: true,
+      contingenciaRespondidaEm: true,
+      contingenciaRespondidaPor: true,
+      fornecedor: { select: { razaoSocial: true } },
+      criadoPor: { select: { email: true } },
+      aprovadores: { select: { email: true } },
+    },
+  })
+  if (!rnc) return
+
+  const transporte = await criarTransporteSmtp()
+  if (!transporte) return
+
+  const destinatarios = await destinatariosRespostaFornecedor(prisma, rnc)
+  if (destinatarios.length === 0) return
+
+  const respondidaEm = rnc.contingenciaRespondidaEm ?? new Date()
+  const { subject, text, html } = montarEmailContingenciaRecebida({
+    numero: rnc.numero,
+    fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+    respondidaPor: rnc.contingenciaRespondidaPor,
+    respondidaEm,
+    acoes: rnc.contingenciaAcoes ?? '',
+    emAtraso: !!rnc.contingenciaPrazoEm && respondidaEm > rnc.contingenciaPrazoEm,
+  })
+
+  try {
+    await transporte.transporter.sendMail({
+      from: transporte.remetente,
+      to: destinatarios.join(', '),
+      subject,
+      text,
+      html,
+    })
+  } catch {
+    // best-effort: a devolutiva já está registrada
+  }
+}
+
+/** Registra a devolutiva do fornecedor e encerra os alertas. */
+export async function registrarAcoesContingencia(
+  prisma: PrismaClient,
+  rncId: string,
+  opts: {
+    acoes: string
+    respondidoPor?: string | null
+    ip?: string | null
+    navegador?: string | null
+  },
+): Promise<void> {
+  const acoes = opts.acoes.trim()
+  if (!acoes) throw new Error('Informe as ações de contingência.')
+
+  // Condicionado ao status pendente: evita sobrescrever uma devolutiva
+  // já registrada por outra sessão.
+  const r = await prisma.relatorioNaoConformidade.updateMany({
+    where: { id: rncId, contingenciaStatus: 'PENDENTE' },
+    data: {
+      contingenciaStatus: 'RESPONDIDA',
+      contingenciaAcoes: acoes,
+      contingenciaRespondidaEm: new Date(),
+      contingenciaRespondidaPor: opts.respondidoPor?.trim() || null,
+      contingenciaIp: opts.ip?.slice(0, 64) || null,
+      contingenciaNavegador: opts.navegador?.slice(0, 160) || null,
+    },
+  })
+  if (r.count === 0) {
+    throw new Error('As ações de contingência já foram registradas.')
+  }
+
+  await notificarContingenciaRecebida(prisma, rncId)
+}
+
+/**
+ * Alertas das ações de contingência em atraso. Vencido o prazo, o
+ * fornecedor recebe N alertas por dia (parâmetro do workflow) até enviar
+ * a devolutiva. Roda no agendador.
+ */
+export async function processarAlertasContingencia(
+  prisma: PrismaClient,
+  baseUrl?: string,
+): Promise<{ alertasEnviados: number }> {
+  const parametros = await obterParametrosWorkflow(prisma)
+  const intervalo = intervaloEntreAlertasMs(parametros.contingenciaAlertasPorDia)
+  const agora = new Date()
+  const desde = new Date(agora.getTime() - intervalo)
+
+  const atrasadas = await prisma.relatorioNaoConformidade.findMany({
+    where: {
+      contingenciaStatus: 'PENDENTE',
+      contingenciaPrazoEm: { lte: agora },
+      OR: [
+        { contingenciaUltimoAlerta: null },
+        { contingenciaUltimoAlerta: { lte: desde } },
+      ],
+    },
+    select: {
+      id: true,
+      numero: true,
+      cienciaToken: true,
+      contingenciaPrazoEm: true,
+      contingenciaAlertas: true,
+      fornecedor: {
+        select: {
+          razaoSocial: true,
+          contatos: {
+            select: { tipo: true, valor: true, nome: true, principal: true },
+          },
+        },
+      },
+    },
+  })
+  if (atrasadas.length === 0) return { alertasEnviados: 0 }
+
+  const transporte = await criarTransporteSmtp()
+  if (!transporte) return { alertasEnviados: 0 }
+
+  let alertasEnviados = 0
+  for (const rnc of atrasadas) {
+    const contato = escolherEmailFornecedor(rnc.fornecedor?.contatos ?? [])
+    if (!contato || !rnc.cienciaToken) continue
+
+    // Marca o alerta ANTES do envio e condicionado à janela: se o disparo
+    // falhar, a próxima rodada tenta de novo sem duplicar a cobrança.
+    const marcado = await prisma.relatorioNaoConformidade.updateMany({
+      where: {
+        id: rnc.id,
+        contingenciaStatus: 'PENDENTE',
+        OR: [
+          { contingenciaUltimoAlerta: null },
+          { contingenciaUltimoAlerta: { lte: desde } },
+        ],
+      },
+      data: {
+        contingenciaUltimoAlerta: new Date(),
+        contingenciaAlertas: { increment: 1 },
+      },
+    })
+    if (marcado.count === 0) continue
+
+    const { subject, text, html } = montarEmailAlertaContingencia({
+      numero: rnc.numero,
+      fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+      contatoNome: contato.nome,
+      prazoEm: rnc.contingenciaPrazoEm ?? agora,
+      alerta: rnc.contingenciaAlertas + 1,
+      token: rnc.cienciaToken,
+      baseUrl,
+    })
+
+    try {
+      await transporte.transporter.sendMail({
+        from: transporte.remetente,
+        to: contato.email,
+        subject,
+        text,
+        html,
+      })
+      alertasEnviados++
+    } catch {
+      // best-effort: a próxima janela cobra novamente
+    }
+  }
+
+  return { alertasEnviados }
 }

@@ -9,6 +9,9 @@ export type CienciaStatus =
   | 'RECUSA_ACEITA'
   | 'MANTIDA_DEFINITIVA'
 
+/** Devolutiva das ações de contingência que o fornecedor vai executar. */
+export type ContingenciaStatus = 'PENDENTE' | 'RESPONDIDA'
+
 export type CienciaRnc = {
   id: string
   numero: string
@@ -20,6 +23,14 @@ export type CienciaRnc = {
   cienciaRespondidaEm: string | null
   cienciaRespondidaPor: string | null
   cienciaJustificativa: string | null
+  cienciaAnaliseEm: string | null
+  cienciaAnaliseJustificativa: string | null
+  contingenciaStatus: ContingenciaStatus | null
+  contingenciaSolicitadaEm: string | null
+  contingenciaPrazoEm: string | null
+  contingenciaRespondidaEm: string | null
+  contingenciaRespondidaPor: string | null
+  contingenciaAcoes: string | null
   filial: { codigo: string; nome: string } | null
   fornecedor: { razaoSocial: string; cnpj: string } | null
   tipoNaoConformidade: { codigo: string; descricao: string } | null
@@ -52,6 +63,17 @@ export const cienciaApi = {
     body: { aceita: boolean; nome?: string | null; justificativa?: string | null },
   ) =>
     publicRequest<CienciaRnc>(`/${token}/responder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  /** Registra o plano de ações de contingência do fornecedor. */
+  registrarContingencia: (
+    token: string,
+    body: { acoes: string; nome?: string | null },
+  ) =>
+    publicRequest<CienciaRnc>(`/${token}/contingencia`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

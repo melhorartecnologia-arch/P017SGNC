@@ -8,6 +8,8 @@ import {
   notificarRespostaCiencia,
   solicitarAnaliseRecusa,
   registrarAnaliseRecusa,
+  solicitarAcoesContingencia,
+  registrarAcoesContingencia,
 } from '../lib/rnc-ciencia.js'
 
 /**
@@ -71,6 +73,14 @@ async function carregarPorToken(token: string) {
       cienciaRespondidaEm: true,
       cienciaRespondidaPor: true,
       cienciaJustificativa: true,
+      cienciaAnaliseEm: true,
+      cienciaAnaliseJustificativa: true,
+      contingenciaStatus: true,
+      contingenciaPrazoEm: true,
+      contingenciaSolicitadaEm: true,
+      contingenciaRespondidaEm: true,
+      contingenciaRespondidaPor: true,
+      contingenciaAcoes: true,
       filial: { select: { codigo: true, nome: true } },
       fornecedor: { select: { razaoSocial: true, cnpj: true } },
       tipoNaoConformidade: { select: { codigo: true, descricao: true } },
@@ -155,10 +165,70 @@ cienciaRouter.post('/:token/responder', async (req, res, next) => {
 
     // Avisa os aprovadores marcados (não bloqueia a resposta do fornecedor).
     void notificarRespostaCiencia(prisma, rnc.id, { porDecurso: false })
-    // Recusa: abre a segunda instância — o aprovador marcado decide entre
-    // acatar a recusa ou negá-la (tornando a RNC definitiva).
-    if (!aceita) {
+    if (aceita) {
+      // Não conformidade confirmada: pede as ações de contingência e abre
+      // o prazo parametrizado para a devolutiva.
+      await solicitarAcoesContingencia(prisma, rnc.id, baseUrlPublica(req))
+    } else {
+      // Recusa: abre a segunda instância — o aprovador marcado decide entre
+      // acatar a recusa ou negá-la (tornando a RNC definitiva).
       void solicitarAnaliseRecusa(prisma, rnc.id, baseUrlPublica(req))
+    }
+
+    res.json(await carregarPorToken(req.params.token))
+  } catch (err) {
+    next(err)
+  }
+})
+
+// ── Ações de contingência do fornecedor ─────────────────────────────
+
+const contingenciaSchema = z.object({
+  acoes: z
+    .string({ required_error: 'Informe as ações de contingência.' })
+    .trim()
+    .min(1, 'Informe as ações de contingência.')
+    .max(8000),
+  nome: z.string().trim().max(160).optional().nullable(),
+})
+
+// Registra o plano de ações de contingência informado pelo fornecedor.
+cienciaRouter.post('/:token/contingencia', async (req, res, next) => {
+  try {
+    const { acoes, nome } = contingenciaSchema.parse(req.body)
+
+    const rnc = await prisma.relatorioNaoConformidade.findUnique({
+      where: { cienciaToken: req.params.token },
+      select: { id: true, contingenciaStatus: true },
+    })
+    if (!rnc) throw new HttpError(404, 'Link de ciência inválido ou expirado.')
+    if (rnc.contingenciaStatus !== 'PENDENTE') {
+      throw new HttpError(
+        409,
+        rnc.contingenciaStatus === 'RESPONDIDA'
+          ? 'As ações de contingência já foram registradas.'
+          : 'Ainda não há ações de contingência a informar para esta RNC.',
+      )
+    }
+
+    const ua = req.headers['user-agent'] ?? ''
+    const r = UAParser(ua)
+    const navegador = [r.browser.name, r.browser.version]
+      .filter(Boolean)
+      .join(' ')
+
+    try {
+      await registrarAcoesContingencia(prisma, rnc.id, {
+        acoes,
+        respondidoPor: nome,
+        ip: ipDaRequisicao(req),
+        navegador,
+      })
+    } catch (err) {
+      throw new HttpError(
+        409,
+        err instanceof Error ? err.message : 'Não foi possível registrar.',
+      )
     }
 
     res.json(await carregarPorToken(req.params.token))

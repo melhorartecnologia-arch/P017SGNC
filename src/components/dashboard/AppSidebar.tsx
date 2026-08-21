@@ -88,6 +88,7 @@ const cadastrosAdminNav: Item[] = [
 // Configurações técnicas — somente administradores.
 const configuracoesNav: Item[] = [
   { key: 'cfg-smtp', label: 'Servidor de E-mail (SMTP)', icon: Mail },
+  { key: 'cfg-workflow', label: 'Prazos do Fornecedor', icon: Timer },
 ]
 
 type NavItemProps = {

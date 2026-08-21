@@ -129,6 +129,8 @@ rncRouter.get('/', async (req, res, next) => {
       severidadeId,
       status,
       cienciaStatus,
+      contingenciaStatus,
+      contingenciaAtrasada,
       de,
       ate,
       limit,
@@ -155,6 +157,16 @@ rncRouter.get('/', async (req, res, next) => {
     // Ciência do fornecedor: "__none__" = ainda não enviada (campo nulo).
     if (cienciaStatus) {
       where.cienciaStatus = cienciaStatus === '__none__' ? null : cienciaStatus
+    }
+    // Ações de contingência: "__none__" = ainda não solicitadas.
+    if (contingenciaStatus) {
+      where.contingenciaStatus =
+        contingenciaStatus === '__none__' ? null : contingenciaStatus
+    }
+    // Em atraso: solicitadas, sem devolutiva e com o prazo já vencido.
+    if (contingenciaAtrasada) {
+      where.contingenciaStatus = 'PENDENTE'
+      where.contingenciaPrazoEm = { lte: new Date() }
     }
 
     const take = limit ?? pageSize

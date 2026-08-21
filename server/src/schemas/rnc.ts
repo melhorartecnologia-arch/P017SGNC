@@ -257,6 +257,15 @@ export const rncQuerySchema = z.object({
       '__none__',
     ])
     .optional(),
+  /** Ações de contingência. "__none__" = ainda não solicitadas. */
+  contingenciaStatus: z
+    .enum(['PENDENTE', 'RESPONDIDA', '__none__'])
+    .optional(),
+  /** Só as RNCs com as ações de contingência fora do prazo. */
+  contingenciaAtrasada: z
+    .union([z.literal('true'), z.literal('false'), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === 'true'),
   // Período por data de identificação (drill-down do dashboard).
   de: z.coerce.date().optional(),
   ate: z.coerce.date().optional(),
