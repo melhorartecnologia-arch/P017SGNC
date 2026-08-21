@@ -252,6 +252,8 @@ export const rncQuerySchema = z.object({
       'ACEITA',
       'RECUSADA',
       'ACEITA_POR_DECURSO',
+      'RECUSA_ACEITA',
+      'MANTIDA_DEFINITIVA',
       '__none__',
     ])
     .optional(),

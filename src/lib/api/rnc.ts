@@ -8,12 +8,16 @@ export type CienciaRncStatus =
   | 'ACEITA'
   | 'RECUSADA'
   | 'ACEITA_POR_DECURSO'
+  | 'RECUSA_ACEITA'
+  | 'MANTIDA_DEFINITIVA'
 
 export const CIENCIA_RNC_LABEL: Record<CienciaRncStatus, string> = {
   PENDENTE: 'Aguardando fornecedor',
   ACEITA: 'Aceita pelo fornecedor',
-  RECUSADA: 'Recusada/questionada',
+  RECUSADA: 'Recusada — aguardando análise',
   ACEITA_POR_DECURSO: 'Aceita por decurso de prazo',
+  RECUSA_ACEITA: 'Recusa acatada',
+  MANTIDA_DEFINITIVA: 'Mantida em definitivo',
 }
 
 export type SeveridadeRef = {
@@ -57,6 +61,10 @@ export type Rnc = {
   cienciaRespondidaEm: string | null
   cienciaRespondidaPor: string | null
   cienciaJustificativa: string | null
+  cienciaAnaliseEm: string | null
+  cienciaAnalisePor: string | null
+  cienciaAnaliseJustificativa: string | null
+  cienciaDefinitivaEm: string | null
 
   // Material & lote
   produtoId: string | null

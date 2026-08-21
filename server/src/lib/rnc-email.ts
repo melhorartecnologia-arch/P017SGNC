@@ -435,3 +435,142 @@ export function montarEmailRespostaCiencia(d: DadosEmailRespostaCiencia) {
 
   return { subject, text, html }
 }
+
+// ── Análise da recusa e envio definitivo ────────────────────────────
+
+export type DadosEmailAnaliseRecusa = {
+  numero: string
+  fornecedorNome: string
+  respondidaPor: string | null
+  respondidaEm: Date
+  justificativa: string | null
+  token: string
+  baseUrl?: string
+}
+
+/**
+ * E-mail ao aprovador marcado quando o fornecedor recusa a RNC. Ele decide
+ * entre acatar a recusa ou negá-la (tornando a RNC definitiva).
+ */
+export function montarEmailAnaliseRecusa(d: DadosEmailAnaliseRecusa) {
+  const base = resolverBaseUrl(d.baseUrl)
+  const link = `${base}/?analise=${encodeURIComponent(d.token)}`
+  const subject = `RNC ${d.numero} — recusada pelo fornecedor: sua análise é necessária`
+
+  const text = [
+    `A RNC ${d.numero} foi RECUSADA/QUESTIONADA por ${d.fornecedorNome}.`,
+    '',
+    `Data da recusa: ${fmtDataHora(d.respondidaEm)}`,
+    d.respondidaPor ? `Respondido por: ${d.respondidaPor}` : '',
+    d.justificativa ? `\nJustificativa do fornecedor:\n${d.justificativa}` : '',
+    '',
+    'Como aprovador responsável, você deve analisar essa recusa:',
+    '  • ACATAR A RECUSA — a justificativa do fornecedor é aceita;',
+    '  • NEGAR A RECUSA — a RNC é mantida e enviada em definitivo ao',
+    '    fornecedor, sem possibilidade de nova recusa.',
+    '',
+    `Registrar a sua análise: ${link}`,
+    '',
+    'O fornecedor pode recusar apenas uma vez.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">RNC ${escapeHtml(d.numero)} — recusada pelo fornecedor</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      <b>${escapeHtml(d.fornecedorNome)}</b> recusou/questionou esta não conformidade
+      em ${escapeHtml(fmtDataHora(d.respondidaEm))}${d.respondidaPor ? ` · por ${escapeHtml(d.respondidaPor)}` : ''}.
+    </p>
+    ${
+      d.justificativa
+        ? `<p style="font-size:13px;color:#374151;margin:0 0 4px"><b>Justificativa do fornecedor:</b></p>
+           <p style="white-space:pre-wrap;background:#fef2f2;border:1px solid #fecaca;padding:10px 12px;border-radius:6px;font-size:13px;margin:0 0 16px">${escapeHtml(d.justificativa)}</p>`
+        : ''
+    }
+    <p style="font-size:13px;color:#374151;margin:0 0 6px">Como aprovador responsável, analise a recusa:</p>
+    <ul style="font-size:13px;color:#374151;margin:0 0 16px;padding-left:18px">
+      <li><b>Acatar a recusa</b> — a justificativa do fornecedor é aceita.</li>
+      <li><b>Negar a recusa</b> — a RNC é mantida e enviada em <b>definitivo</b>
+          ao fornecedor, sem possibilidade de nova recusa.</li>
+    </ul>
+    <p style="margin:0 0 16px">
+      <a href="${link}" style="background:#111827;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        Registrar a minha análise
+      </a>
+    </p>
+    <p style="color:#6b7280;font-size:12px;margin:0">O fornecedor pode recusar apenas uma vez.</p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
+export type DadosEmailDefinitiva = {
+  numero: string
+  fornecedorNome: string
+  contatoNome: string | null
+  justificativaAnalise: string | null
+  token: string
+  baseUrl?: string
+}
+
+/**
+ * E-mail ao fornecedor quando a recusa é negada: a RNC passa a valer em
+ * definitivo, sem possibilidade de nova recusa.
+ */
+export function montarEmailCienciaDefinitiva(d: DadosEmailDefinitiva) {
+  const base = resolverBaseUrl(d.baseUrl)
+  const linkPdf = `${base}/api/ciencia/${encodeURIComponent(d.token)}/pdf`
+  const linkPagina = `${base}/?ciencia=${encodeURIComponent(d.token)}`
+  const subject = `RNC ${d.numero} — decisão final: não conformidade mantida`
+
+  const text = [
+    `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
+    '',
+    `A recusa apresentada para a RNC ${d.numero} foi analisada e NÃO foi acatada.`,
+    'A não conformidade é mantida e esta comunicação é DEFINITIVA, não cabendo nova recusa.',
+    '',
+    d.justificativaAnalise
+      ? `Parecer da análise:\n${d.justificativaAnalise}\n`
+      : '',
+    `Documento (PDF): ${linkPdf}`,
+    `Consultar na plataforma: ${linkPagina}`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">RNC ${escapeHtml(d.numero)} — decisão final</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, a recusa apresentada
+      por <b>${escapeHtml(d.fornecedorNome)}</b> foi analisada.
+    </p>
+    <p style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;padding:12px 14px;border-radius:8px;font-size:14px;margin:0 0 14px">
+      <b>A recusa não foi acatada.</b><br>
+      <span style="color:#374151;font-size:13px">
+        A não conformidade é mantida e esta comunicação é <b>definitiva</b>,
+        não cabendo nova recusa.
+      </span>
+    </p>
+    ${
+      d.justificativaAnalise
+        ? `<p style="font-size:13px;color:#374151;margin:0 0 4px"><b>Parecer da análise:</b></p>
+           <p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:10px 12px;border-radius:6px;font-size:13px;margin:0 0 16px">${escapeHtml(d.justificativaAnalise)}</p>`
+        : ''
+    }
+    <p style="margin:0 0 16px">
+      <a href="${linkPagina}" style="background:#111827;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        Consultar na plataforma
+      </a>
+      <a href="${linkPdf}" style="margin-left:8px;color:#374151;text-decoration:none;border:1px solid #d1d5db;padding:10px 18px;border-radius:8px;display:inline-block;font-size:14px">
+        Ver documento (PDF)
+      </a>
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}

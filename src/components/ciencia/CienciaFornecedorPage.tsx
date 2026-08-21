@@ -167,12 +167,12 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
           <div
             className={cn(
               'flex items-start gap-3 rounded-xl border p-4',
-              status === 'RECUSADA'
+              status === 'RECUSADA' || status === 'MANTIDA_DEFINITIVA'
                 ? 'border-red-200 bg-red-50'
                 : 'border-emerald-200 bg-emerald-50',
             )}
           >
-            {status === 'RECUSADA' ? (
+            {status === 'RECUSADA' || status === 'MANTIDA_DEFINITIVA' ? (
               <XCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
             ) : (
               <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" />
@@ -181,7 +181,9 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
               <span
                 className={cn(
                   'text-sm font-semibold',
-                  status === 'RECUSADA' ? 'text-red-800' : 'text-emerald-800',
+                  status === 'RECUSADA' || status === 'MANTIDA_DEFINITIVA'
+                    ? 'text-red-800'
+                    : 'text-emerald-800',
                 )}
               >
                 {CIENCIA_LABEL[status]}
@@ -190,6 +192,22 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
                 Registrada em {fmtDataHora(rnc.cienciaRespondidaEm)}
                 {rnc.cienciaRespondidaPor ? ` · por ${rnc.cienciaRespondidaPor}` : ''}
               </span>
+              {status === 'RECUSADA' && (
+                <span className="text-xs text-neutral-600">
+                  Sua recusa está em análise. Não é possível recusar novamente.
+                </span>
+              )}
+              {status === 'MANTIDA_DEFINITIVA' && (
+                <span className="text-xs font-medium text-red-800">
+                  A recusa não foi acatada: a não conformidade é mantida em
+                  definitivo, não cabendo nova recusa.
+                </span>
+              )}
+              {status === 'RECUSA_ACEITA' && (
+                <span className="text-xs text-neutral-600">
+                  Sua recusa foi acatada.
+                </span>
+              )}
               {rnc.cienciaJustificativa && (
                 <p className="mt-1 whitespace-pre-wrap rounded-md border border-neutral-200 bg-white p-2 text-xs text-neutral-700">
                   {rnc.cienciaJustificativa}

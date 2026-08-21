@@ -340,6 +340,11 @@ enum CienciaFornecedorStatus {
   ACEITA
   RECUSADA
   ACEITA_POR_DECURSO
+  /// Aprovador acatou a recusa do fornecedor (encerra a favor dele).
+  RECUSA_ACEITA
+  /// Aprovador negou a recusa: a RNC é enviada em definitivo ao
+  /// fornecedor, sem possibilidade de nova recusa.
+  MANTIDA_DEFINITIVA
 }
 
 enum RncStatus {
@@ -389,6 +394,13 @@ model RelatorioNaoConformidade {
   cienciaJustificativa String?   @map("ciencia_justificativa") @db.Text
   cienciaIp            String?   @map("ciencia_ip") @db.VarChar(64)
   cienciaNavegador     String?   @map("ciencia_navegador") @db.VarChar(160)
+  // Análise da recusa pelo aprovador marcado: acatar ou negar a recusa.
+  // O fornecedor pode recusar uma única vez.
+  cienciaAnaliseToken  String?   @unique @map("ciencia_analise_token") @db.VarChar(64)
+  cienciaAnaliseEm     DateTime? @map("ciencia_analise_em")
+  cienciaAnalisePor    String?   @map("ciencia_analise_por") @db.VarChar(160)
+  cienciaAnaliseJustificativa String? @map("ciencia_analise_justificativa") @db.Text
+  cienciaDefinitivaEm  DateTime? @map("ciencia_definitiva_em")
 
   // Material & lote
   produtoId          String?   @map("produto_id") @db.Uuid

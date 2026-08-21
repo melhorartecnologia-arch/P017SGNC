@@ -65,16 +65,22 @@ function CienciaBadge({ rnc }: { rnc: Rnc }) {
     st === 'PENDENTE'
       ? 'border-amber-200 bg-amber-50 text-amber-700'
       : st === 'RECUSADA'
-        ? 'border-red-200 bg-red-50 text-red-700'
-        : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+        ? 'border-orange-200 bg-orange-50 text-orange-700'
+        : st === 'MANTIDA_DEFINITIVA'
+          ? 'border-red-200 bg-red-50 text-red-700'
+          : 'border-emerald-200 bg-emerald-50 text-emerald-700'
   const curto =
     st === 'PENDENTE'
       ? 'Aguardando'
       : st === 'RECUSADA'
-        ? 'Recusada'
+        ? 'Em análise'
         : st === 'ACEITA'
           ? 'Aceita'
-          : 'Aceita (prazo)'
+          : st === 'RECUSA_ACEITA'
+            ? 'Recusa acatada'
+            : st === 'MANTIDA_DEFINITIVA'
+              ? 'Definitiva'
+              : 'Aceita (prazo)'
   return (
     <span
       title={CIENCIA_RNC_LABEL[st]}

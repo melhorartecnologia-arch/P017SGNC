@@ -777,12 +777,15 @@ function CienciaFornecedorBloco({ rnc }: { rnc: Rnc }) {
 
   const pendente = status === 'PENDENTE'
   const recusada = status === 'RECUSADA'
-  const Icone = pendente ? Clock : recusada ? XCircle : CheckCircle2
+  const definitiva = status === 'MANTIDA_DEFINITIVA'
+  const Icone = pendente ? Clock : recusada || definitiva ? XCircle : CheckCircle2
   const cor = pendente
     ? 'border-amber-200 bg-amber-50 text-amber-800'
     : recusada
-      ? 'border-red-200 bg-red-50 text-red-800'
-      : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+      ? 'border-orange-200 bg-orange-50 text-orange-800'
+      : definitiva
+        ? 'border-red-200 bg-red-50 text-red-800'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-800'
 
   return (
     <div className="flex flex-col gap-2">
@@ -801,6 +804,12 @@ function CienciaFornecedorBloco({ rnc }: { rnc: Rnc }) {
               {rnc.cienciaRespondidaPor ? ` · por ${rnc.cienciaRespondidaPor}` : ''}
             </span>
           )}
+          {recusada && (
+            <span>
+              Aguardando a análise do aprovador responsável (acatar ou negar a
+              recusa). O fornecedor não pode recusar novamente.
+            </span>
+          )}
         </div>
       </div>
       <Row label="Enviada para">
@@ -808,8 +817,22 @@ function CienciaFornecedorBloco({ rnc }: { rnc: Rnc }) {
       </Row>
       <Row label="Envio">{formatDataHoraBR(rnc.cienciaEnviadaEm) || '—'}</Row>
       {rnc.cienciaJustificativa && (
-        <Row label={recusada ? 'Motivo / questionamento' : 'Observações'}>
+        <Row label="Justificativa do fornecedor">
           <span className="whitespace-pre-wrap">{rnc.cienciaJustificativa}</span>
+        </Row>
+      )}
+      {rnc.cienciaAnaliseEm && (
+        <Row label="Análise da recusa">
+          {status === 'RECUSA_ACEITA' ? 'Recusa acatada' : 'Recusa negada'} em{' '}
+          {formatDataHoraBR(rnc.cienciaAnaliseEm)}
+          {rnc.cienciaAnalisePor ? ` · por ${rnc.cienciaAnalisePor}` : ''}
+        </Row>
+      )}
+      {rnc.cienciaAnaliseJustificativa && (
+        <Row label="Parecer da análise">
+          <span className="whitespace-pre-wrap">
+            {rnc.cienciaAnaliseJustificativa}
+          </span>
         </Row>
       )}
     </div>

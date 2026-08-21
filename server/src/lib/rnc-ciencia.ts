@@ -1,7 +1,12 @@
 import { randomBytes } from 'node:crypto'
 import type { PrismaClient } from '@prisma/client'
 import { criarTransporteSmtp } from './smtp.js'
-import { montarEmailCiencia, montarEmailRespostaCiencia } from './rnc-email.js'
+import {
+  montarEmailCiencia,
+  montarEmailRespostaCiencia,
+  montarEmailAnaliseRecusa,
+  montarEmailCienciaDefinitiva,
+} from './rnc-email.js'
 
 /**
  * Ciência do fornecedor.
@@ -255,4 +260,159 @@ export async function processarCienciaFornecedor(
     await notificarRespostaCiencia(prisma, id, { porDecurso: true })
   }
   return { aceitesAutomaticos }
+}
+
+// ── Análise da recusa (segunda instância) ───────────────────────────
+
+/**
+ * Após a recusa do fornecedor, o aprovador marcado analisa: acata a recusa
+ * (encerra a favor do fornecedor) ou a nega — e nesse caso a RNC é enviada
+ * em definitivo ao fornecedor, sem possibilidade de nova recusa.
+ * O fornecedor pode recusar uma única vez.
+ */
+export async function registrarAnaliseRecusa(
+  prisma: PrismaClient,
+  rncId: string,
+  opts: {
+    acatarRecusa: boolean
+    analisadoPor?: string | null
+    justificativa?: string | null
+    baseUrl?: string
+  },
+): Promise<{ status: 'RECUSA_ACEITA' | 'MANTIDA_DEFINITIVA' }> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      id: true,
+      numero: true,
+      cienciaStatus: true,
+      cienciaToken: true,
+      fornecedor: {
+        select: {
+          razaoSocial: true,
+          contatos: {
+            select: { tipo: true, valor: true, nome: true, principal: true },
+          },
+        },
+      },
+    },
+  })
+  if (!rnc) throw new Error('RNC não encontrada')
+  if (rnc.cienciaStatus !== 'RECUSADA') {
+    throw new Error(
+      'A análise só é possível quando o fornecedor recusou a não conformidade.',
+    )
+  }
+
+  const novoStatus = opts.acatarRecusa ? 'RECUSA_ACEITA' : 'MANTIDA_DEFINITIVA'
+  const agora = new Date()
+
+  // Condicionado ao status atual: evita duas análises simultâneas.
+  const r = await prisma.relatorioNaoConformidade.updateMany({
+    where: { id: rnc.id, cienciaStatus: 'RECUSADA' },
+    data: {
+      cienciaStatus: novoStatus,
+      cienciaAnaliseEm: agora,
+      cienciaAnalisePor: opts.analisadoPor?.trim() || null,
+      cienciaAnaliseJustificativa: opts.justificativa?.trim() || null,
+      ...(opts.acatarRecusa ? {} : { cienciaDefinitivaEm: agora }),
+    },
+  })
+  if (r.count === 0) {
+    throw new Error('Esta recusa já foi analisada.')
+  }
+
+  // Recusa negada: comunica o fornecedor em definitivo.
+  if (!opts.acatarRecusa) {
+    const contato = escolherEmailFornecedor(rnc.fornecedor?.contatos ?? [])
+    const transporte = await criarTransporteSmtp()
+    if (contato && transporte && rnc.cienciaToken) {
+      const { subject, text, html } = montarEmailCienciaDefinitiva({
+        numero: rnc.numero,
+        fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+        contatoNome: contato.nome,
+        justificativaAnalise: opts.justificativa?.trim() || null,
+        token: rnc.cienciaToken,
+        baseUrl: opts.baseUrl,
+      })
+      try {
+        await transporte.transporter.sendMail({
+          from: transporte.remetente,
+          to: contato.email,
+          subject,
+          text,
+          html,
+        })
+      } catch {
+        // best-effort: a decisão já está registrada
+      }
+    }
+  }
+
+  return { status: novoStatus }
+}
+
+/**
+ * Envia ao(s) aprovador(es) marcado(s) o pedido de análise da recusa,
+ * com o link onde decidem entre acatar ou negar.
+ */
+export async function solicitarAnaliseRecusa(
+  prisma: PrismaClient,
+  rncId: string,
+  baseUrl?: string,
+): Promise<void> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      id: true,
+      numero: true,
+      filialId: true,
+      cienciaStatus: true,
+      cienciaAnaliseToken: true,
+      cienciaRespondidaEm: true,
+      cienciaRespondidaPor: true,
+      cienciaJustificativa: true,
+      fornecedor: { select: { razaoSocial: true } },
+      criadoPor: { select: { email: true } },
+      aprovadores: { select: { email: true } },
+    },
+  })
+  if (!rnc || rnc.cienciaStatus !== 'RECUSADA') return
+
+  const transporte = await criarTransporteSmtp()
+  if (!transporte) return
+
+  const destinatarios = await destinatariosRespostaFornecedor(prisma, rnc)
+  if (destinatarios.length === 0) return
+
+  let token = rnc.cienciaAnaliseToken
+  if (!token) {
+    token = randomBytes(24).toString('hex')
+    await prisma.relatorioNaoConformidade.update({
+      where: { id: rnc.id },
+      data: { cienciaAnaliseToken: token },
+    })
+  }
+
+  const { subject, text, html } = montarEmailAnaliseRecusa({
+    numero: rnc.numero,
+    fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+    respondidaPor: rnc.cienciaRespondidaPor,
+    respondidaEm: rnc.cienciaRespondidaEm ?? new Date(),
+    justificativa: rnc.cienciaJustificativa,
+    token,
+    baseUrl,
+  })
+
+  try {
+    await transporte.transporter.sendMail({
+      from: transporte.remetente,
+      to: destinatarios.join(', '),
+      subject,
+      text,
+      html,
+    })
+  } catch {
+    // best-effort
+  }
 }
