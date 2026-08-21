@@ -142,6 +142,7 @@ const workflowSelect = {
   cienciaPrazoHoras: true,
   contingenciaPrazoHoras: true,
   contingenciaAlertasPorDia: true,
+  eficaciaEsperaDias: true,
   updatedAt: true,
 } as const
 

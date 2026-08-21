@@ -6,6 +6,7 @@ import { processarWorkflows } from './lib/rnc-workflow.js'
 import {
   processarCienciaFornecedor,
   processarAlertasContingencia,
+  processarVerificacaoEficacia,
 } from './lib/rnc-ciencia.js'
 import { errorHandler } from './middleware/error.js'
 import { requireAuth } from './middleware/auth.js'
@@ -129,6 +130,18 @@ async function start() {
       }
     } catch (err) {
       console.error('SGNC contingência: falha ao processar os alertas.', err)
+    }
+    // Eficácia: libera as verificações cujo tempo de espera acabou e
+    // avisa os aprovadores marcados.
+    try {
+      const e = await processarVerificacaoEficacia(prisma)
+      if (e.liberadas) {
+        console.log(
+          `SGNC eficácia: ${e.liberadas} verificação(ões) liberada(s).`,
+        )
+      }
+    } catch (err) {
+      console.error('SGNC eficácia: falha ao liberar as verificações.', err)
     }
   }
   setTimeout(tick, 30_000) // primeiro tick logo após subir

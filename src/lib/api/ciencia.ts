@@ -97,6 +97,14 @@ export type CienciaRnc = {
   causaComo: string | null
   causaQuantoCusta: string | null
   causasIshikawa: CausaIshikawa[]
+  eficaciaStatus:
+    | 'AGUARDANDO_PRAZO'
+    | 'PENDENTE'
+    | 'EFICAZ'
+    | 'NAO_EFICAZ'
+    | null
+  eficaciaVerificadaEm: string | null
+  eficaciaParecer: string | null
   filial: { codigo: string; nome: string } | null
   fornecedor: { razaoSocial: string; cnpj: string } | null
   tipoNaoConformidade: { codigo: string; descricao: string } | null

@@ -13,6 +13,8 @@ import {
   montarEmailCausaRaizSolicitada,
   montarEmailCausaRaizEnviada,
   montarEmailCausaRaizAnalisada,
+  montarEmailEficaciaLiberada,
+  montarEmailEficaciaVerificada,
 } from './rnc-email.js'
 import {
   intervaloEntreAlertasMs,
@@ -837,6 +839,8 @@ async function fecharAnalisePlano(
   }
 
   await notificarAnalisePlano(prisma, rncId, { aprovado, baseUrl })
+  // Plano aprovado: se a análise de causa também estiver, abre a eficácia.
+  if (aprovado) await abrirVerificacaoEficacia(prisma, rncId)
   return {
     contingenciaStatus: aprovado ? 'APROVADA' : 'AJUSTE_SOLICITADO',
     pendentes: 0,
@@ -1335,6 +1339,8 @@ export async function analisarCausaRaiz(
     parecer,
     baseUrl: opts.baseUrl,
   })
+  // Análise aprovada: se o plano de ações também estiver, abre a eficácia.
+  if (opts.aprovada) await abrirVerificacaoEficacia(prisma, rncId)
   return { causaRaizStatus: novoStatus }
 }
 
@@ -1385,5 +1391,300 @@ async function notificarCausaRaizAnalisada(
     })
   } catch {
     // best-effort: a decisão já está registrada
+  }
+}
+
+// ── Verificação de eficácia ─────────────────────────────────────────
+
+/**
+ * Aprovados o plano de ações e a análise de causa, resta confirmar se o
+ * que foi executado resolveu. A verificação é do aprovador marcado e só
+ * pode ser registrada depois da última data planejada das ações mais o
+ * tempo de espera parametrizado — antes disso não há o que julgar.
+ */
+
+/** Milissegundos em um dia. */
+const DIA_MS = 86_400_000
+
+/**
+ * Data base da eficácia: a última data planejada entre as ações
+ * APROVADAS do plano. Ações sem prazo não entram na conta; se nenhuma
+ * tiver prazo, vale a data em que o plano foi aprovado.
+ */
+export function calcularDataBaseEficacia(
+  acoes: { status: string; prazo: Date | null }[],
+  planoAprovadoEm: Date | null,
+): Date | null {
+  const prazos = acoes
+    .filter((a) => a.status === 'APROVADA' && a.prazo)
+    .map((a) => (a.prazo as Date).getTime())
+  if (prazos.length > 0) return new Date(Math.max(...prazos))
+  return planoAprovadoEm
+}
+
+/**
+ * Abre a etapa de eficácia quando o plano de ações E a análise de causa
+ * estão aprovados. Idempotente: chamada nas duas aprovações, só tem
+ * efeito quando a segunda fecha.
+ */
+export async function abrirVerificacaoEficacia(
+  prisma: PrismaClient,
+  rncId: string,
+): Promise<{ aberta: boolean; motivo?: string; liberadaEm?: Date }> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      id: true,
+      contingenciaStatus: true,
+      contingenciaAnalisadaEm: true,
+      causaRaizStatus: true,
+      eficaciaStatus: true,
+      acoesContingencia: { select: { status: true, prazo: true } },
+    },
+  })
+  if (!rnc) return { aberta: false, motivo: 'RNC não encontrada' }
+  if (rnc.eficaciaStatus) {
+    return { aberta: false, motivo: 'Verificação de eficácia já aberta' }
+  }
+  if (
+    rnc.contingenciaStatus !== 'APROVADA' ||
+    rnc.causaRaizStatus !== 'APROVADA'
+  ) {
+    return {
+      aberta: false,
+      motivo:
+        'A eficácia só abre com o plano de ações e a análise de causa aprovados.',
+    }
+  }
+
+  const agora = new Date()
+  const dataBase =
+    calcularDataBaseEficacia(
+      rnc.acoesContingencia,
+      rnc.contingenciaAnalisadaEm,
+    ) ?? agora
+  const parametros = await obterParametrosWorkflow(prisma)
+  // A data de liberação é CONGELADA na abertura: recalcular a cada
+  // consulta faria o prazo andar sozinho se alguma ação mudasse depois.
+  const liberadaEm = new Date(
+    dataBase.getTime() + parametros.eficaciaEsperaDias * DIA_MS,
+  )
+
+  const r = await prisma.relatorioNaoConformidade.updateMany({
+    where: { id: rncId, eficaciaStatus: null },
+    data: {
+      eficaciaStatus: liberadaEm <= agora ? 'PENDENTE' : 'AGUARDANDO_PRAZO',
+      eficaciaAbertaEm: agora,
+      eficaciaDataBase: dataBase,
+      eficaciaLiberadaEm: liberadaEm,
+    },
+  })
+  if (r.count === 0) {
+    return { aberta: false, motivo: 'Verificação de eficácia já aberta' }
+  }
+  return { aberta: true, liberadaEm }
+}
+
+/**
+ * Libera as verificações cujo tempo de espera acabou e avisa, uma única
+ * vez, os aprovadores marcados — senão a verificação fica esquecida.
+ * Roda no agendador.
+ */
+export async function processarVerificacaoEficacia(
+  prisma: PrismaClient,
+  baseUrl?: string,
+): Promise<{ liberadas: number }> {
+  const agora = new Date()
+  const vencidas = await prisma.relatorioNaoConformidade.findMany({
+    where: {
+      eficaciaStatus: 'AGUARDANDO_PRAZO',
+      eficaciaLiberadaEm: { lte: agora },
+    },
+    select: { id: true },
+  })
+
+  let liberadas = 0
+  for (const { id } of vencidas) {
+    const r = await prisma.relatorioNaoConformidade.updateMany({
+      where: {
+        id,
+        eficaciaStatus: 'AGUARDANDO_PRAZO',
+        eficaciaLiberadaEm: { lte: agora },
+      },
+      data: { eficaciaStatus: 'PENDENTE', eficaciaAvisadaEm: agora },
+    })
+    if (r.count === 0) continue
+    liberadas++
+    await notificarEficaciaLiberada(prisma, id, baseUrl)
+  }
+  return { liberadas }
+}
+
+/** Avisa os aprovadores marcados que a verificação já pode ser feita. */
+async function notificarEficaciaLiberada(
+  prisma: PrismaClient,
+  rncId: string,
+  baseUrl?: string,
+): Promise<void> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      id: true,
+      numero: true,
+      filialId: true,
+      eficaciaDataBase: true,
+      eficaciaLiberadaEm: true,
+      fornecedor: { select: { razaoSocial: true } },
+      criadoPor: { select: { email: true } },
+      aprovadores: { select: { email: true } },
+    },
+  })
+  if (!rnc) return
+
+  const transporte = await criarTransporteSmtp()
+  if (!transporte) return
+
+  const destinatarios = await destinatariosRespostaFornecedor(prisma, rnc)
+  if (destinatarios.length === 0) return
+
+  const { subject, text, html } = montarEmailEficaciaLiberada({
+    numero: rnc.numero,
+    rncId: rnc.id,
+    fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+    dataBase: rnc.eficaciaDataBase,
+    liberadaEm: rnc.eficaciaLiberadaEm ?? new Date(),
+    baseUrl,
+  })
+
+  try {
+    await transporte.transporter.sendMail({
+      from: transporte.remetente,
+      to: destinatarios.join(', '),
+      subject,
+      text,
+      html,
+    })
+  } catch {
+    // best-effort: a liberação já está registrada
+  }
+}
+
+/**
+ * Registra a verificação: eficaz ou não eficaz. Só a partir da data de
+ * liberação — antes disso as ações ainda não tiveram tempo de rodar.
+ */
+export async function registrarVerificacaoEficacia(
+  prisma: PrismaClient,
+  rncId: string,
+  opts: {
+    eficaz: boolean
+    verificadaPor?: string | null
+    parecer?: string | null
+    baseUrl?: string
+  },
+): Promise<{ eficaciaStatus: 'EFICAZ' | 'NAO_EFICAZ' }> {
+  const parecer = opts.parecer?.trim() || null
+  if (!opts.eficaz && !parecer) {
+    throw new Error(
+      'Informe o parecer que fundamenta a verificação como não eficaz.',
+    )
+  }
+
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: { eficaciaStatus: true, eficaciaLiberadaEm: true },
+  })
+  if (!rnc) throw new Error('RNC não encontrada')
+  if (rnc.eficaciaStatus !== 'PENDENTE' && rnc.eficaciaStatus !== 'AGUARDANDO_PRAZO') {
+    throw new Error('Esta verificação de eficácia já foi registrada.')
+  }
+  // Exige a data em vez de só conferi-la quando existe: sem ela não há
+  // como afirmar que o tempo de espera passou.
+  if (!rnc.eficaciaLiberadaEm) {
+    throw new Error(
+      'A verificação de eficácia ainda não tem data de liberação definida.',
+    )
+  }
+  if (rnc.eficaciaLiberadaEm > new Date()) {
+    throw new Error(
+      `A verificação de eficácia só pode ser registrada a partir de ${rnc.eficaciaLiberadaEm.toLocaleString(
+        'pt-BR',
+        { timeZone: 'America/Sao_Paulo' },
+      )}.`,
+    )
+  }
+
+  const novoStatus = opts.eficaz ? 'EFICAZ' : 'NAO_EFICAZ'
+  const r = await prisma.relatorioNaoConformidade.updateMany({
+    where: {
+      id: rncId,
+      eficaciaStatus: { in: ['AGUARDANDO_PRAZO', 'PENDENTE'] },
+    },
+    data: {
+      eficaciaStatus: novoStatus,
+      eficaciaVerificadaEm: new Date(),
+      eficaciaVerificadaPor: opts.verificadaPor?.trim() || null,
+      eficaciaParecer: parecer,
+    },
+  })
+  if (r.count === 0) {
+    throw new Error('Esta verificação de eficácia já foi registrada.')
+  }
+
+  await notificarEficaciaVerificada(prisma, rncId, {
+    eficaz: opts.eficaz,
+    parecer,
+    baseUrl: opts.baseUrl,
+  })
+  return { eficaciaStatus: novoStatus }
+}
+
+/** Comunica ao fornecedor o resultado da verificação de eficácia. */
+async function notificarEficaciaVerificada(
+  prisma: PrismaClient,
+  rncId: string,
+  opts: { eficaz: boolean; parecer: string | null; baseUrl?: string },
+): Promise<void> {
+  const rnc = await prisma.relatorioNaoConformidade.findUnique({
+    where: { id: rncId },
+    select: {
+      numero: true,
+      cienciaToken: true,
+      fornecedor: {
+        select: {
+          razaoSocial: true,
+          contatos: {
+            select: { tipo: true, valor: true, nome: true, principal: true },
+          },
+        },
+      },
+    },
+  })
+  if (!rnc || !rnc.cienciaToken) return
+
+  const contato = escolherEmailFornecedor(rnc.fornecedor?.contatos ?? [])
+  const transporte = await criarTransporteSmtp()
+  if (!contato || !transporte) return
+
+  const { subject, text, html } = montarEmailEficaciaVerificada({
+    numero: rnc.numero,
+    fornecedorNome: rnc.fornecedor?.razaoSocial ?? '',
+    contatoNome: contato.nome,
+    eficaz: opts.eficaz,
+    parecer: opts.parecer,
+    token: rnc.cienciaToken,
+    baseUrl: opts.baseUrl,
+  })
+
+  try {
+    await transporte.transporter.sendMail({
+      from: transporte.remetente,
+      to: contato.email,
+      subject,
+      text,
+      html,
+    })
+  } catch {
+    // best-effort: a verificação já está registrada
   }
 }

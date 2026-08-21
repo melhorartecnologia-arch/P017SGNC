@@ -15,6 +15,7 @@ import {
   Save,
   Send,
   GitBranch,
+  ShieldCheck,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -1239,6 +1240,49 @@ export function CienciaFornecedorPage({ token }: { token: string }) {
                   </Button>
                 </div>
               </>
+            )}
+          </section>
+        )}
+
+        {/* Resultado da verificação de eficácia */}
+        {(rnc.eficaciaStatus === 'EFICAZ' ||
+          rnc.eficaciaStatus === 'NAO_EFICAZ') && (
+          <section
+            className={cn(
+              'rounded-xl border p-4 shadow-sm',
+              rnc.eficaciaStatus === 'EFICAZ'
+                ? 'border-emerald-200 bg-emerald-50'
+                : 'border-red-200 bg-red-50',
+            )}
+          >
+            <div className="mb-1 flex items-center gap-2">
+              <ShieldCheck
+                className={cn(
+                  'h-4 w-4',
+                  rnc.eficaciaStatus === 'EFICAZ'
+                    ? 'text-emerald-600'
+                    : 'text-red-600',
+                )}
+              />
+              <h2
+                className={cn(
+                  'text-[13px] font-semibold',
+                  rnc.eficaciaStatus === 'EFICAZ'
+                    ? 'text-emerald-900'
+                    : 'text-red-900',
+                )}
+              >
+                Verificação de eficácia —{' '}
+                {rnc.eficaciaStatus === 'EFICAZ' ? 'eficaz' : 'não eficaz'}
+              </h2>
+            </div>
+            <p className="text-xs text-neutral-600">
+              Verificada em {fmtDataHora(rnc.eficaciaVerificadaEm)}.
+            </p>
+            {rnc.eficaciaParecer && (
+              <p className="mt-2 whitespace-pre-wrap rounded-md border border-neutral-200 bg-white p-3 text-sm text-neutral-800">
+                <b>Parecer:</b> {rnc.eficaciaParecer}
+              </p>
             )}
           </section>
         )}

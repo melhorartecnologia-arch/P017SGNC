@@ -24,6 +24,7 @@ import {
   type CienciaRncStatus,
   type ContingenciaRncStatus,
   type CausaRaizRncStatus,
+  type EficaciaRncStatus,
   type Rnc,
   type RncStatus,
 } from '@/lib/api/rnc'
@@ -185,6 +186,9 @@ export function RncListPage() {
   const [causaFilter, setCausaFilter] = React.useState<
     '' | CausaRaizRncStatus | '__none__'
   >('')
+  const [eficaciaFilter, setEficaciaFilter] = React.useState<
+    '' | EficaciaRncStatus | '__none__'
+  >('')
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [wizardOpen, setWizardOpen] = React.useState(false)
@@ -211,6 +215,7 @@ export function RncListPage() {
       ciencia?: CienciaRncStatus | '__none__' | ''
       contingencia?: ContingenciaRncStatus | '__none__' | 'atrasada' | ''
       causa?: CausaRaizRncStatus | '__none__' | ''
+      eficacia?: EficaciaRncStatus | '__none__' | ''
       page: number
     }) => {
       setLoading(true)
@@ -225,6 +230,7 @@ export function RncListPage() {
               : undefined,
           contingenciaAtrasada: opts.contingencia === 'atrasada' || undefined,
           causaRaizStatus: opts.causa || undefined,
+          eficaciaStatus: opts.eficacia || undefined,
           page: opts.page,
           pageSize: DEFAULT_PAGE_SIZE,
         })
@@ -247,10 +253,17 @@ export function RncListPage() {
       ciencia: cienciaFilter,
       contingencia: contingenciaFilter,
       causa: causaFilter,
+      eficacia: eficaciaFilter,
       page: 1,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter, cienciaFilter, contingenciaFilter, causaFilter])
+  }, [
+    statusFilter,
+    cienciaFilter,
+    contingenciaFilter,
+    causaFilter,
+    eficaciaFilter,
+  ])
 
   const refresh = React.useCallback(
     () =>
@@ -259,6 +272,7 @@ export function RncListPage() {
         ciencia: cienciaFilter,
         contingencia: contingenciaFilter,
         causa: causaFilter,
+        eficacia: eficaciaFilter,
         page,
       }),
     [
@@ -267,6 +281,7 @@ export function RncListPage() {
       cienciaFilter,
       contingenciaFilter,
       causaFilter,
+      eficaciaFilter,
       page,
     ],
   )
@@ -389,6 +404,23 @@ export function RncListPage() {
             <option value="AJUSTE_SOLICITADO">Rejeitada — em ajuste</option>
             <option value="APROVADA">Análise aprovada</option>
           </select>
+          <select
+            className={cn(selectClass, 'max-w-[13rem]')}
+            value={eficaciaFilter}
+            onChange={(e) =>
+              setEficaciaFilter(
+                e.target.value as '' | EficaciaRncStatus | '__none__',
+              )
+            }
+            title="Verificação de eficácia"
+          >
+            <option value="">Toda verificação de eficácia</option>
+            <option value="__none__">Não iniciada</option>
+            <option value="AGUARDANDO_PRAZO">Aguardando o prazo</option>
+            <option value="PENDENTE">Verificação liberada</option>
+            <option value="EFICAZ">Eficaz</option>
+            <option value="NAO_EFICAZ">Não eficaz</option>
+          </select>
           <Button
             type="button"
             variant="ghost"
@@ -400,11 +432,13 @@ export function RncListPage() {
               setCienciaFilter('')
               setContingenciaFilter('')
               setCausaFilter('')
+              setEficaciaFilter('')
               fetchPage({
                 status: '',
                 ciencia: '',
                 contingencia: '',
                 causa: '',
+                eficacia: '',
                 page: 1,
               })
             }}
@@ -613,6 +647,7 @@ export function RncListPage() {
               ciencia: cienciaFilter,
               contingencia: contingenciaFilter,
               causa: causaFilter,
+              eficacia: eficaciaFilter,
               page: next,
             })
           }

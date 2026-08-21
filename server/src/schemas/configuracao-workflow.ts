@@ -19,6 +19,11 @@ export const configuracaoWorkflowSchema = z.object({
     .int('Informe um número inteiro de alertas por dia')
     .min(1, 'Envie ao menos 1 alerta por dia')
     .max(24, 'No máximo 24 alertas por dia'),
+  eficaciaEsperaDias: z.coerce
+    .number({ invalid_type_error: 'Tempo de espera inválido' })
+    .int('Informe um número inteiro de dias')
+    .min(0, 'O tempo de espera não pode ser negativo')
+    .max(730, 'O tempo de espera não pode passar de 2 anos'),
 })
 
 export type ConfiguracaoWorkflowInput = z.infer<

@@ -1178,3 +1178,121 @@ export function montarEmailCausaRaizAnalisada(
 
   return { subject, text, html }
 }
+
+// ── Verificação de eficácia ─────────────────────────────────────────
+
+export type DadosEmailEficaciaLiberada = {
+  numero: string
+  rncId: string
+  fornecedorNome: string
+  dataBase: Date | null
+  liberadaEm: Date
+  baseUrl?: string
+}
+
+/** Avisa o aprovador marcado que a verificação de eficácia já pode ser feita. */
+export function montarEmailEficaciaLiberada(d: DadosEmailEficaciaLiberada) {
+  const base = resolverBaseUrl(d.baseUrl)
+  const linkRnc = `${base}/?rnc=${encodeURIComponent(d.rncId)}`
+  const subject = `RNC ${d.numero} — verificação de eficácia liberada`
+
+  const text = [
+    `O plano de ação da RNC ${d.numero} (${d.fornecedorNome}) já cumpriu o tempo de espera.`,
+    '',
+    d.dataBase
+      ? `Última data planejada do plano: ${fmtData(d.dataBase)}`
+      : '',
+    `Verificação liberada em: ${fmtDataHora(d.liberadaEm)}`,
+    '',
+    'Registre na plataforma se as ações foram EFICAZES ou NÃO EFICAZES.',
+    `Abrir a RNC: ${linkRnc}`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">RNC ${escapeHtml(d.numero)} — verificação de eficácia</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">Fornecedor: <b>${escapeHtml(d.fornecedorNome)}</b></p>
+    <p style="background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:12px 14px;border-radius:8px;font-size:14px;margin:0 0 16px">
+      <b>O plano de ação já cumpriu o tempo de espera e pode ser verificado.</b><br>
+      <span style="color:#374151;font-size:13px">
+        ${d.dataBase ? `Última data planejada: ${escapeHtml(fmtData(d.dataBase))} · ` : ''}
+        Liberada em ${escapeHtml(fmtDataHora(d.liberadaEm))}
+      </span>
+    </p>
+    <p style="margin:0 0 16px">
+      <a href="${linkRnc}" style="background:#111827;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        Registrar a verificação de eficácia
+      </a>
+    </p>
+    <p style="font-size:13px;color:#374151;margin:0">
+      Registre se as ações foram <b>eficazes</b> ou <b>não eficazes</b>. O resultado
+      "não eficaz" exige parecer.
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
+export type DadosEmailEficaciaVerificada = {
+  numero: string
+  fornecedorNome: string
+  contatoNome: string | null
+  eficaz: boolean
+  parecer: string | null
+  token: string
+  baseUrl?: string
+}
+
+/** Resultado da verificação de eficácia para o fornecedor. */
+export function montarEmailEficaciaVerificada(
+  d: DadosEmailEficaciaVerificada,
+) {
+  const base = resolverBaseUrl(d.baseUrl)
+  const linkPagina = `${base}/?ciencia=${encodeURIComponent(d.token)}`
+  const subject = d.eficaz
+    ? `RNC ${d.numero} — plano de ação verificado como eficaz`
+    : `RNC ${d.numero} — plano de ação verificado como NÃO eficaz`
+
+  const text = [
+    `Prezado(a)${d.contatoNome ? ` ${d.contatoNome}` : ''},`,
+    '',
+    d.eficaz
+      ? `A verificação de eficácia da RNC ${d.numero} concluiu que as ações foram EFICAZES.`
+      : `A verificação de eficácia da RNC ${d.numero} concluiu que as ações NÃO foram eficazes.`,
+    '',
+    d.parecer ? `Parecer da verificação:\n${d.parecer}` : '',
+    '',
+    `Acessar: ${linkPagina}`,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;max-width:680px;margin:0 auto;color:#111827">
+    <h2 style="margin:0 0 4px">RNC ${escapeHtml(d.numero)} — verificação de eficácia</h2>
+    <p style="color:#6b7280;margin:0 0 16px;font-size:14px">
+      Prezado(a)${d.contatoNome ? ` ${escapeHtml(d.contatoNome)}` : ''}, o plano de ação de
+      <b>${escapeHtml(d.fornecedorNome)}</b> foi verificado.
+    </p>
+    <p style="background:${d.eficaz ? '#f0fdf4' : '#fef2f2'};border:1px solid ${d.eficaz ? '#86efac' : '#fecaca'};color:${d.eficaz ? '#15803d' : '#991b1b'};padding:12px 14px;border-radius:8px;font-size:14px;margin:0 0 14px">
+      <b>${d.eficaz ? 'Ações verificadas como eficazes.' : 'Ações verificadas como NÃO eficazes.'}</b>
+    </p>
+    ${
+      d.parecer
+        ? `<p style="font-size:13px;color:#374151;margin:0 0 4px"><b>Parecer da verificação:</b></p>
+           <p style="white-space:pre-wrap;background:#f9fafb;border:1px solid #e5e7eb;padding:10px 12px;border-radius:6px;font-size:13px;margin:0 0 16px">${escapeHtml(d.parecer)}</p>`
+        : ''
+    }
+    <p style="margin:0 0 16px">
+      <a href="${linkPagina}" style="background:#111827;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;display:inline-block;font-size:14px">
+        Consultar na plataforma
+      </a>
+    </p>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}

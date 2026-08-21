@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Loader2, Save, Timer, BellRing } from 'lucide-react'
+import { Loader2, Save, Timer, BellRing, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,6 +24,7 @@ type FormState = {
   contingenciaHoras: string
   contingenciaMinutos: string
   alertasPorDia: string
+  eficaciaEsperaDias: string
 }
 
 const empty: FormState = {
@@ -32,6 +33,7 @@ const empty: FormState = {
   contingenciaHoras: '72',
   contingenciaMinutos: '0',
   alertasPorDia: '2',
+  eficaciaEsperaDias: '30',
 }
 
 /** Só dígitos: evita "1,5h" e outros formatos ambíguos no campo. */
@@ -97,6 +99,7 @@ export function WorkflowConfigPage() {
           contingenciaHoras: String(k.horas),
           contingenciaMinutos: String(k.minutos),
           alertasPorDia: String(cfg.contingenciaAlertasPorDia),
+          eficaciaEsperaDias: String(cfg.eficaciaEsperaDias),
         })
       })
       .catch((err) => {
@@ -123,6 +126,7 @@ export function WorkflowConfigPage() {
   const contingenciaHoras = Number(form.contingenciaHoras || 0)
   const contingenciaMinutos = Number(form.contingenciaMinutos || 0)
   const alertas = Number(form.alertasPorDia || 0)
+  const esperaEficacia = Number(form.eficaciaEsperaDias || 0)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -137,6 +141,7 @@ export function WorkflowConfigPage() {
           contingenciaMinutos,
         ),
         contingenciaAlertasPorDia: alertas,
+        eficaciaEsperaDias: esperaEficacia,
       })
       const c = horasParaHoraMinuto(salvo.cienciaPrazoHoras)
       const k = horasParaHoraMinuto(salvo.contingenciaPrazoHoras)
@@ -146,6 +151,7 @@ export function WorkflowConfigPage() {
         contingenciaHoras: String(k.horas),
         contingenciaMinutos: String(k.minutos),
         alertasPorDia: String(salvo.contingenciaAlertasPorDia),
+        eficaciaEsperaDias: String(salvo.eficaciaEsperaDias),
       })
       toast.success('Parâmetros do workflow salvos')
     } catch (err) {
@@ -319,6 +325,48 @@ export function WorkflowConfigPage() {
                   <span className="flex items-center gap-1.5 pb-2 text-xs text-neutral-500">
                     <BellRing className="h-3.5 w-3.5" />
                     Os alertas param assim que o fornecedor registra as ações.
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            <section className="flex flex-col gap-3 border-t border-neutral-100 pt-5">
+              <div className="flex flex-col gap-0.5">
+                <h2 className="text-[13px] font-semibold text-neutral-800">
+                  Verificação de eficácia
+                </h2>
+                <p className="text-xs text-neutral-500">
+                  Tempo de espera entre a última data planejada do plano de
+                  ação e a liberação da verificação — o intervalo em que as
+                  ações precisam rodar para poderem ser julgadas.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
+                <Field
+                  label="Dias de espera *"
+                  error={fieldErrors.eficaciaEsperaDias?.[0]}
+                  hint={
+                    esperaEficacia > 0
+                      ? `A verificação abre ${esperaEficacia} dia(s) depois da última ação planejada.`
+                      : 'Com 0, a verificação abre já na última data planejada.'
+                  }
+                  className="sm:col-span-4"
+                >
+                  <Input
+                    inputMode="numeric"
+                    value={form.eficaciaEsperaDias}
+                    onChange={(e) =>
+                      set('eficaciaEsperaDias', somenteDigitos(e.target.value))
+                    }
+                    maxLength={3}
+                    required
+                  />
+                </Field>
+                <div className="flex items-end sm:col-span-8">
+                  <span className="flex items-center gap-1.5 pb-2 text-xs text-neutral-500">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    Só os aprovadores marcados (ou um administrador) registram a
+                    verificação.
                   </span>
                 </div>
               </div>

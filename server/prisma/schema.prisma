@@ -372,6 +372,17 @@ enum CausaRaizStatus {
   AJUSTE_SOLICITADO
 }
 
+/// Verificação de eficácia do plano de ação, feita pelo aprovador
+/// marcado depois que as ações venceram e o tempo de espera passou.
+enum EficaciaStatus {
+  /// Etapa aberta, mas ainda dentro do tempo de espera.
+  AGUARDANDO_PRAZO
+  /// Janela aberta: o aprovador já pode registrar a verificação.
+  PENDENTE
+  EFICAZ
+  NAO_EFICAZ
+}
+
 /// Os 6M do diagrama de Ishikawa (espinha de peixe).
 enum IshikawaCategoria {
   METODO
@@ -489,6 +500,22 @@ model RelatorioNaoConformidade {
   causaQuem        String? @map("causa_quem") @db.Text
   causaComo        String? @map("causa_como") @db.Text
   causaQuantoCusta String? @map("causa_quanto_custa") @db.Text
+
+  // Verificação de eficácia: aprovados o plano de ações e a análise de
+  // causa, o aprovador marcado confirma se o que foi executado resolveu.
+  // Só pode ser registrada a partir da última data planejada das ações
+  // mais o tempo de espera parametrizado.
+  eficaciaStatus       EficaciaStatus? @map("eficacia_status")
+  eficaciaAbertaEm     DateTime? @map("eficacia_aberta_em")
+  /// Última data planejada entre as ações aprovadas do plano.
+  eficaciaDataBase     DateTime? @map("eficacia_data_base")
+  /// A partir de quando a verificação pode ser registrada.
+  eficaciaLiberadaEm   DateTime? @map("eficacia_liberada_em")
+  eficaciaAvisadaEm    DateTime? @map("eficacia_avisada_em")
+  eficaciaVerificadaEm DateTime? @map("eficacia_verificada_em")
+  eficaciaVerificadaPor String?  @map("eficacia_verificada_por") @db.VarChar(160)
+  /// Parecer da verificação — obrigatório quando o resultado é não eficaz.
+  eficaciaParecer      String?   @map("eficacia_parecer") @db.Text
 
   // Material & lote
   produtoId          String?   @map("produto_id") @db.Uuid
@@ -680,6 +707,10 @@ model ConfiguracaoWorkflow {
   /// Quantos alertas por dia o fornecedor recebe depois de vencido o
   /// prazo das ações de contingência, até que a devolutiva chegue.
   contingenciaAlertasPorDia Int @default(2) @map("contingencia_alertas_por_dia")
+  /// Tempo de espera (em dias) entre a última data planejada do plano de
+  /// ação e a liberação da verificação de eficácia — o intervalo em que
+  /// as ações precisam rodar para poderem ser julgadas.
+  eficaciaEsperaDias Int @default(30) @map("eficacia_espera_dias")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

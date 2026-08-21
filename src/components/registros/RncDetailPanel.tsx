@@ -14,6 +14,7 @@ import {
   ClipboardList,
   AlertTriangle,
   GitBranch,
+  ShieldCheck,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -26,6 +27,7 @@ import {
   CIENCIA_RNC_LABEL,
   CONTINGENCIA_RNC_LABEL,
   CAUSA_RAIZ_LABEL,
+  EFICACIA_LABEL,
   ACAO_CONTINGENCIA_LABEL,
   type AcaoContingencia,
   type Rnc,
@@ -717,6 +719,12 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                 </Section>
               )}
 
+              {rnc.eficaciaStatus && (
+                <Section title="Verificação de eficácia">
+                  <EficaciaBloco rnc={rnc} onUpdated={onUpdated} />
+                </Section>
+              )}
+
               <Section title="Origem & severidade">
                 <Row label="Origem da NC">
                   {rnc.origem ? (
@@ -1092,6 +1100,209 @@ function ContingenciaBloco({
         <div className="rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
           A aprovação das ações cabe aos aprovadores marcados para receber as
           respostas do fornecedor nesta filial (ou a um administrador).
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Verificação de eficácia: aprovados o plano e a análise de causa, o
+ * aprovador marcado confirma se o que foi executado resolveu. Só fica
+ * disponível a partir da última data planejada mais o tempo de espera.
+ */
+function EficaciaBloco({
+  rnc,
+  onUpdated,
+}: {
+  rnc: Rnc
+  onUpdated?: (rnc: Rnc) => void
+}) {
+  const auth = useAuth()
+  const usuario = auth.status === 'authenticated' ? auth.user : null
+  const podeDecidir = podeAnalisarRecusa(usuario, rnc.filialId)
+  const [modo, setModo] = React.useState<'nao' | null>(null)
+  const [parecer, setParecer] = React.useState('')
+  const [salvando, setSalvando] = React.useState(false)
+
+  const status = rnc.eficaciaStatus
+  if (!status) return null
+
+  // O agendador vira AGUARDANDO_PRAZO em PENDENTE, mas a tela não precisa
+  // esperar o próximo tique para liberar o botão.
+  const liberada =
+    status === 'PENDENTE' || prazoVencido(rnc.eficaciaLiberadaEm)
+  const aguardando = status === 'AGUARDANDO_PRAZO' && !liberada
+  const verificada = status === 'EFICAZ' || status === 'NAO_EFICAZ'
+  const eficaz = status === 'EFICAZ'
+
+  const registrar = async (foiEficaz: boolean) => {
+    if (salvando) return
+    if (!foiEficaz && !parecer.trim()) {
+      toast.error('Informe o parecer que fundamenta a verificação.')
+      return
+    }
+    setSalvando(true)
+    try {
+      const atualizado = await rncApi.verificarEficacia(rnc.id, {
+        eficaz: foiEficaz,
+        parecer: parecer.trim() || null,
+      })
+      onUpdated?.(atualizado)
+      setModo(null)
+      setParecer('')
+      toast.success(
+        foiEficaz
+          ? 'Plano de ação verificado como eficaz'
+          : 'Plano de ação verificado como não eficaz',
+      )
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao registrar a verificação.'
+      toast.error('Não foi possível registrar', { description: message })
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  const cor = verificada
+    ? eficaz
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+      : 'border-red-200 bg-red-50 text-red-800'
+    : liberada
+      ? 'border-sky-200 bg-sky-50 text-sky-800'
+      : 'border-neutral-200 bg-neutral-50 text-neutral-700'
+  const Icone = verificada ? (eficaz ? ShieldCheck : XCircle) : liberada ? ShieldCheck : Clock
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className={cn('flex items-start gap-2 rounded-md border px-2.5 py-2', cor)}>
+        <Icone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="flex flex-col gap-0.5 text-xs">
+          <span className="font-semibold">
+            {verificada
+              ? EFICACIA_LABEL[status]
+              : liberada
+                ? 'Verificação liberada'
+                : 'Aguardando o prazo de verificação'}
+          </span>
+          {verificada ? (
+            <span>
+              Verificada em {formatDataHoraBR(rnc.eficaciaVerificadaEm)}
+              {rnc.eficaciaVerificadaPor
+                ? ` · por ${rnc.eficaciaVerificadaPor}`
+                : ''}
+            </span>
+          ) : liberada ? (
+            <span>
+              O plano já cumpriu o tempo de espera e pode ser verificado.
+            </span>
+          ) : (
+            <span>
+              Poderá ser registrada a partir de{' '}
+              {formatDataHoraBR(rnc.eficaciaLiberadaEm)}.
+            </span>
+          )}
+        </div>
+      </div>
+
+      <Row label="Última data planejada">
+        {formatDataPuraBR(rnc.eficaciaDataBase) || '—'}
+      </Row>
+      <Row label="Liberada a partir de">
+        {formatDataHoraBR(rnc.eficaciaLiberadaEm) || '—'}
+      </Row>
+      {rnc.eficaciaParecer && (
+        <Row label="Parecer da verificação">
+          <span className="whitespace-pre-wrap">{rnc.eficaciaParecer}</span>
+        </Row>
+      )}
+
+      {!verificada && liberada && podeDecidir && (
+        <div className="mt-1 flex flex-col gap-2 rounded-md border border-neutral-200 bg-neutral-50/60 p-2.5">
+          <span className="text-xs font-medium text-neutral-700">
+            Registrar a verificação de eficácia
+          </span>
+          {modo === null ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => registrar(true)}
+                disabled={salvando}
+              >
+                {salvando ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                )}
+                Eficaz
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+                onClick={() => setModo('nao')}
+                disabled={salvando}
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Não eficaz
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-neutral-600">
+                Registre o que foi verificado e por que as ações não
+                resolveram. O fornecedor recebe este parecer.
+              </p>
+              <textarea
+                value={parecer}
+                onChange={(e) => setParecer(e.target.value)}
+                rows={3}
+                maxLength={4000}
+                disabled={salvando}
+                placeholder="Parecer da verificação (obrigatório para não eficaz)"
+                className="flex w-full rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-red-600 hover:bg-red-700"
+                  disabled={salvando || !parecer.trim()}
+                  onClick={() => registrar(false)}
+                >
+                  {salvando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Confirmar: não eficaz
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={salvando}
+                  onClick={() => {
+                    setModo(null)
+                    setParecer('')
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!verificada && aguardando && (
+        <div className="rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
+          A verificação abre automaticamente na data acima — o tempo de espera
+          é definido em Configurações → Prazos do Fornecedor.
+        </div>
+      )}
+
+      {!verificada && liberada && !podeDecidir && (
+        <div className="rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
+          A verificação de eficácia cabe aos aprovadores marcados para receber
+          as respostas do fornecedor nesta filial (ou a um administrador).
         </div>
       )}
     </div>

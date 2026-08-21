@@ -61,6 +61,8 @@ export type ConfiguracaoWorkflow = {
   contingenciaPrazoHoras: number
   /** Alertas por dia depois de vencido o prazo das ações. */
   contingenciaAlertasPorDia: number
+  /** Dias de espera entre a última data planejada e a verificação. */
+  eficaciaEsperaDias: number
   updatedAt: string | null
 }
 
@@ -68,6 +70,7 @@ export type ConfiguracaoWorkflowInput = {
   cienciaPrazoHoras: number
   contingenciaPrazoHoras: number
   contingenciaAlertasPorDia: number
+  eficaciaEsperaDias: number
 }
 
 /** Horas fracionárias → horas e minutos inteiros (48.5 → 48h 30min). */

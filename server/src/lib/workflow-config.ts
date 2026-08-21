@@ -15,12 +15,19 @@ export type ParametrosWorkflow = {
   contingenciaPrazoHoras: number
   /** Alertas por dia ao fornecedor após vencer o prazo das ações. */
   contingenciaAlertasPorDia: number
+  /**
+   * Dias entre a última data planejada do plano de ação e a liberação da
+   * verificação de eficácia — o tempo que as ações precisam rodar antes
+   * de poderem ser julgadas.
+   */
+  eficaciaEsperaDias: number
 }
 
 export const PARAMETROS_WORKFLOW_PADRAO: ParametrosWorkflow = {
   cienciaPrazoHoras: 48,
   contingenciaPrazoHoras: 72,
   contingenciaAlertasPorDia: 2,
+  eficaciaEsperaDias: 30,
 }
 
 export async function obterParametrosWorkflow(
@@ -32,6 +39,7 @@ export async function obterParametrosWorkflow(
       cienciaPrazoHoras: true,
       contingenciaPrazoHoras: true,
       contingenciaAlertasPorDia: true,
+      eficaciaEsperaDias: true,
     },
   })
   return cfg ?? PARAMETROS_WORKFLOW_PADRAO

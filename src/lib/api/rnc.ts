@@ -57,6 +57,20 @@ export const CAUSA_RAIZ_LABEL: Record<CausaRaizRncStatus, string> = {
   AJUSTE_SOLICITADO: 'Rejeitada — em ajuste',
 }
 
+/** Situação da verificação de eficácia do plano de ação. */
+export type EficaciaRncStatus =
+  | 'AGUARDANDO_PRAZO'
+  | 'PENDENTE'
+  | 'EFICAZ'
+  | 'NAO_EFICAZ'
+
+export const EFICACIA_LABEL: Record<EficaciaRncStatus, string> = {
+  AGUARDANDO_PRAZO: 'Aguardando o prazo',
+  PENDENTE: 'Verificação liberada',
+  EFICAZ: 'Eficaz',
+  NAO_EFICAZ: 'Não eficaz',
+}
+
 export type CausaIshikawaRnc = {
   id: string
   categoria: string
@@ -153,6 +167,15 @@ export type Rnc = {
   causaComo: string | null
   causaQuantoCusta: string | null
   causasIshikawa: CausaIshikawaRnc[]
+
+  /** Verificação de eficácia, aberta quando plano e causa são aprovados. */
+  eficaciaStatus: EficaciaRncStatus | null
+  eficaciaAbertaEm: string | null
+  eficaciaDataBase: string | null
+  eficaciaLiberadaEm: string | null
+  eficaciaVerificadaEm: string | null
+  eficaciaVerificadaPor: string | null
+  eficaciaParecer: string | null
 
   // Material & lote
   produtoId: string | null
@@ -264,6 +287,8 @@ export type RncListParams = {
   contingenciaAtrasada?: boolean
   /** Análise de causa; "__none__" = etapa ainda não aberta. */
   causaRaizStatus?: CausaRaizRncStatus | '__none__'
+  /** Verificação de eficácia; "__none__" = etapa ainda não aberta. */
+  eficaciaStatus?: EficaciaRncStatus | '__none__'
   de?: string
   ate?: string
   limit?: number
@@ -350,6 +375,7 @@ export const rncApi = {
         contingenciaStatus: params.contingenciaStatus,
         contingenciaAtrasada: params.contingenciaAtrasada,
         causaRaizStatus: params.causaRaizStatus,
+        eficaciaStatus: params.eficaciaStatus,
         de: params.de,
         ate: params.ate,
         limit: params.limit,
@@ -423,6 +449,13 @@ export const rncApi = {
       method: 'POST',
       body,
     }),
+
+  /** Registra a verificação de eficácia do plano de ação. */
+  verificarEficacia: (
+    id: string,
+    body: { eficaz: boolean; parecer?: string | null },
+  ) =>
+    apiRequest<Rnc>(`/rnc/${id}/eficacia`, { method: 'POST', body }),
 
   /** Escalonamento manual: sobe um nível acima nas áreas pendentes. */
   escalonar: (id: string) =>

@@ -22,6 +22,7 @@ import {
   registrarAnaliseRecusa,
   analisarAcaoContingencia,
   analisarCausaRaiz,
+  registrarVerificacaoEficacia,
 } from '../lib/rnc-ciencia.js'
 import {
   processarWorkflows,
@@ -217,6 +218,7 @@ rncRouter.get('/', async (req, res, next) => {
       contingenciaStatus,
       contingenciaAtrasada,
       causaRaizStatus,
+      eficaciaStatus,
       de,
       ate,
       limit,
@@ -253,6 +255,11 @@ rncRouter.get('/', async (req, res, next) => {
     if (causaRaizStatus) {
       where.causaRaizStatus =
         causaRaizStatus === '__none__' ? null : causaRaizStatus
+    }
+    // Eficácia: "__none__" = etapa ainda não aberta.
+    if (eficaciaStatus) {
+      where.eficaciaStatus =
+        eficaciaStatus === '__none__' ? null : eficaciaStatus
     }
     // Em atraso: plano ainda devido (nunca enviado ou devolvido para
     // ajuste) com o prazo já vencido.
@@ -772,6 +779,82 @@ rncRouter.post('/:id/causa-raiz/analisar', async (req, res, next) => {
       await analisarCausaRaiz(prisma, rnc.id, {
         aprovada,
         analisadaPor: analista.nome,
+        parecer,
+        baseUrl: baseUrlPublica(req),
+      })
+    } catch (err) {
+      throw new HttpError(
+        409,
+        err instanceof Error ? err.message : 'Não foi possível registrar.',
+      )
+    }
+
+    const atualizado = await prisma.relatorioNaoConformidade.findUniqueOrThrow({
+      where: { id: rnc.id },
+      include: includeRefs,
+    })
+    res.json(atualizado)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** Verificação de eficácia: "não eficaz" exige parecer. */
+const eficaciaSchema = z
+  .object({
+    eficaz: z.boolean({
+      required_error: 'Informe se o plano foi eficaz ou não.',
+    }),
+    parecer: z
+      .string()
+      .trim()
+      .max(4000, 'O parecer não pode passar de 4000 caracteres.')
+      .optional()
+      .nullable()
+      .transform((v) => v || null),
+  })
+  .superRefine((d, ctx) => {
+    if (!d.eficaz && !d.parecer) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['parecer'],
+        message:
+          'Informe o parecer que fundamenta a verificação como não eficaz.',
+      })
+    }
+  })
+
+/**
+ * Registra a verificação de eficácia do plano de ação. Restrito a ADMIN e
+ * aos aprovadores marcados da filial, e só a partir da data de liberação.
+ */
+rncRouter.post('/:id/eficacia', async (req, res, next) => {
+  try {
+    if (!req.user) throw new HttpError(401, 'Não autenticado')
+    const { eficaz, parecer } = eficaciaSchema.parse(req.body)
+
+    const rnc = await prisma.relatorioNaoConformidade.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, eficaciaStatus: true },
+    })
+    if (!rnc) throw new HttpError(404, 'RNC não encontrada')
+    if (!rnc.eficaciaStatus) {
+      throw new HttpError(
+        409,
+        'A verificação de eficácia ainda não foi aberta para esta RNC.',
+      )
+    }
+
+    const analista = await exigirAnalistaDoFornecedor(
+      req.user.sub,
+      req.user.email,
+      rnc.id,
+    )
+
+    try {
+      await registrarVerificacaoEficacia(prisma, rnc.id, {
+        eficaz,
+        verificadaPor: analista.nome,
         parecer,
         baseUrl: baseUrlPublica(req),
       })
