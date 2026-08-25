@@ -91,7 +91,7 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
   // assinaturaEnviadaEm existir).
   const jaEnviada = !!rnc && rnc.status !== 'DRAFT'
   const temPendentesAssinatura =
-    !!rnc && rnc.aprovadores.some((a) => !a.assinadoEm)
+    !!rnc && rnc.aprovadores.some((a) => !a.assinadoEm && !a.escalonadoEm)
 
   const handleEnviarLembrete = async () => {
     if (!rnc) return
@@ -612,6 +612,7 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                   <div className="flex flex-col gap-1.5">
                     {rnc.aprovadores.map((a) => {
                       const assinado = !!a.assinadoEm
+                      const superado = !!a.escalonadoEm && !assinado
                       const ocupado = assinandoId === a.id
                       return (
                         <div
@@ -646,7 +647,13 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                                 Assinado em {formatDataHoraBR(a.assinadoEm)}
                               </span>
                             )}
-                            {!assinado && a.lembreteEnviadoEm && (
+                            {superado && (
+                              <span className="text-[11px] text-neutral-500">
+                                Superado pelo escalonamento — não pode mais
+                                assinar
+                              </span>
+                            )}
+                            {!assinado && !superado && a.lembreteEnviadoEm && (
                               <span className="text-[11px] text-amber-700">
                                 Lembrete enviado em{' '}
                                 {formatDataHoraBR(a.lembreteEnviadoEm)}
@@ -682,20 +689,29 @@ export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
                                 </div>
                               )}
                           </div>
-                          <Button
-                            variant={assinado ? 'outline' : 'default'}
-                            size="sm"
-                            className="shrink-0"
-                            disabled={ocupado}
-                            onClick={() => toggleAssinatura(a.id, !assinado)}
-                          >
-                            {ocupado ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : assinado ? (
-                              <Check className="h-3.5 w-3.5 text-emerald-600" />
-                            ) : null}
-                            {assinado ? 'Assinado' : 'Registrar assinatura'}
-                          </Button>
+                          {superado ? (
+                            <span
+                              className="inline-flex shrink-0 items-center rounded-full border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-500"
+                              title="Escalonado ao nível superior — não pode mais assinar"
+                            >
+                              Superado
+                            </span>
+                          ) : (
+                            <Button
+                              variant={assinado ? 'outline' : 'default'}
+                              size="sm"
+                              className="shrink-0"
+                              disabled={ocupado}
+                              onClick={() => toggleAssinatura(a.id, !assinado)}
+                            >
+                              {ocupado ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : assinado ? (
+                                <Check className="h-3.5 w-3.5 text-emerald-600" />
+                              ) : null}
+                              {assinado ? 'Assinado' : 'Registrar assinatura'}
+                            </Button>
+                          )}
                         </div>
                       )
                     })}

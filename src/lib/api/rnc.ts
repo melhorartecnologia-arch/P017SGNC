@@ -211,6 +211,8 @@ export type Rnc = {
     email: string | null
     nivel: number | null
     assinadoEm: string | null
+    /** Superado pelo escalonamento: não pode mais assinar. */
+    escalonadoEm: string | null
     assinaturaIp: string | null
     assinaturaNavegador: string | null
     assinaturaSo: string | null
@@ -316,8 +318,10 @@ export type AssinaturaStatus = {
 
 /** Resumo do andamento das assinaturas da matriz de aprovação. */
 export function resumoAssinaturas(rnc: Rnc): AssinaturaStatus {
-  const total = rnc.aprovadores.length
-  const assinadas = rnc.aprovadores.filter((a) => a.assinadoEm).length
+  // Superados pelo escalonamento não assinam mais — ficam fora da conta.
+  const ativos = rnc.aprovadores.filter((a) => !a.escalonadoEm || a.assinadoEm)
+  const total = ativos.length
+  const assinadas = ativos.filter((a) => a.assinadoEm).length
   if (total === 0) {
     return { total, assinadas, estado: 'vazio', label: 'Sem aprovadores' }
   }

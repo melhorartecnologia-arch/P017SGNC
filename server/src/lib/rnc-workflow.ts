@@ -4,6 +4,7 @@ import { criarTransporteSmtp, type Transporte } from './smtp.js'
 import {
   montarEmailAssinatura,
   montarEmailConclusao,
+  montarEmailEscalonadoAviso,
   montarEmailRaqFornecedor,
   montarEmailRvtFornecedor,
   montarEmailRheFornecedor,
@@ -217,6 +218,12 @@ export async function enviarWorkflowAprovador(
  * os aprovadores na matriz e enviando o workflow a eles.
  * - modo 'todos': adiciona todos os níveis superiores ainda fora da matriz.
  * - modo 'proximo': adiciona apenas o próximo nível acima do atual (um passo).
+ *
+ * Nas áreas que escalonaram, os aprovadores pendentes de nível INFERIOR
+ * ao novo topo são SUPERADOS: recebem escalonadoEm (o link deles deixa de
+ * valer — não podem mais assinar) e um e-mail de aviso. O último nível da
+ * área nunca é superado: sem ninguém acima, ele mantém o direito de
+ * assinar.
  * Retorna quantos foram adicionados/notificados e as falhas de envio.
  */
 async function escalonarRncInterno(
@@ -227,7 +234,12 @@ async function escalonarRncInterno(
   modo: 'todos' | 'proximo',
   horasSla: number | null,
   baseUrl?: string,
-): Promise<{ novos: number; falhas: string[]; havendoCandidatos: boolean }> {
+): Promise<{
+  novos: number
+  superados: number
+  falhas: string[]
+  havendoCandidatos: boolean
+}> {
   const candidatos = await candidatosPorArea(
     prisma,
     rnc.filialId,
@@ -236,10 +248,21 @@ async function escalonarRncInterno(
   )
   const todos = await prisma.rncAprovador.findMany({
     where: { rncId: rnc.id },
-    select: { areaId: true, aprovadorId: true, assinadoEm: true, nivel: true },
+    select: {
+      id: true,
+      areaId: true,
+      aprovadorId: true,
+      assinadoEm: true,
+      escalonadoEm: true,
+      nivel: true,
+      nome: true,
+      email: true,
+      areaNome: true,
+    },
   })
 
-  // Áreas resolvidas (alguém já assinou) saem da escalada.
+  // Áreas resolvidas (alguém já assinou) saem da escalada. O nível de
+  // referência é o maior nível AINDA APTO a assinar (não superado).
   const assinadasPorArea = new Set<string>()
   const maxNivelPorArea = new Map<string, number>()
   const jaNaMatriz = new Set(todos.map((t) => t.aprovadorId).filter(Boolean))
@@ -251,6 +274,7 @@ async function escalonarRncInterno(
   }
 
   let novos = 0
+  let superados = 0
   let havendoCandidatos = false
   const falhas: string[] = []
 
@@ -309,9 +333,49 @@ async function escalonarRncInterno(
       if (r.ok) novos++
       else if (r.erro) falhas.push(r.erro)
     }
+
+    // Supera os pendentes de nível inferior ao novo topo da área: eles
+    // não podem mais assinar e são avisados do escalonamento.
+    const novoTopo = modo === 'proximo' ? proximoNivel : acima[acima.length - 1].nivel
+    const superar = todos.filter(
+      (t) =>
+        t.areaId === areaId &&
+        !t.assinadoEm &&
+        !t.escalonadoEm &&
+        t.aprovadorId && // nunca signatários avulsos (ex.: representantes do RHE)
+        (t.nivel ?? 0) < novoTopo,
+    )
+    for (const s of superar) {
+      await prisma.rncAprovador.update({
+        where: { id: s.id },
+        data: { escalonadoEm: new Date() },
+      })
+      superados++
+      if (s.email) {
+        const aviso = montarEmailEscalonadoAviso({
+          numero: rnc.numero,
+          docTipo: rnc.tipoDocumento,
+          titulo: rnc.titulo ?? rnc.pauta,
+          areaNome: s.areaNome,
+          nome: s.nome,
+          nivelNovo: novoTopo,
+        })
+        try {
+          await transporte.transporter.sendMail({
+            from: transporte.remetente,
+            to: s.email,
+            subject: aviso.subject,
+            text: aviso.text,
+            html: aviso.html,
+          })
+        } catch {
+          // aviso é best-effort: o bloqueio já está registrado.
+        }
+      }
+    }
   }
 
-  return { novos, falhas, havendoCandidatos }
+  return { novos, superados, falhas, havendoCandidatos }
 }
 
 export type ResultadoProcessamento = {
@@ -323,8 +387,10 @@ export type ResultadoProcessamento = {
 /**
  * Processa o SLA dos workflows pendentes:
  * - 50% do prazo: lembrete a quem não assinou (e ainda não recebeu lembrete).
- * - 100% do prazo: escalona as áreas pendentes para os níveis superiores
- *   e os notifica.
+ * - 100% do prazo: escalonamento CONSECUTIVO — sobe UM nível por janela de
+ *   SLA vencida, superando o nível anterior (que é avisado e perde o
+ *   direito de assinar), até o maior nível de cada área. O relógio de cada
+ *   etapa parte do escalonamento anterior (ou do envio inicial).
  */
 export async function processarWorkflows(
   prisma: PrismaClient,
@@ -365,11 +431,12 @@ export async function processarWorkflows(
     const limiteLembrete = horas * 0.5 * 3600_000
     const limiteEscalona = horas * 3600_000
     const enviadaEm = rnc.assinaturaEnviadaEm!.getTime()
-    const decorrido = agora - enviadaEm
     let mexeu = false
 
+    // Superados (escalonadoEm) ficam fora: não recebem lembrete e não
+    // contam como pendência.
     const pendentes = await prisma.rncAprovador.findMany({
-      where: { rncId: rnc.id, assinadoEm: null },
+      where: { rncId: rnc.id, assinadoEm: null, escalonadoEm: null },
       select: {
         id: true,
         nome: true,
@@ -381,52 +448,61 @@ export async function processarWorkflows(
         tokenAssinatura: true,
         senhaAssinatura: true,
         lembreteEnviadoEm: true,
+        createdAt: true,
       },
     })
     if (pendentes.length === 0) continue
 
-    // 1) Lembrete a 50% — quem não assinou e ainda não recebeu lembrete.
-    if (decorrido >= limiteLembrete) {
-      for (const ap of pendentes) {
-        if (ap.lembreteEnviadoEm || (!ap.email && !ap.whatsapp)) continue
-        const r = await enviarWorkflowAprovador(
-          prisma,
-          transporte,
-          wa,
-          rnc,
-          ap,
-          'lembrete',
-          horas,
-        )
-        if (r.ok) {
-          await prisma.rncAprovador.update({
-            where: { id: ap.id },
-            data: { lembreteEnviadoEm: new Date() },
-          })
-          out.lembretesEnviados++
-          mexeu = true
-        }
-      }
-    }
-
-    // 2) Escalonamento a 100% — uma vez por RNC (todos os níveis acima).
-    if (decorrido >= limiteEscalona && !rnc.escalonadoEm) {
-      const { novos } = await escalonarRncInterno(
+    // 1) Lembrete a 50% da janela de CADA aprovador — quem entrou por
+    // escalonamento conta o próprio relógio a partir da inclusão.
+    for (const ap of pendentes) {
+      if (ap.lembreteEnviadoEm || (!ap.email && !ap.whatsapp)) continue
+      const inicio = Math.max(enviadaEm, ap.createdAt.getTime())
+      if (agora - inicio < limiteLembrete) continue
+      const r = await enviarWorkflowAprovador(
         prisma,
         transporte,
         wa,
         rnc,
-        'todos',
+        ap,
+        'lembrete',
         horas,
       )
-      if (novos > 0) {
+      if (r.ok) {
+        await prisma.rncAprovador.update({
+          where: { id: ap.id },
+          data: { lembreteEnviadoEm: new Date() },
+        })
+        out.lembretesEnviados++
+        mexeu = true
+      }
+    }
+
+    // 2) Escalonamento consecutivo — a cada janela de SLA vencida desde o
+    // último escalonamento (ou o envio inicial), sobe UM nível e supera o
+    // anterior, até esgotar os níveis da área.
+    const baseEscalona = Math.max(enviadaEm, rnc.escalonadoEm?.getTime() ?? 0)
+    if (agora - baseEscalona >= limiteEscalona) {
+      const { novos, superados, havendoCandidatos } = await escalonarRncInterno(
+        prisma,
+        transporte,
+        wa,
+        rnc,
+        'proximo',
+        horas,
+      )
+      if (novos > 0 || superados > 0) {
         out.escalonamentos += novos
         mexeu = true
       }
-      await prisma.relatorioNaoConformidade.update({
-        where: { id: rnc.id },
-        data: { escalonadoEm: new Date() },
-      })
+      // Marca a etapa apenas quando houve escalada — sem candidatos acima,
+      // o último nível segue apto e não há nova janela a contar.
+      if (havendoCandidatos) {
+        await prisma.relatorioNaoConformidade.update({
+          where: { id: rnc.id },
+          data: { escalonadoEm: new Date() },
+        })
+      }
     }
 
     if (mexeu) out.rncsProcessadas++
@@ -460,7 +536,7 @@ export async function escalonarManual(
   if (!rnc) throw new Error('RNC não encontrada')
 
   const temPendentes = await prisma.rncAprovador.count({
-    where: { rncId, assinadoEm: null },
+    where: { rncId, assinadoEm: null, escalonadoEm: null },
   })
   if (temPendentes === 0)
     return {
@@ -524,6 +600,7 @@ export async function enviarLembreteManual(
     where: {
       rncId,
       assinadoEm: null,
+      escalonadoEm: null, // superados não recebem mais lembrete
       OR: [{ email: { not: null } }, { whatsapp: { not: null } }],
     },
     select: {
@@ -606,6 +683,7 @@ export async function finalizarSeConcluida(
           email: true,
           whatsapp: true,
           assinadoEm: true,
+          escalonadoEm: true,
           assinaturaIp: true,
           assinaturaNavegador: true,
           assinaturaSo: true,
@@ -619,8 +697,10 @@ export async function finalizarSeConcluida(
   })
   if (!rnc) return false
   if (rnc.assinaturasConcluidasEm) return false // já concluída/notificada
-  if (rnc.aprovadores.length === 0) return false
-  if (!rnc.aprovadores.every((a) => a.assinadoEm)) return false // ainda pendente
+  // Superados por escalonamento não assinam mais — ficam fora da conta.
+  const ativos = rnc.aprovadores.filter((a) => !a.escalonadoEm)
+  if (ativos.length === 0) return false
+  if (!ativos.every((a) => a.assinadoEm)) return false // ainda pendente
 
   // Marca a conclusão e encerra a RNC (evita reenvio mesmo se o e-mail falhar).
   await prisma.relatorioNaoConformidade.update({

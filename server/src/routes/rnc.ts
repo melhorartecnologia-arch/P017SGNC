@@ -119,6 +119,7 @@ export const includeRefs = {
       email: true,
       nivel: true,
       assinadoEm: true,
+      escalonadoEm: true,
       assinaturaIp: true,
       assinaturaNavegador: true,
       assinaturaSo: true,
@@ -412,10 +413,17 @@ rncRouter.patch('/:rncId/aprovadores/:id', async (req, res, next) => {
     const assinado = req.body?.assinado === true
     const alvo = await prisma.rncAprovador.findUnique({
       where: { id: req.params.id },
-      select: { id: true, rncId: true, aprovadorId: true },
+      select: { id: true, rncId: true, aprovadorId: true, escalonadoEm: true },
     })
     if (!alvo || alvo.rncId !== req.params.rncId) {
       throw new HttpError(404, 'Aprovador não encontrado nesta RNC')
+    }
+    // Superado por escalonamento não pode mais assinar — nem manualmente.
+    if (alvo.escalonadoEm) {
+      throw new HttpError(
+        409,
+        'Este aprovador foi superado pelo escalonamento e não pode mais assinar.',
+      )
     }
     // Signatário externo (ex.: representante técnico do fornecedor no RHE)
     // só assina pelo próprio link com a senha enviada por e-mail — não

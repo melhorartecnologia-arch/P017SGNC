@@ -100,7 +100,8 @@ export function RvtDetailPanel({ rvt, onClose, onEdit, onUpdated }: Props) {
   const [reenviando, setReenviando] = React.useState(false)
   const pendencias = rvt ? pendenciasParaAssinaturaRvt(rvt) : []
   const jaEnviado = !!rvt && rvt.status !== 'DRAFT'
-  const temPendentes = !!rvt && rvt.aprovadores.some((a) => !a.assinadoEm)
+  const temPendentes =
+    !!rvt && rvt.aprovadores.some((a) => !a.assinadoEm && !a.escalonadoEm)
 
   /** Recarrega o RVT após uma ação de workflow (que devolve o tipo Rnc). */
   const recarregar = async () => {
@@ -415,6 +416,13 @@ export function RvtDetailPanel({ rvt, onClose, onEdit, onUpdated }: Props) {
                         <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
                           <CheckCircle2 className="h-3.5 w-3.5" />
                           Assinado
+                        </span>
+                      ) : a.escalonadoEm ? (
+                        <span
+                          className="inline-flex items-center rounded-full border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-500"
+                          title="Escalonado ao nível superior — não pode mais assinar"
+                        >
+                          Superado
                         </span>
                       ) : (
                         <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">

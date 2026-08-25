@@ -70,6 +70,13 @@ assinaturaRouter.get('/:token', async (req, res, next) => {
   try {
     const ap = await carregarPorToken(req.params.token)
     if (!ap) throw new HttpError(404, 'Link de assinatura inválido ou expirado.')
+    // Superado por escalonamento: o link deixa de valer (mesmo para ver).
+    if (ap.escalonadoEm && !ap.assinadoEm) {
+      throw new HttpError(
+        410,
+        'Este link deixou de valer: o prazo da política de resposta expirou e a aprovação foi escalonada ao nível superior. A assinatura desta área não cabe mais a você.',
+      )
+    }
     const r = ap.rnc
     res.json({
       aprovador: {
@@ -121,9 +128,23 @@ assinaturaRouter.post('/:token/assinar', async (req, res, next) => {
 
     const ap = await prisma.rncAprovador.findUnique({
       where: { tokenAssinatura: req.params.token },
-      select: { id: true, rncId: true, assinadoEm: true, senhaAssinatura: true },
+      select: {
+        id: true,
+        rncId: true,
+        assinadoEm: true,
+        escalonadoEm: true,
+        senhaAssinatura: true,
+      },
     })
     if (!ap) throw new HttpError(404, 'Link de assinatura inválido ou expirado.')
+
+    // Superado por escalonamento não assina mais, com senha certa ou não.
+    if (ap.escalonadoEm && !ap.assinadoEm) {
+      throw new HttpError(
+        410,
+        'Este link deixou de valer: o prazo da política de resposta expirou e a aprovação foi escalonada ao nível superior. A assinatura desta área não cabe mais a você.',
+      )
+    }
 
     if (ap.assinadoEm) {
       return res.json({ ok: true, assinadoEm: ap.assinadoEm, jaAssinado: true })
@@ -166,8 +187,10 @@ assinaturaRouter.post('/:token/assinar', async (req, res, next) => {
       cliente: metadados ?? null,
     }
 
-    await prisma.rncAprovador.update({
-      where: { id: ap.id },
+    // Condicionado a não ter sido superado: fecha a corrida entre a
+    // assinatura e o escalonamento automático do agendador.
+    const gravou = await prisma.rncAprovador.updateMany({
+      where: { id: ap.id, assinadoEm: null, escalonadoEm: null },
       data: {
         assinadoEm: new Date(),
         assinaturaIp: ip.slice(0, 64),
@@ -182,6 +205,12 @@ assinaturaRouter.post('/:token/assinar', async (req, res, next) => {
         assinaturaMetadados: JSON.parse(JSON.stringify(metaCompleto)),
       },
     })
+    if (gravou.count === 0) {
+      throw new HttpError(
+        410,
+        'Este link deixou de valer: a aprovação foi escalonada ao nível superior enquanto a assinatura era registrada.',
+      )
+    }
     const atualizado = await prisma.rncAprovador.findUniqueOrThrow({
       where: { id: ap.id },
       select: { assinadoEm: true },

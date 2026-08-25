@@ -839,6 +839,8 @@ model RncAprovador {
   senhaAssinatura String?  @map("senha_assinatura") @db.VarChar(6)
   lembreteEnviadoEm DateTime? @map("lembrete_enviado_em")
   viaEscalonamento  Boolean   @default(false) @map("via_escalonamento")
+  // Superado por escalonamento: perdeu o direito de assinar.
+  escalonadoEm      DateTime? @map("escalonado_em")
 
   // Metadados técnicos capturados no momento da assinatura.
   assinaturaIp        String? @map("assinatura_ip") @db.VarChar(64)

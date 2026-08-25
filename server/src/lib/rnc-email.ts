@@ -222,6 +222,62 @@ export type DadosEmailConclusao = {
   ocultarForense?: boolean
 }
 
+export type DadosEmailEscalonado = {
+  numero: string
+  docTipo?: 'RNC' | 'RAQ' | 'RVT' | 'RHE'
+  titulo?: string | null
+  areaNome: string
+  /** Nome do aprovador superado (destinatário). */
+  nome: string
+  /** Nível para o qual a aprovação subiu. */
+  nivelNovo: number | null
+}
+
+/**
+ * Aviso ao aprovador SUPERADO pelo escalonamento: o prazo da política de
+ * resposta expirou sem a assinatura dele, a aprovação subiu de nível e o
+ * link dele deixou de valer — ele não pode mais assinar.
+ */
+export function montarEmailEscalonadoAviso(d: DadosEmailEscalonado) {
+  const doc = d.docTipo ?? 'RNC'
+  const daDoc = doc === 'RNC' ? 'da RNC' : `do ${doc}`
+  const nivelTxt = d.nivelNovo != null ? ` (nível ${d.nivelNovo})` : ''
+  const subject = `${doc} ${d.numero} — aprovação escalonada ao nível superior`
+
+  const text = [
+    `Olá, ${d.nome},`,
+    '',
+    `O prazo da política de resposta para a assinatura ${daDoc} ${d.numero} expirou sem o seu registro, e a aprovação da área ${d.areaNome} foi escalonada ao nível superior${nivelTxt}.`,
+    '',
+    d.titulo ? `${rotuloTitulo(doc)}: ${d.titulo}` : '',
+    'A partir de agora a assinatura desta área cabe ao nível escalonado — o seu link de assinatura deixou de valer e não é mais possível assinar este documento.',
+    '',
+    'Mensagem automática do SGNC — Sistema de Gestão de Não Conformidade.',
+  ]
+    .filter((l) => l !== '')
+    .join('\n')
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:640px;margin:0 auto">
+    <h2 style="margin:0 0 4px">Aprovação escalonada — ${doc} ${escapeHtml(d.numero)}</h2>
+    <p style="color:#6b7280;margin:0 0 12px">Sistema de Gestão de Não Conformidade</p>
+    <p style="font-size:14px;margin:0 0 10px">Olá, <b>${escapeHtml(d.nome)}</b>,</p>
+    <p style="font-size:14px;margin:0 0 10px">
+      O prazo da política de resposta para a assinatura ${daDoc}
+      <b>${escapeHtml(d.numero)}</b>${d.titulo ? ` (${escapeHtml(rotuloTitulo(doc))}: ${escapeHtml(d.titulo)})` : ''}
+      expirou sem o seu registro, e a aprovação da área
+      <b>${escapeHtml(d.areaNome)}</b> foi escalonada ao nível superior${escapeHtml(nivelTxt)}.
+    </p>
+    <div style="margin:0 0 14px;padding:10px 14px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;font-size:13px">
+      A assinatura desta área agora cabe ao nível escalonado — o seu link de
+      assinatura <b>deixou de valer</b> e não é mais possível assinar este documento.
+    </div>
+    <p style="color:#9ca3af;font-size:12px;margin-top:20px">Mensagem automática do SGNC.</p>
+  </div>`
+
+  return { subject, text, html }
+}
+
 /** E-mail de conclusão: todas as assinaturas do documento foram realizadas. */
 export function montarEmailConclusao(d: DadosEmailConclusao) {
   const base = resolverBaseUrl(d.baseUrl)
