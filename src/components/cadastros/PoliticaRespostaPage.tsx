@@ -33,17 +33,29 @@ import { DEFAULT_PAGE_SIZE, Pagination } from './Pagination'
 import { useBulkSelection } from '@/lib/hooks/useBulkSelection'
 import { fetchAllPaged, parseAtivo, pick } from '@/lib/utils/xlsx'
 
-/** Converte horas inteiras numa label humana ex.: "72 h (3 dias)". */
-function formatHoras(h: number): string {
-  if (h % 168 === 0) {
-    const semanas = h / 168
-    return `${h} h (${semanas} semana${semanas > 1 ? 's' : ''})`
+/** Formata o prazo (horas fracionárias) como "1h30min", "24h (1 dia)", "30min". */
+function formatHoras(horas: number): string {
+  const totalMin = Math.round(horas * 60)
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  const base =
+    h > 0 && m > 0
+      ? `${h}h${String(m).padStart(2, '0')}min`
+      : h > 0
+        ? `${h}h`
+        : `${m}min`
+  // Sufixo amigável apenas para prazos exatos em dias/semanas.
+  if (m === 0 && h > 0) {
+    if (h % 168 === 0) {
+      const semanas = h / 168
+      return `${base} (${semanas} semana${semanas > 1 ? 's' : ''})`
+    }
+    if (h % 24 === 0) {
+      const dias = h / 24
+      return `${base} (${dias} dia${dias > 1 ? 's' : ''})`
+    }
   }
-  if (h % 24 === 0) {
-    const dias = h / 24
-    return `${h} h (${dias} dia${dias > 1 ? 's' : ''})`
-  }
-  return `${h} h`
+  return base
 }
 
 export function PoliticaRespostaPage() {
@@ -138,8 +150,8 @@ export function PoliticaRespostaPage() {
           </h1>
         </div>
         <p className="text-sm text-neutral-500">
-          Define a quantidade de horas contínuas em que um relatório de cada
-          tipo precisa ser assinado.
+          Define o prazo contínuo (em horas e minutos) em que um relatório de
+          cada tipo precisa ser assinado.
         </p>
       </header>
 
@@ -183,12 +195,17 @@ export function PoliticaRespostaPage() {
               {
                 header: 'Horas',
                 required: true,
-                help: 'inteiro entre 1 e 8760',
+                help: 'horas do prazo (0 a 8760)',
+              },
+              {
+                header: 'Minutos',
+                help: 'minutos do prazo (0 a 59) — opcional',
               },
               { header: 'Descrição' },
               { header: 'Situação', help: 'Ativa / Inativa (padrão Ativa)' },
             ]}
             notes={[
+              'O prazo é a soma de Horas + Minutos (ex.: 1 e 30 = 1h30min).',
               'Cada tipo de relatório só pode ter uma política — duplicados são rejeitados.',
             ]}
             mapRow={async (row) => {
@@ -202,13 +219,15 @@ export function PoliticaRespostaPage() {
               if (!tipo) {
                 throw new Error(`Tipo de relatório não encontrado: ${tipoCodigo}`)
               }
-              const horas = Number(pick(row, 'Horas'))
-              if (!Number.isFinite(horas) || horas < 1) {
-                throw new Error('Horas inválidas (inteiro >= 1)')
+              const horas = Math.max(0, Math.floor(Number(pick(row, 'Horas')) || 0))
+              const minutos = Math.max(0, Math.floor(Number(pick(row, 'Minutos')) || 0))
+              const horasResposta = horas + minutos / 60
+              if (horasResposta < 1 / 60) {
+                throw new Error('Prazo inválido (mínimo de 1 minuto)')
               }
               return {
                 tipoRelatorioId: tipo.id,
-                horasResposta: Math.trunc(horas),
+                horasResposta,
                 descricao: pick(row, 'Descrição') || null,
                 ativo: parseAtivo(pick(row, 'Situação')),
               }
@@ -231,7 +250,16 @@ export function PoliticaRespostaPage() {
                 value: (p) => p.tipoRelatorio.descricao,
                 width: 36,
               },
-              { header: 'Horas', value: (p) => p.horasResposta, width: 10 },
+              {
+                header: 'Horas',
+                value: (p) => Math.floor(Math.round(p.horasResposta * 60) / 60),
+                width: 10,
+              },
+              {
+                header: 'Minutos',
+                value: (p) => Math.round(p.horasResposta * 60) % 60,
+                width: 10,
+              },
               {
                 header: 'Descrição',
                 value: (p) => p.descricao ?? '',
@@ -267,7 +295,7 @@ export function PoliticaRespostaPage() {
         <BulkDeleteToolbar
           selectedItems={selection.selectedItems.map((p) => ({
             id: p.id,
-            label: `${p.tipoRelatorio.codigo} (${p.horasResposta} h)`,
+            label: `${p.tipoRelatorio.codigo} (${formatHoras(p.horasResposta)})`,
           }))}
           entityLabel="política"
           entityPlural="políticas"
@@ -291,7 +319,7 @@ export function PoliticaRespostaPage() {
                   />
                 </th>
                 <th className="px-3 py-2.5 text-left font-medium">Tipo de Relatório</th>
-                <th className="px-3 py-2.5 text-center font-medium">Horas</th>
+                <th className="px-3 py-2.5 text-center font-medium">Prazo</th>
                 <th className="px-3 py-2.5 text-left font-medium">Descrição</th>
                 <th className="px-3 py-2.5 text-center font-medium">Situação</th>
                 <th className="w-24 px-3 py-2.5"></th>

@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { ApiError } from '@/lib/api/client'
+import { filiaisApi, type Filial } from '@/lib/api/filiais'
 import type {
   Usuario,
   UsuarioCreateInput,
@@ -22,6 +23,7 @@ type FormState = {
   senha: string
   role: UsuarioRole
   ativo: boolean
+  filialPadraoId: string
 }
 
 type Props = {
@@ -36,6 +38,7 @@ const empty: FormState = {
   senha: '',
   role: 'USUARIO',
   ativo: true,
+  filialPadraoId: '',
 }
 
 function toForm(u: Usuario): FormState {
@@ -45,6 +48,7 @@ function toForm(u: Usuario): FormState {
     senha: '',
     role: u.role,
     ativo: u.ativo,
+    filialPadraoId: u.filialPadraoId ?? '',
   }
 }
 
@@ -56,12 +60,38 @@ export function UsuarioForm({ initial, onSaved, onCancel }: Props) {
   const currentUserId = auth.status === 'authenticated' ? auth.user.id : null
   const editandoEuMesmo = !!initial && currentUserId === initial.id
 
+  const [filiais, setFiliais] = React.useState<Filial[]>([])
   const [form, setForm] = React.useState<FormState>(() =>
     initial ? toForm(initial) : empty,
   )
   const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string[]>>({})
+
+  React.useEffect(() => {
+    let cancelled = false
+    filiaisApi
+      .list({ ativo: true, pageSize: 100 })
+      .then((res) => {
+        if (cancelled) return
+        setFiliais(res.items)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Mantém a filial padrão atual visível mesmo se estiver inativa
+  // (a listagem só traz filiais ativas).
+  const filialOptions = React.useMemo(() => {
+    const opts: { id: string; codigo: string; nome: string }[] = filiais.map(
+      (f) => ({ id: f.id, codigo: f.codigo, nome: f.nome }),
+    )
+    const atual = initial?.filialPadrao
+    if (atual && !opts.some((f) => f.id === atual.id)) opts.push(atual)
+    return opts
+  }, [filiais, initial])
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((s) => ({ ...s, [key]: value }))
@@ -78,6 +108,7 @@ export function UsuarioForm({ initial, onSaved, onCancel }: Props) {
           nome: form.nome,
           role: form.role,
           ativo: form.ativo,
+          filialPadraoId: form.filialPadraoId || null,
         }
         if (form.senha.trim()) payload.senha = form.senha
         await usuariosApi.update(initial.id, payload)
@@ -89,6 +120,7 @@ export function UsuarioForm({ initial, onSaved, onCancel }: Props) {
           senha: form.senha,
           role: form.role,
           ativo: form.ativo,
+          filialPadraoId: form.filialPadraoId || null,
         }
         await usuariosApi.create(payload)
         toast.success('Usuário cadastrado', { description: form.email })
@@ -187,6 +219,29 @@ export function UsuarioForm({ initial, onSaved, onCancel }: Props) {
             {initial
               ? 'Preencha apenas se quiser redefinir a senha do usuário.'
               : 'Mínimo de 6 caracteres.'}
+          </span>
+        </Field>
+
+        <Field
+          label="Filial padrão"
+          error={fieldError('filialPadraoId')}
+          className="sm:col-span-12"
+        >
+          <select
+            className={cn(selectClass)}
+            value={form.filialPadraoId}
+            onChange={(e) => set('filialPadraoId', e.target.value)}
+          >
+            <option value="">Sem filial padrão</option>
+            {filialOptions.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.codigo} — {f.nome}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-neutral-500">
+            Filial sugerida automaticamente para o usuário ao criar
+            relatórios. Opcional.
           </span>
         </Field>
 

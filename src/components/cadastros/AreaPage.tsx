@@ -136,7 +136,7 @@ export function AreaPage() {
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar por código ou nome"
+              placeholder="Buscar por código, nome, descrição ou situação"
               className="pl-8"
             />
           </div>
@@ -217,10 +217,18 @@ export function AreaPage() {
           onClearSelection={selection.clear}
         />
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[720px] table-fixed text-sm">
+            <colgroup>
+              <col className="w-10" />
+              <col className="w-40" />
+              <col className="w-[26%]" />
+              <col />
+              <col className="w-28" />
+              <col className="w-24" />
+            </colgroup>
             <thead>
               <tr className="border-b border-neutral-200 bg-neutral-50/60 text-neutral-500">
-                <th className="w-8 px-3 py-2.5">
+                <th className="px-3 py-2.5">
                   <Checkbox
                     checked={selection.allSelected}
                     onCheckedChange={() => selection.toggleAll()}
@@ -232,7 +240,7 @@ export function AreaPage() {
                 <th className="px-3 py-2.5 text-left font-medium">Nome</th>
                 <th className="px-3 py-2.5 text-left font-medium">Descrição</th>
                 <th className="px-3 py-2.5 text-center font-medium">Situação</th>
-                <th className="w-24 px-3 py-2.5"></th>
+                <th className="px-3 py-2.5"></th>
               </tr>
             </thead>
             <tbody>
@@ -278,23 +286,33 @@ export function AreaPage() {
                     key={a.id}
                     className="border-b border-neutral-200 last:border-b-0 hover:bg-neutral-50/60"
                   >
-                    <td className="w-8 px-3 py-3">
+                    <td className="px-3 py-3 align-top">
                       <Checkbox
                         checked={selection.isSelected(a.id)}
                         onCheckedChange={() => selection.toggle(a.id)}
                         aria-label="Selecionar"
                       />
                     </td>
-                    <td className="px-3 py-3 font-medium text-neutral-900">{a.codigo}</td>
-                    <td className="px-3 py-3 font-medium text-neutral-900">{a.nome}</td>
-                    <td className="px-3 py-3 text-neutral-700">
+                    <td className="px-3 py-3 align-top font-medium text-neutral-900">
+                      <span className="block whitespace-normal break-words">
+                        {a.codigo}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 align-top font-medium text-neutral-900">
+                      <span className="block whitespace-normal break-words">
+                        {a.nome}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 align-top text-neutral-700">
                       {a.descricao ? (
-                        <span className="line-clamp-1">{a.descricao}</span>
+                        <span className="block whitespace-normal break-words">
+                          {a.descricao}
+                        </span>
                       ) : (
                         <span className="text-neutral-400">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-center">
+                    <td className="px-3 py-3 text-center align-top">
                       <span
                         className={
                           a.ativo
@@ -305,7 +323,7 @@ export function AreaPage() {
                         {a.ativo ? 'Ativa' : 'Inativa'}
                       </span>
                     </td>
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 align-top">
                       <div className="flex items-center justify-end gap-1">
                         <Button
                           variant="ghost"

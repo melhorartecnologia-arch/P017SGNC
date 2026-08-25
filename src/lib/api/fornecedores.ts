@@ -2,6 +2,9 @@ import { apiRequest } from './client'
 
 export type ContatoTipo = 'TELEFONE_FIXO' | 'WHATSAPP' | 'EMAIL'
 
+/** Origem do cadastro: integrado do ERP Protheus (ETL) ou criado na plataforma. */
+export type OrigemCadastro = 'PROTHEUS' | 'PLATAFORMA'
+
 export type ContatoFornecedor = {
   id: string
   fornecedorId: string
@@ -21,6 +24,7 @@ export type Fornecedor = {
   cnpj: string
   ativo: boolean
   observacoes: string | null
+  origemCadastro: OrigemCadastro
   contatos: ContatoFornecedor[]
   createdAt: string
   updatedAt: string
@@ -35,7 +39,7 @@ export type ContatoInput = {
 
 export type FornecedorInput = Omit<
   Fornecedor,
-  'id' | 'createdAt' | 'updatedAt' | 'contatos'
+  'id' | 'createdAt' | 'updatedAt' | 'contatos' | 'origemCadastro'
 > & {
   contatos: ContatoInput[]
 }

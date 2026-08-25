@@ -288,7 +288,6 @@ function Lightbox({
     <div
       role="dialog"
       aria-modal="true"
-      onClick={onClose}
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4"
     >
       <Button

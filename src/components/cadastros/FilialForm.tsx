@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { ApiError } from '@/lib/api/client'
 import type { Filial, FilialInput } from '@/lib/api/filiais'
 import { filiaisApi } from '@/lib/api/filiais'
+import { maskCnpj, maskCep } from '@/lib/utils/masks'
 
 type Props = {
   initial?: Filial | null
@@ -29,6 +30,10 @@ const empty: FilialInput = {
   cep: '',
   ativo: true,
   observacoes: '',
+  rncNumeroInicial: 0,
+  raqNumeroInicial: 0,
+  rvtNumeroInicial: 0,
+  rheNumeroInicial: 0,
 }
 
 function toInput(f: Filial): FilialInput {
@@ -46,6 +51,10 @@ function toInput(f: Filial): FilialInput {
     cep: f.cep,
     ativo: f.ativo,
     observacoes: f.observacoes ?? '',
+    rncNumeroInicial: f.rncNumeroInicial ?? 0,
+    raqNumeroInicial: f.raqNumeroInicial ?? 0,
+    rvtNumeroInicial: f.rvtNumeroInicial ?? 0,
+    rheNumeroInicial: f.rheNumeroInicial ?? 0,
   }
 }
 
@@ -148,8 +157,9 @@ export function FilialForm({ initial, onSaved, onCancel }: Props) {
         <Field label="CNPJ *" error={fieldError('cnpj')} className="sm:col-span-4">
           <Input
             value={form.cnpj}
-            onChange={(e) => set('cnpj', e.target.value)}
+            onChange={(e) => set('cnpj', maskCnpj(e.target.value))}
             placeholder="00.000.000/0001-00"
+            inputMode="numeric"
             maxLength={18}
             required
           />
@@ -211,9 +221,10 @@ export function FilialForm({ initial, onSaved, onCancel }: Props) {
         <Field label="CEP *" error={fieldError('cep')} className="sm:col-span-3">
           <Input
             value={form.cep}
-            onChange={(e) => set('cep', e.target.value)}
+            onChange={(e) => set('cep', maskCep(e.target.value))}
             placeholder="00000-000"
-            maxLength={10}
+            inputMode="numeric"
+            maxLength={9}
             required
           />
         </Field>
@@ -222,6 +233,76 @@ export function FilialForm({ initial, onSaved, onCancel }: Props) {
       <div className="h-px bg-neutral-200" />
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-12">
+        <Field
+          label="Numeração inicial de RNC"
+          error={fieldError('rncNumeroInicial')}
+          className="sm:col-span-4"
+        >
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={String(form.rncNumeroInicial ?? 0)}
+            onChange={(e) =>
+              set('rncNumeroInicial', Math.max(0, Math.floor(Number(e.target.value) || 0)))
+            }
+            placeholder="0"
+          />
+        </Field>
+        <Field
+          label="Numeração inicial de RAQ"
+          error={fieldError('raqNumeroInicial')}
+          className="sm:col-span-4"
+        >
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={String(form.raqNumeroInicial ?? 0)}
+            onChange={(e) =>
+              set('raqNumeroInicial', Math.max(0, Math.floor(Number(e.target.value) || 0)))
+            }
+            placeholder="0"
+          />
+        </Field>
+        <Field
+          label="Numeração inicial de RVT"
+          error={fieldError('rvtNumeroInicial')}
+          className="sm:col-span-4"
+        >
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={String(form.rvtNumeroInicial ?? 0)}
+            onChange={(e) =>
+              set('rvtNumeroInicial', Math.max(0, Math.floor(Number(e.target.value) || 0)))
+            }
+            placeholder="0"
+          />
+        </Field>
+        <Field
+          label="Numeração inicial de RHE"
+          error={fieldError('rheNumeroInicial')}
+          className="sm:col-span-4"
+        >
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={String(form.rheNumeroInicial ?? 0)}
+            onChange={(e) =>
+              set('rheNumeroInicial', Math.max(0, Math.floor(Number(e.target.value) || 0)))
+            }
+            placeholder="0"
+          />
+        </Field>
+        <p className="self-end pb-2 text-xs text-neutral-500 sm:col-span-12">
+          Informe o <b>último número já usado</b> de cada tipo no controle atual
+          desta filial — a contagem continua a partir daí (ex.: informando 120,
+          o próximo documento será o 121). Deixe 0 para começar do início.
+        </p>
+
         <Field
           label="Observações"
           error={fieldError('observacoes')}

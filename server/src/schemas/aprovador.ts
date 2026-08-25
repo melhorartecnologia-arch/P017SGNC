@@ -18,6 +18,8 @@ export const aprovadorCreateSchema = z
       .min(1, 'Nível mínimo é 1')
       .max(99, 'Nível máximo é 99'),
     nome: z.string().trim().min(2).max(120),
+    // Recebe as respostas do fornecedor após a conclusão das assinaturas.
+    recebeRespostaFornecedor: z.boolean().optional().default(false),
     cargo: z.string().trim().max(120).optional().nullable(),
     email: z.string().trim().email('E-mail inválido').max(160),
     telefone: z
@@ -38,6 +40,14 @@ export const aprovadorCreateSchema = z
       .or(z.literal('').transform(() => null)),
     ativo: z.boolean().optional().default(true),
     observacoes: z.string().trim().max(2000).optional().nullable(),
+    /**
+     * Tipos de relatório que o aprovador assina. Lista vazia (ou ausente)
+     * = sem restrição: assina todos os tipos, como a restrição de turno.
+     */
+    tiposRelatorioIds: z
+      .array(z.string().uuid('Tipo de relatório inválido'))
+      .max(20)
+      .optional(),
   })
 
 export const aprovadorUpdateSchema = aprovadorCreateSchema.partial()

@@ -30,6 +30,7 @@ import type {
 } from '@/lib/api/tipos-nao-conformidade'
 import { tiposNaoConformidadeApi } from '@/lib/api/tipos-nao-conformidade'
 import { severidadesApi } from '@/lib/api/severidades'
+import { produtosApi } from '@/lib/api/produtos'
 import { TipoNaoConformidadeForm } from './TipoNaoConformidadeForm'
 import { ProdutosBadges } from './ProdutosMultiSelect'
 import { ExportXlsxButton } from './ExportXlsxButton'
@@ -37,7 +38,13 @@ import { ImportXlsxButton } from './ImportXlsxButton'
 import { BulkDeleteToolbar } from './BulkDeleteToolbar'
 import { DEFAULT_PAGE_SIZE, Pagination } from './Pagination'
 import { useBulkSelection } from '@/lib/hooks/useBulkSelection'
-import { fetchAllPaged, joinCodigos, parseAtivo, pick } from '@/lib/utils/xlsx'
+import {
+  fetchAllPaged,
+  joinCodigos,
+  parseAtivo,
+  pick,
+  splitCodigos,
+} from '@/lib/utils/xlsx'
 
 type View = 'grouped' | 'flat'
 
@@ -230,10 +237,15 @@ export function TipoNaoConformidadePage() {
                 header: 'Severidade (código)',
                 help: 'opcional — código da severidade típica do defeito',
               },
+              {
+                header: 'Produtos (códigos)',
+                help: 'opcional — códigos dos produtos a vincular, separados por vírgula ou ponto-e-vírgula (ex.: PRD001; PRD002)',
+              },
               { header: 'Situação', help: 'Ativo / Inativo (padrão Ativo)' },
             ]}
             notes={[
-              'Vínculos com produtos não são importados. Edite cada tipo depois, se necessário.',
+              'Use o layout "Agrupado" da exportação como modelo: uma linha por tipo, com os códigos dos produtos na coluna "Produtos (códigos)".',
+              'Os produtos informados precisam já estar cadastrados; códigos não encontrados apontam erro na linha correspondente.',
             ]}
             mapRow={async (row) => {
               const severidadeCodigo = pick(row, 'Severidade (código)').toUpperCase()
@@ -249,11 +261,27 @@ export function TipoNaoConformidadePage() {
                 }
                 severidadeId = sev.id
               }
+
+              // Vincula produtos pelos códigos informados (resolvendo para IDs).
+              const codigosProdutos = splitCodigos(pick(row, 'Produtos (códigos)'))
+              const produtosIds: string[] = []
+              for (const codigo of codigosProdutos) {
+                const res = await produtosApi.list({ q: codigo, pageSize: 10 })
+                const prod = res.items.find(
+                  (p) => p.codigo.toUpperCase() === codigo,
+                )
+                if (!prod) {
+                  throw new Error(`Produto não encontrado: ${codigo}`)
+                }
+                produtosIds.push(prod.id)
+              }
+
               return {
                 codigo: pick(row, 'Código'),
                 descricao: pick(row, 'Descrição'),
                 severidadeId,
                 ativo: parseAtivo(pick(row, 'Situação')),
+                produtosIds,
               }
             }}
             importOne={(input) => tiposNaoConformidadeApi.create(input)}
@@ -278,7 +306,7 @@ export function TipoNaoConformidadePage() {
                   width: 20,
                 },
                 {
-                  header: 'Produtos',
+                  header: 'Produtos (códigos)',
                   value: (t) => joinCodigos(t.produtos),
                   width: 36,
                 },

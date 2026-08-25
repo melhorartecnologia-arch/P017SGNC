@@ -14,13 +14,27 @@ areasRouter.get('/', async (req, res, next) => {
   try {
     const { q, ativo, page, pageSize } = areaQuerySchema.parse(req.query)
     const where: Prisma.AreaWhereInput = {}
-    if (q) {
-      where.OR = [
-        { codigo: { contains: q, mode: 'insensitive' } },
-        { nome: { contains: q, mode: 'insensitive' } },
-      ]
-    }
     if (ativo !== undefined) where.ativo = ativo === 'true'
+
+    if (q) {
+      // Busca insensível a caixa E acentos (via unaccent) em todos os
+      // campos: código, nome, descrição e situação ("ativa"/"inativa").
+      const term = `%${q}%`
+      const t = q.toLowerCase()
+      let sit = Prisma.empty
+      if (t.length >= 2) {
+        if ('inativa'.startsWith(t) || 'inativo'.startsWith(t)) sit = Prisma.sql` OR ativo = false`
+        else if ('ativa'.startsWith(t) || 'ativo'.startsWith(t)) sit = Prisma.sql` OR ativo = true`
+      }
+      const matches = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM areas
+        WHERE unaccent(codigo) ILIKE unaccent(${term})
+           OR unaccent(nome) ILIKE unaccent(${term})
+           OR unaccent(coalesce(descricao, '')) ILIKE unaccent(${term})
+           ${sit}
+      `
+      where.id = { in: matches.map((m) => m.id) }
+    }
 
     const [total, items] = await Promise.all([
       prisma.area.count({ where }),

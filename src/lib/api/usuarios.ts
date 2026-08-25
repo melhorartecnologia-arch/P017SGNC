@@ -8,6 +8,8 @@ export type Usuario = {
   nome: string
   role: UsuarioRole
   ativo: boolean
+  filialPadraoId: string | null
+  filialPadrao: { id: string; codigo: string; nome: string } | null
   createdAt: string
   updatedAt: string
 }
@@ -18,6 +20,7 @@ export type UsuarioCreateInput = {
   senha: string
   role: UsuarioRole
   ativo: boolean
+  filialPadraoId?: string | null
 }
 
 export type UsuarioUpdateInput = {
@@ -26,6 +29,7 @@ export type UsuarioUpdateInput = {
   senha?: string
   role?: UsuarioRole
   ativo?: boolean
+  filialPadraoId?: string | null
 }
 
 export type UsuarioListParams = {

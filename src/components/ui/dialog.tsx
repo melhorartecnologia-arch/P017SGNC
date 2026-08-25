@@ -29,11 +29,17 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, onInteractOutside, ...props }, ref) => (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
       ref={ref}
+      // Não fecha ao clicar fora do formulário — evita descartar o
+      // preenchimento por engano. Fecha apenas pelo X, Cancelar ou Esc.
+      onInteractOutside={(e) => {
+        e.preventDefault()
+        onInteractOutside?.(e)
+      }}
       className={cn(
         'fixed left-[50%] top-[50%] z-50 grid w-full max-w-2xl translate-x-[-50%] translate-y-[-50%] gap-4 border border-neutral-200 bg-white p-6 shadow-xl rounded-xl max-h-[90vh] overflow-y-auto',
         'duration-200',

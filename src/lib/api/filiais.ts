@@ -15,6 +15,11 @@ export type Filial = {
   cep: string
   ativo: boolean
   observacoes: string | null
+  /** Ponto de partida da numeração sequencial de RNC desta filial. */
+  rncNumeroInicial: number
+  raqNumeroInicial: number
+  rvtNumeroInicial: number
+  rheNumeroInicial: number
   createdAt: string
   updatedAt: string
 }

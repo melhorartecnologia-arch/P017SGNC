@@ -118,8 +118,19 @@ export function LoginPage() {
           </form>
         </div>
 
-        <footer className="px-6 pb-6 text-center text-xs text-neutral-400 sm:px-10">
-          © {new Date().getFullYear()} Cervejaria Cidade Imperial · SGNC
+        <footer className="flex flex-col gap-0.5 px-6 pb-6 text-center text-xs text-neutral-400 sm:px-10">
+          <span>© {new Date().getFullYear()} Cervejaria Cidade Imperial · SGNC</span>
+          <span
+            className="font-mono text-[11px] text-neutral-300"
+            title={
+              __APP_VERSAO_DATA__
+                ? `Última atualização: ${__APP_VERSAO_DATA__}`
+                : undefined
+            }
+          >
+            Versão {__APP_VERSAO__}
+            {__APP_VERSAO_DATA__ ? ` · ${__APP_VERSAO_DATA__}` : ''}
+          </span>
         </footer>
       </div>
 

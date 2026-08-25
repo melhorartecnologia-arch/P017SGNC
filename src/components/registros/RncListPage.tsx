@@ -6,13 +6,28 @@ import {
   Plus,
   Pencil,
   Eye,
+  Download,
+  Loader2,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ApiError } from '@/lib/api/client'
-import { rncApi, type Rnc, type RncStatus } from '@/lib/api/rnc'
+import {
+  rncApi,
+  resumoAssinaturas,
+  CIENCIA_RNC_LABEL,
+  CONTINGENCIA_RNC_LABEL,
+  type AssinaturaStatus,
+  type CienciaRncStatus,
+  type ContingenciaRncStatus,
+  type CausaRaizRncStatus,
+  type EficaciaRncStatus,
+  type Rnc,
+  type RncStatus,
+} from '@/lib/api/rnc'
 import { DEFAULT_PAGE_SIZE, Pagination } from '@/components/cadastros/Pagination'
 import { RncWizard } from './RncWizard'
 import { RncDetailPanel } from './RncDetailPanel'
@@ -37,6 +52,76 @@ const STATUS_CLASS: Record<RncStatus, string> = {
 const selectClass =
   'flex h-9 w-full rounded-md border border-neutral-200 bg-white px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900'
 
+const ASSINATURA_CLASS: Record<AssinaturaStatus['estado'], string> = {
+  vazio: 'border-neutral-200 bg-neutral-50 text-neutral-500',
+  pendente: 'border-amber-200 bg-amber-50 text-amber-800',
+  parcial: 'border-sky-200 bg-sky-50 text-sky-800',
+  completo: 'border-emerald-200 bg-emerald-50 text-emerald-800',
+}
+
+/** Selo da ciência do fornecedor na listagem. */
+function CienciaBadge({ rnc }: { rnc: Rnc }) {
+  const st = rnc.cienciaStatus
+  if (!st) {
+    return <span className="text-xs text-neutral-300">—</span>
+  }
+  const classe =
+    st === 'PENDENTE'
+      ? 'border-amber-200 bg-amber-50 text-amber-700'
+      : st === 'RECUSADA'
+        ? 'border-orange-200 bg-orange-50 text-orange-700'
+        : st === 'MANTIDA_DEFINITIVA'
+          ? 'border-red-200 bg-red-50 text-red-700'
+          : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  const curto =
+    st === 'PENDENTE'
+      ? 'Aguardando'
+      : st === 'RECUSADA'
+        ? 'Em análise'
+        : st === 'ACEITA'
+          ? 'Aceita'
+          : st === 'RECUSA_ACEITA'
+            ? 'Recusa acatada'
+            : st === 'MANTIDA_DEFINITIVA'
+              ? 'Definitiva'
+              : 'Aceita (prazo)'
+  return (
+    <span
+      title={CIENCIA_RNC_LABEL[st]}
+      className={cn(
+        'inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-medium',
+        classe,
+      )}
+    >
+      {curto}
+    </span>
+  )
+}
+
+function AssinaturaBadge({ rnc }: { rnc: Rnc }) {
+  const s = resumoAssinaturas(rnc)
+  const titulo =
+    s.estado === 'vazio'
+      ? 'Nenhum aprovador definido para esta RNC'
+      : rnc.aprovadores
+          .map(
+            (a) =>
+              `${a.assinadoEm ? '✓' : '○'} ${a.areaNome}: ${a.nome}`,
+          )
+          .join('\n')
+  return (
+    <span
+      title={titulo}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium',
+        ASSINATURA_CLASS[s.estado],
+      )}
+    >
+      {s.label}
+    </span>
+  )
+}
+
 function formatDataBR(iso: string | null | undefined): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -45,25 +130,107 @@ function formatDataBR(iso: string | null | undefined): string {
   return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`
 }
 
+/** Prazo já vencido? Fica fora do render para não depender do relógio. */
+function prazoVencido(prazo: string | null | undefined): boolean {
+  if (!prazo) return false
+  const ms = new Date(prazo).getTime()
+  return !Number.isNaN(ms) && ms <= Date.now()
+}
+
+/** Situação do plano de ações de contingência, para a lista. */
+function ContingenciaBadge({ rnc }: { rnc: Rnc }) {
+  const st = rnc.contingenciaStatus
+  if (!st) return <span className="text-xs text-neutral-300">—</span>
+
+  const emAberto = st === 'PENDENTE' || st === 'AJUSTE_SOLICITADO'
+  const atrasada = emAberto && prazoVencido(rnc.contingenciaPrazoEm)
+
+  const cor = atrasada
+    ? 'border-red-200 bg-red-50 text-red-700'
+    : st === 'APROVADA'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : st === 'EM_ANALISE'
+        ? 'border-sky-200 bg-sky-50 text-sky-700'
+        : 'border-amber-200 bg-amber-50 text-amber-700'
+
+  return (
+    <span
+      className={cn(
+        'inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium',
+        cor,
+      )}
+      title={
+        atrasada
+          ? `${CONTINGENCIA_RNC_LABEL[st]} — prazo vencido`
+          : CONTINGENCIA_RNC_LABEL[st]
+      }
+    >
+      {atrasada ? 'Em atraso' : CONTINGENCIA_RNC_LABEL[st]}
+    </span>
+  )
+}
+
 export function RncListPage() {
   const [items, setItems] = React.useState<Rnc[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [q, setQ] = React.useState('')
   const [statusFilter, setStatusFilter] = React.useState<'' | RncStatus>('')
+  const [cienciaFilter, setCienciaFilter] = React.useState<
+    '' | CienciaRncStatus | '__none__'
+  >('')
+  // "atrasada" é um recorte de PENDENTE: só as fora do prazo.
+  const [contingenciaFilter, setContingenciaFilter] = React.useState<
+    '' | ContingenciaRncStatus | '__none__' | 'atrasada'
+  >('')
+  const [causaFilter, setCausaFilter] = React.useState<
+    '' | CausaRaizRncStatus | '__none__'
+  >('')
+  const [eficaciaFilter, setEficaciaFilter] = React.useState<
+    '' | EficaciaRncStatus | '__none__'
+  >('')
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [wizardOpen, setWizardOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<Rnc | null>(null)
   const [viewing, setViewing] = React.useState<Rnc | null>(null)
+  const [downloadingId, setDownloadingId] = React.useState<string | null>(null)
+
+  const handleDownload = async (r: Rnc) => {
+    setDownloadingId(r.id)
+    try {
+      await rncApi.downloadPdf(r.id, r.numero)
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao gerar o PDF.'
+      toast.error('Não foi possível baixar o PDF', { description: message })
+    } finally {
+      setDownloadingId(null)
+    }
+  }
 
   const fetchPage = React.useCallback(
-    async (opts: { status?: RncStatus | ''; page: number }) => {
+    async (opts: {
+      status?: RncStatus | ''
+      ciencia?: CienciaRncStatus | '__none__' | ''
+      contingencia?: ContingenciaRncStatus | '__none__' | 'atrasada' | ''
+      causa?: CausaRaizRncStatus | '__none__' | ''
+      eficacia?: EficaciaRncStatus | '__none__' | ''
+      page: number
+    }) => {
       setLoading(true)
       setError(null)
       try {
         const res = await rncApi.list({
           status: opts.status || undefined,
+          cienciaStatus: opts.ciencia || undefined,
+          contingenciaStatus:
+            opts.contingencia && opts.contingencia !== 'atrasada'
+              ? opts.contingencia
+              : undefined,
+          contingenciaAtrasada: opts.contingencia === 'atrasada' || undefined,
+          causaRaizStatus: opts.causa || undefined,
+          eficaciaStatus: opts.eficacia || undefined,
           page: opts.page,
           pageSize: DEFAULT_PAGE_SIZE,
         })
@@ -81,13 +248,42 @@ export function RncListPage() {
   )
 
   React.useEffect(() => {
-    fetchPage({ status: statusFilter, page: 1 })
+    fetchPage({
+      status: statusFilter,
+      ciencia: cienciaFilter,
+      contingencia: contingenciaFilter,
+      causa: causaFilter,
+      eficacia: eficaciaFilter,
+      page: 1,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter])
+  }, [
+    statusFilter,
+    cienciaFilter,
+    contingenciaFilter,
+    causaFilter,
+    eficaciaFilter,
+  ])
 
   const refresh = React.useCallback(
-    () => fetchPage({ status: statusFilter, page }),
-    [fetchPage, statusFilter, page],
+    () =>
+      fetchPage({
+        status: statusFilter,
+        ciencia: cienciaFilter,
+        contingencia: contingenciaFilter,
+        causa: causaFilter,
+        eficacia: eficaciaFilter,
+        page,
+      }),
+    [
+      fetchPage,
+      statusFilter,
+      cienciaFilter,
+      contingenciaFilter,
+      causaFilter,
+      eficaciaFilter,
+      page,
+    ],
   )
 
   const handleSubmitSearch = (e: React.FormEvent) => {
@@ -153,6 +349,78 @@ export function RncListPage() {
               </option>
             ))}
           </select>
+          <select
+            className={cn(selectClass, 'max-w-[14rem]')}
+            value={cienciaFilter}
+            onChange={(e) =>
+              setCienciaFilter(
+                e.target.value as '' | CienciaRncStatus | '__none__',
+              )
+            }
+            title="Ciência do fornecedor"
+          >
+            <option value="">Toda ciência do fornecedor</option>
+            <option value="__none__">Ainda não enviada</option>
+            {(Object.keys(CIENCIA_RNC_LABEL) as CienciaRncStatus[]).map((c) => (
+              <option key={c} value={c}>
+                {CIENCIA_RNC_LABEL[c]}
+              </option>
+            ))}
+          </select>
+          <select
+            className={cn(selectClass, 'max-w-[14rem]')}
+            value={contingenciaFilter}
+            onChange={(e) =>
+              setContingenciaFilter(
+                e.target.value as
+                  | ''
+                  | ContingenciaRncStatus
+                  | '__none__'
+                  | 'atrasada',
+              )
+            }
+            title="Ações de contingência do fornecedor"
+          >
+            <option value="">Todas as ações de contingência</option>
+            <option value="__none__">Não solicitadas</option>
+            <option value="PENDENTE">Aguardando o plano</option>
+            <option value="atrasada">Plano em atraso</option>
+            <option value="EM_ANALISE">Plano para aprovar</option>
+            <option value="AJUSTE_SOLICITADO">Devolvido para ajuste</option>
+            <option value="APROVADA">Plano aprovado</option>
+          </select>
+          <select
+            className={cn(selectClass, 'max-w-[13rem]')}
+            value={causaFilter}
+            onChange={(e) =>
+              setCausaFilter(e.target.value as '' | CausaRaizRncStatus | '__none__')
+            }
+            title="Análise de causa (Ishikawa e 5W2H)"
+          >
+            <option value="">Toda análise de causa</option>
+            <option value="__none__">Não iniciada</option>
+            <option value="PENDENTE">Aguardando o fornecedor</option>
+            <option value="EM_ANALISE">Análise para aprovar</option>
+            <option value="AJUSTE_SOLICITADO">Rejeitada — em ajuste</option>
+            <option value="APROVADA">Análise aprovada</option>
+          </select>
+          <select
+            className={cn(selectClass, 'max-w-[13rem]')}
+            value={eficaciaFilter}
+            onChange={(e) =>
+              setEficaciaFilter(
+                e.target.value as '' | EficaciaRncStatus | '__none__',
+              )
+            }
+            title="Verificação de eficácia"
+          >
+            <option value="">Toda verificação de eficácia</option>
+            <option value="__none__">Não iniciada</option>
+            <option value="AGUARDANDO_PRAZO">Aguardando o prazo</option>
+            <option value="PENDENTE">Verificação liberada</option>
+            <option value="EFICAZ">Eficaz</option>
+            <option value="NAO_EFICAZ">Não eficaz</option>
+          </select>
           <Button
             type="button"
             variant="ghost"
@@ -161,7 +429,18 @@ export function RncListPage() {
             onClick={() => {
               setQ('')
               setStatusFilter('')
-              fetchPage({ status: '', page: 1 })
+              setCienciaFilter('')
+              setContingenciaFilter('')
+              setCausaFilter('')
+              setEficaciaFilter('')
+              fetchPage({
+                status: '',
+                ciencia: '',
+                contingencia: '',
+                causa: '',
+                eficacia: '',
+                page: 1,
+              })
             }}
             title="Limpar filtros"
           >
@@ -198,6 +477,9 @@ export function RncListPage() {
                 <th className="px-3 py-2.5 text-left font-medium">Tipo NC</th>
                 <th className="px-3 py-2.5 text-left font-medium">Turno</th>
                 <th className="px-3 py-2.5 text-center font-medium">Status</th>
+                <th className="px-3 py-2.5 text-center font-medium">Assinaturas</th>
+                <th className="px-3 py-2.5 text-center font-medium">Ciência</th>
+                <th className="px-3 py-2.5 text-center font-medium">Ações</th>
                 <th className="px-3 py-2.5 text-left font-medium">Criado por</th>
                 <th className="w-24 px-3 py-2.5"></th>
               </tr>
@@ -209,7 +491,7 @@ export function RncListPage() {
                     key={`sk-${i}`}
                     className="border-b border-neutral-200 last:border-b-0"
                   >
-                    {Array.from({ length: 8 }).map((__, j) => (
+                    {Array.from({ length: 9 }).map((__, j) => (
                       <td key={j} className="px-3 py-4">
                         <Skeleton className="h-3.5 w-24" />
                       </td>
@@ -222,7 +504,7 @@ export function RncListPage() {
               {!loading && visible.length === 0 && (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={11}
                     className="px-3 py-10 text-center text-neutral-500"
                   >
                     {total === 0
@@ -294,6 +576,15 @@ export function RncListPage() {
                         {STATUS_LABELS[r.status]}
                       </span>
                     </td>
+                    <td className="px-3 py-3 text-center">
+                      <AssinaturaBadge rnc={r} />
+                    </td>
+                    <td className="px-3 py-3 text-center">
+                      <CienciaBadge rnc={r} />
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <ContingenciaBadge rnc={r} />
+                    </td>
                     <td className="px-3 py-3 text-neutral-700">
                       <div className="line-clamp-1 text-sm">
                         {r.criadoPor.nome}
@@ -312,6 +603,20 @@ export function RncListPage() {
                           title="Visualizar RNC"
                         >
                           <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={() => handleDownload(r)}
+                          disabled={downloadingId === r.id}
+                          title="Baixar PDF do RNC"
+                        >
+                          {downloadingId === r.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4" />
+                          )}
                         </Button>
                         <Button
                           variant="ghost"
@@ -336,7 +641,16 @@ export function RncListPage() {
           page={page}
           pageSize={DEFAULT_PAGE_SIZE}
           total={total}
-          onChange={(next) => fetchPage({ status: statusFilter, page: next })}
+          onChange={(next) =>
+            fetchPage({
+              status: statusFilter,
+              ciencia: cienciaFilter,
+              contingencia: contingenciaFilter,
+              causa: causaFilter,
+              eficacia: eficaciaFilter,
+              page: next,
+            })
+          }
           disabled={loading}
         />
       </Card>
@@ -364,6 +678,12 @@ export function RncListPage() {
           setViewing(null)
           setEditing(r)
           setWizardOpen(true)
+        }}
+        onUpdated={(updated) => {
+          setViewing((prev) => (prev?.id === updated.id ? updated : prev))
+          setItems((cur) =>
+            cur.map((it) => (it.id === updated.id ? updated : it)),
+          )
         }}
       />
     </div>

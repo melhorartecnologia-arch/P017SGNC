@@ -8,6 +8,10 @@ import { Switch } from '@/components/ui/switch'
 import { ApiError } from '@/lib/api/client'
 import type { Aprovador, AprovadorInput } from '@/lib/api/aprovadores'
 import { aprovadoresApi } from '@/lib/api/aprovadores'
+import {
+  tiposRelatorioApi,
+  type TipoRelatorio,
+} from '@/lib/api/tipos-relatorio'
 import { filiaisApi, type Filial } from '@/lib/api/filiais'
 import { areasApi, type Area } from '@/lib/api/areas'
 import {
@@ -33,7 +37,9 @@ type FormState = {
   telefone: string
   whatsapp: string
   ativo: boolean
+  recebeRespostaFornecedor: boolean
   observacoes: string
+  tiposRelatorioIds: string[]
 }
 
 const empty: FormState = {
@@ -47,7 +53,9 @@ const empty: FormState = {
   telefone: '',
   whatsapp: '',
   ativo: true,
+  recebeRespostaFornecedor: false,
   observacoes: '',
+  tiposRelatorioIds: [],
 }
 
 function toForm(a: Aprovador): FormState {
@@ -62,7 +70,9 @@ function toForm(a: Aprovador): FormState {
     telefone: a.telefone ?? '',
     whatsapp: a.whatsapp ?? '',
     ativo: a.ativo,
+    recebeRespostaFornecedor: a.recebeRespostaFornecedor ?? false,
     observacoes: a.observacoes ?? '',
+    tiposRelatorioIds: (a.tiposRelatorio ?? []).map((t) => t.id),
   }
 }
 
@@ -75,6 +85,7 @@ export function AprovadorForm({ initial, onSaved, onCancel }: Props) {
   )
   const [filiais, setFiliais] = React.useState<Filial[]>([])
   const [areas, setAreas] = React.useState<Area[]>([])
+  const [tiposRelatorio, setTiposRelatorio] = React.useState<TipoRelatorio[]>([])
   const [turnos, setTurnos] = React.useState<TurnoTrabalho[]>([])
   const [loadingDeps, setLoadingDeps] = React.useState(true)
   const [loadingTurnos, setLoadingTurnos] = React.useState(false)
@@ -88,11 +99,13 @@ export function AprovadorForm({ initial, onSaved, onCancel }: Props) {
     Promise.all([
       filiaisApi.list({ ativo: true, pageSize: 100 }),
       areasApi.list({ ativo: true, pageSize: 100 }),
+      tiposRelatorioApi.list({ ativo: true, pageSize: 100 }),
     ])
-      .then(([f, a]) => {
+      .then(([f, a, t]) => {
         if (!mounted) return
         setFiliais(f.items)
         setAreas(a.items)
+        setTiposRelatorio(t.items)
       })
       .catch(() => {
         if (!mounted) return
@@ -158,6 +171,8 @@ export function AprovadorForm({ initial, onSaved, onCancel }: Props) {
         telefone: form.telefone || null,
         whatsapp: form.whatsapp || null,
         ativo: form.ativo,
+        recebeRespostaFornecedor: form.recebeRespostaFornecedor,
+        tiposRelatorioIds: form.tiposRelatorioIds,
         observacoes: form.observacoes || null,
       }
       if (initial) {
@@ -350,6 +365,56 @@ export function AprovadorForm({ initial, onSaved, onCancel }: Props) {
             className="flex w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
           />
         </Field>
+        <div className="flex flex-col gap-1.5 sm:col-span-12">
+          <Label>Tipos de relatório que assina</Label>
+          <div className="flex flex-wrap gap-2">
+            {tiposRelatorio.map((t) => {
+              const marcado = form.tiposRelatorioIds.includes(t.id)
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() =>
+                    set(
+                      'tiposRelatorioIds',
+                      marcado
+                        ? form.tiposRelatorioIds.filter((id) => id !== t.id)
+                        : [...form.tiposRelatorioIds, t.id],
+                    )
+                  }
+                  className={
+                    marcado
+                      ? 'rounded-full border border-neutral-900 bg-neutral-900 px-3 py-1 text-xs font-medium text-white'
+                      : 'rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50'
+                  }
+                >
+                  {t.codigo}
+                </button>
+              )
+            })}
+          </div>
+          <span className="text-xs text-neutral-500">
+            Sem nenhum tipo selecionado, o aprovador assina todos os tipos de
+            relatório — mesma regra da restrição de turno.
+          </span>
+        </div>
+        <div className="flex flex-col gap-1.5 sm:col-span-12">
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={form.recebeRespostaFornecedor}
+              onCheckedChange={(v) => set('recebeRespostaFornecedor', v)}
+              id="recebe-resposta-fornecedor"
+            />
+            <Label htmlFor="recebe-resposta-fornecedor" className="cursor-pointer">
+              Recebe as respostas do fornecedor
+            </Label>
+          </div>
+          <span className="text-xs text-neutral-500">
+            Após todas as assinaturas, a RNC vai ao fornecedor para aceite ou
+            recusa. Somente os aprovadores marcados aqui recebem essa resposta
+            por e-mail.
+          </span>
+        </div>
         <div className="flex items-center gap-3 sm:col-span-12">
           <Switch
             checked={form.ativo}

@@ -16,6 +16,7 @@ export const usuarioCreateSchema = z.object({
   senha: senhaSchema,
   role: z.enum(['ADMIN', 'USUARIO']).default('USUARIO'),
   ativo: z.boolean().optional().default(true),
+  filialPadraoId: z.string().uuid('Filial inválida').nullable().optional(),
 })
 
 export const usuarioUpdateSchema = z.object({
@@ -24,6 +25,7 @@ export const usuarioUpdateSchema = z.object({
   senha: senhaSchema.optional(),
   role: z.enum(['ADMIN', 'USUARIO']).optional(),
   ativo: z.boolean().optional(),
+  filialPadraoId: z.string().uuid('Filial inválida').nullable().optional(),
 })
 
 export const usuarioQuerySchema = z.object({

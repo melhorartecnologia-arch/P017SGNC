@@ -1,5 +1,12 @@
 import * as React from 'react'
-import { Loader2, FileWarning, ChevronRight, ChevronLeft, Check } from 'lucide-react'
+import {
+  Loader2,
+  FileWarning,
+  ChevronRight,
+  ChevronLeft,
+  Check,
+  Sparkles,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -28,6 +35,8 @@ import { origensApi, type Origem } from '@/lib/api/origens'
 import { severidadesApi, type Severidade } from '@/lib/api/severidades'
 import type { Produto } from '@/lib/api/produtos'
 import { rncApi, type Rnc } from '@/lib/api/rnc'
+import { iaApi } from '@/lib/api/ia'
+import { useAuth } from '@/lib/auth/AuthContext'
 import { FornecedorCombobox } from './FornecedorCombobox'
 import { ProdutoCombobox } from './ProdutoCombobox'
 import { RncFotosSection } from './RncFotosSection'
@@ -52,6 +61,30 @@ function todayISO(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
+// Quantidades usam vírgula como separador decimal — o ponto não é aceito.
+// Mantém apenas dígitos e uma única vírgula.
+function sanitizarDecimal(v: string): string {
+  let s = v.replace(/[^\d,]/g, '')
+  const i = s.indexOf(',')
+  if (i !== -1) s = s.slice(0, i + 1) + s.slice(i + 1).replace(/,/g, '')
+  return s
+}
+
+// Campos inteiros (ex.: minutos): apenas dígitos, sem separadores.
+function sanitizarInteiro(v: string): string {
+  return v.replace(/\D/g, '')
+}
+
+// Converte o texto digitado (vírgula decimal) em número.
+function numeroDecimal(v: string): number {
+  return Number(v.trim().replace(',', '.'))
+}
+
+// Exibe um número vindo do backend usando vírgula como separador decimal.
+function exibeDecimal(n: number | null | undefined): string {
+  return n == null ? '' : String(n).replace('.', ',')
+}
+
 function formatDataBR(iso: string): string {
   if (!iso) return ''
   const d = new Date(iso)
@@ -68,7 +101,14 @@ export function RncWizard({
   onUpdated,
 }: Props) {
   const editing = !!initial
+  const auth = useAuth()
+  const filialPadraoId =
+    auth.status === 'authenticated' ? auth.user.filialPadraoId : null
   const [step, setStep] = React.useState<Step>(1)
+  // Sub-etapas da etapa 3 (Material & transporte), para o conteúdo caber
+  // no modal sem barra de rolagem: 1 = Material & lote, 2 = Notas
+  // fiscais & datas, 3 = Transporte.
+  const [subStep3, setSubStep3] = React.useState<1 | 2 | 3>(1)
 
   // Step 1 — dados básicos
   const [filiais, setFiliais] = React.useState<Filial[]>([])
@@ -91,10 +131,14 @@ export function RncWizard({
   >([])
   const [quantidadeDefeito, setQuantidadeDefeito] = React.useState('')
   const [tempoParadaMinutos, setTempoParadaMinutos] = React.useState('')
-  const [numeroNf, setNumeroNf] = React.useState('')
-  const [dataFabricacao, setDataFabricacao] = React.useState('')
-  const [dataValidade, setDataValidade] = React.useState('')
-  const [dataRecebimento, setDataRecebimento] = React.useState('')
+  const [notasFiscais, setNotasFiscais] = React.useState<
+    {
+      numero: string
+      dataFabricacao: string
+      dataValidade: string
+      dataRecebimento: string
+    }[]
+  >([])
   const [transportador, setTransportador] = React.useState('')
   const [placaCavalo, setPlacaCavalo] = React.useState('')
   const [placaCarreta, setPlacaCarreta] = React.useState('')
@@ -115,12 +159,21 @@ export function RncWizard({
   const [savedRnc, setSavedRnc] = React.useState<Rnc | null>(initial ?? null)
 
   const [saving, setSaving] = React.useState(false)
+  /** Trava síncrona contra duplo clique no salvamento do rascunho. */
+  const salvandoRef = React.useRef(false)
+  const [corrigindoTexto, setCorrigindoTexto] = React.useState(false)
+  // Texto anterior à última correção por IA — permite desfazer. Limpo
+  // quando o usuário edita manualmente a descrição.
+  const [descricaoAntesCorrecao, setDescricaoAntesCorrecao] = React.useState<
+    string | null
+  >(null)
   const [error, setError] = React.useState<string | null>(null)
 
   // Ao abrir/fechar: reseta ou popula a partir do `initial`.
   React.useEffect(() => {
     if (!open) {
       setStep(1)
+      setSubStep3(1)
       setFilialId('')
       setData(todayISO())
       setTipoId('')
@@ -131,14 +184,12 @@ export function RncWizard({
       setOrigemId('')
       setSeveridadeId('')
       setDescricaoDefeito('')
+      setDescricaoAntesCorrecao(null)
       setProduto(null)
       setLotes([])
       setQuantidadeDefeito('')
       setTempoParadaMinutos('')
-      setNumeroNf('')
-      setDataFabricacao('')
-      setDataValidade('')
-      setDataRecebimento('')
+      setNotasFiscais([])
       setTransportador('')
       setPlacaCavalo('')
       setPlacaCarreta('')
@@ -150,6 +201,7 @@ export function RncWizard({
     }
     if (initial) {
       setStep(1)
+      setSubStep3(1)
       setFilialId(initial.filialId)
       setData(initial.dataIdentificacao.slice(0, 10))
       setTipoId(initial.tipoNaoConformidadeId)
@@ -163,6 +215,7 @@ export function RncWizard({
         cnpj: initial.fornecedor.cnpj,
         ativo: true,
         observacoes: null,
+        origemCadastro: 'PLATAFORMA',
         contatos: [],
         createdAt: '',
         updatedAt: '',
@@ -172,6 +225,7 @@ export function RncWizard({
       setOrigemId(initial.origemId ?? '')
       setSeveridadeId(initial.severidadeId ?? '')
       setDescricaoDefeito(initial.descricaoDefeito ?? '')
+      setDescricaoAntesCorrecao(null)
       // produto vem como ref — produz um Produto "parcial" suficiente para
       // o combobox.
       setProduto(
@@ -182,6 +236,7 @@ export function RncWizard({
               descricao: initial.produto.descricao,
               unidadeMedida: initial.produto.unidadeMedida,
               ativo: true,
+              origemCadastro: 'PLATAFORMA' as const,
               createdAt: '',
               updatedAt: '',
             }
@@ -190,23 +245,23 @@ export function RncWizard({
       setLotes(
         initial.lotes?.map((l) => ({
           numero: l.numero,
-          quantidade: l.quantidade != null ? String(l.quantidade) : '',
+          quantidade: exibeDecimal(l.quantidade),
         })) ?? [],
       )
-      setQuantidadeDefeito(
-        initial.quantidadeDefeito != null
-          ? String(initial.quantidadeDefeito)
-          : '',
-      )
+      setQuantidadeDefeito(exibeDecimal(initial.quantidadeDefeito))
       setTempoParadaMinutos(
         initial.tempoParadaMinutos != null
           ? String(initial.tempoParadaMinutos)
           : '',
       )
-      setNumeroNf(initial.numeroNf ?? '')
-      setDataFabricacao(initial.dataFabricacao?.slice(0, 10) ?? '')
-      setDataValidade(initial.dataValidade?.slice(0, 10) ?? '')
-      setDataRecebimento(initial.dataRecebimento?.slice(0, 10) ?? '')
+      setNotasFiscais(
+        initial.notasFiscais?.map((n) => ({
+          numero: n.numero ?? '',
+          dataFabricacao: n.dataFabricacao?.slice(0, 10) ?? '',
+          dataValidade: n.dataValidade?.slice(0, 10) ?? '',
+          dataRecebimento: n.dataRecebimento?.slice(0, 10) ?? '',
+        })) ?? [],
+      )
       setTransportador(initial.transportador ?? '')
       setPlacaCavalo(initial.placaCavalo ?? '')
       setPlacaCarreta(initial.placaCarreta ?? '')
@@ -236,11 +291,22 @@ export function RncWizard({
         setDisposicoes(d.items)
         setOrigens(o.items)
         setSeveridades(s.items)
+        // Ao criar, pré-seleciona a filial padrão do cadastro do usuário —
+        // somente se ela estiver entre as filiais ativas e nada tiver sido
+        // escolhido ainda. Em edição, a filial do RNC prevalece.
+        if (
+          !initial &&
+          filialPadraoId &&
+          f.items.some((x) => x.id === filialPadraoId)
+        ) {
+          setFilialId((cur) => cur || filialPadraoId)
+        }
       })
       .catch(() => {})
     return () => {
       cancelled = true
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   // Turnos da filial selecionada.
@@ -306,19 +372,102 @@ export function RncWizard({
     () => lotes.filter((l) => l.numero.trim() !== ''),
     [lotes],
   )
-  const numerosDeLote = lotesPreenchidos.map((l) => l.numero.trim())
+  // Lotes duplicados: comparação sem distinção de maiúsculas/minúsculas
+  // ("L123" e "l123" são o mesmo lote).
+  const numerosDeLote = lotesPreenchidos.map((l) =>
+    l.numero.trim().toUpperCase(),
+  )
   const lotesDuplicados =
     new Set(numerosDeLote).size !== numerosDeLote.length
   const totalLote = lotes.reduce((acc, l) => {
-    const n = parseFloat(l.quantidade)
+    const n = numeroDecimal(l.quantidade)
     return acc + (Number.isFinite(n) ? n : 0)
   }, 0)
 
-  const step1Valid = filialId && data && tipoId && turnoId
+  // Quantidade de lote, quando informada, deve ser maior que zero.
+  const loteQtdInvalida = (quantidade: string) => {
+    if (quantidade.trim() === '') return false
+    const n = numeroDecimal(quantidade)
+    return !Number.isFinite(n) || n <= 0
+  }
+  const lotesComQtdInvalida = lotes.some((l) => loteQtdInvalida(l.quantidade))
+
+  // Qtd. com defeito: quando informada, deve ser > 0 e não pode exceder o
+  // total dos lotes (quando houver quantidades informadas nos lotes).
+  const qtdDefeitoNum = numeroDecimal(quantidadeDefeito)
+  const qtdDefeitoInformada =
+    quantidadeDefeito.trim() !== '' && Number.isFinite(qtdDefeitoNum)
+  const qtdDefeitoZero = qtdDefeitoInformada && qtdDefeitoNum <= 0
+  const qtdDefeitoExcede =
+    qtdDefeitoInformada &&
+    qtdDefeitoNum > 0 &&
+    totalLote > 0 &&
+    qtdDefeitoNum > totalLote
+  const qtdDefeitoInvalida = qtdDefeitoZero || qtdDefeitoExcede
+
+  // Notas fiscais: cada nota exige um número (datas são opcionais). Uma
+  // linha que tem datas mas está sem número é inválida; números repetidos
+  // (sem distinção de caixa) também não são permitidos.
+  const notaSemNumero = (n: {
+    numero: string
+    dataFabricacao: string
+    dataValidade: string
+    dataRecebimento: string
+  }) =>
+    n.numero.trim() === '' &&
+    (n.dataFabricacao !== '' ||
+      n.dataValidade !== '' ||
+      n.dataRecebimento !== '')
+  const numerosNota = notasFiscais
+    .filter((n) => n.numero.trim() !== '')
+    .map((n) => n.numero.trim().toUpperCase())
+  const notasDuplicadas =
+    new Set(numerosNota).size !== numerosNota.length
+  // Validade e recebimento não podem ser anteriores à fabricação. As datas
+  // estão em YYYY-MM-DD, então a comparação textual é suficiente.
+  const validadeAntesFab = (n: { dataFabricacao: string; dataValidade: string }) =>
+    !!n.dataFabricacao && !!n.dataValidade && n.dataValidade < n.dataFabricacao
+  const recebAntesFab = (n: { dataFabricacao: string; dataRecebimento: string }) =>
+    !!n.dataFabricacao && !!n.dataRecebimento && n.dataRecebimento < n.dataFabricacao
+  // Data de fabricação não pode ser futura (no máximo a data atual).
+  const fabricacaoFutura = (n: { dataFabricacao: string }) =>
+    !!n.dataFabricacao && n.dataFabricacao > todayISO()
+  const notasComDataInvalida = notasFiscais.some(
+    (n) => validadeAntesFab(n) || recebAntesFab(n) || fabricacaoFutura(n),
+  )
+  // Ao menos uma nota fiscal (com número) é obrigatória.
+  const semNotaFiscal = numerosNota.length === 0
+  const notasInvalidas =
+    notasFiscais.some(notaSemNumero) || notasDuplicadas || notasComDataInvalida
+
+  // Data de identificação não pode ser futura. Comparação por string
+  // YYYY-MM-DD (mesmo formato de todayISO) é suficiente no cliente; a
+  // validação definitiva é feita no servidor com o relógio dele.
+  const dataFutura = !!data && data > todayISO()
+  const step1Valid = filialId && data && !dataFutura && tipoId && turnoId
   const step2Valid = !!fornecedor
-  const step3Valid =
-    !!produto && lotesPreenchidos.length > 0 && !lotesDuplicados
-  const stepFinalValid = step1Valid && step2Valid && step3Valid
+  // Validade por sub-etapa da etapa 3. Transporte é todo opcional.
+  const materialValid =
+    !!produto &&
+    lotesPreenchidos.length > 0 &&
+    !lotesDuplicados &&
+    !lotesComQtdInvalida &&
+    qtdDefeitoInformada &&
+    !qtdDefeitoInvalida
+  const notasValid = !semNotaFiscal && !notasInvalidas
+  const materialNotasValid = materialValid && notasValid
+  const subStep3Valid =
+    subStep3 === 1 ? materialValid : subStep3 === 2 ? notasValid : materialNotasValid
+  // Etapa 3 (Disposição & defeito): todos os campos são obrigatórios. A
+  // origem é definida aqui, antes de Material & transporte, pois direciona
+  // a necessidade dos dados de transporte.
+  const disposicaoValid =
+    !!disposicaoId &&
+    !!origemId &&
+    !!severidadeId &&
+    descricaoDefeito.trim() !== ''
+  const stepFinalValid =
+    step1Valid && step2Valid && disposicaoValid && materialNotasValid
 
   const addLoteRow = () => {
     if (lotes.length >= 50) return
@@ -334,12 +483,65 @@ export function RncWizard({
     setLotes(lotes.filter((_, i) => i !== idx))
   }
 
+  const addNotaRow = () => {
+    if (notasFiscais.length >= 50) return
+    setNotasFiscais([
+      ...notasFiscais,
+      { numero: '', dataFabricacao: '', dataValidade: '', dataRecebimento: '' },
+    ])
+  }
+  const updateNotaRow = (
+    idx: number,
+    patch: Partial<{
+      numero: string
+      dataFabricacao: string
+      dataValidade: string
+      dataRecebimento: string
+    }>,
+  ) => {
+    setNotasFiscais(
+      notasFiscais.map((n, i) => (i === idx ? { ...n, ...patch } : n)),
+    )
+  }
+  const removeNotaRow = (idx: number) => {
+    setNotasFiscais(notasFiscais.filter((_, i) => i !== idx))
+  }
+
+  // Corrige acentuação/concordância da descrição do defeito via IA
+  // (bSynapse, com proxy na API para não expor a chave). A correção
+  // substitui o texto, mas pode ser desfeita pelo toast.
+  const handleCorrigirDescricao = async () => {
+    const original = descricaoDefeito
+    if (!original.trim() || corrigindoTexto) return
+    setCorrigindoTexto(true)
+    try {
+      const { textoCorrigido } = await iaApi.corrigirTexto(original.trim())
+      if (textoCorrigido === original.trim()) {
+        toast.success('Nenhuma correção necessária', {
+          description: 'O texto já está correto.',
+        })
+      } else {
+        setDescricaoDefeito(textoCorrigido)
+        setDescricaoAntesCorrecao(original)
+        toast.success('Texto corrigido pela IA', {
+          description: 'Use "Desfazer correção" para voltar ao original.',
+        })
+      }
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao corrigir o texto.'
+      toast.error('Não foi possível corrigir', { description: message })
+    } finally {
+      setCorrigindoTexto(false)
+    }
+  }
+
   const persistRnc = async () => {
     if (!stepFinalValid || !filialId || !tipoId) return null
     const parseOptNum = (v: string) => {
       const t = v.trim()
       if (!t) return null
-      const n = Number(t)
+      const n = Number(t.replace(',', '.'))
       return Number.isFinite(n) ? n : null
     }
     const isoOrNull = (v: string) =>
@@ -349,10 +551,10 @@ export function RncWizard({
       fornecedorId: fornecedor!.id,
       tipoNaoConformidadeId: tipoId,
       turnoId,
-      disposicaoMaterialId: disposicaoId || null,
-      origemId: origemId || null,
-      severidadeId: severidadeId || null,
-      descricaoDefeito: descricaoDefeito.trim() || null,
+      disposicaoMaterialId: disposicaoId,
+      origemId,
+      severidadeId,
+      descricaoDefeito: descricaoDefeito.trim(),
       dataIdentificacao: new Date(`${data}T00:00:00`).toISOString(),
 
       produtoId: produto!.id,
@@ -363,10 +565,14 @@ export function RncWizard({
       quantidadeDefeito: parseOptNum(quantidadeDefeito),
       tempoParadaMinutos: parseOptNum(tempoParadaMinutos),
 
-      numeroNf: numeroNf.trim() || null,
-      dataFabricacao: isoOrNull(dataFabricacao),
-      dataValidade: isoOrNull(dataValidade),
-      dataRecebimento: isoOrNull(dataRecebimento),
+      notasFiscais: notasFiscais
+        .filter((n) => n.numero.trim() !== '')
+        .map((n) => ({
+          numero: n.numero.trim(),
+          dataFabricacao: isoOrNull(n.dataFabricacao),
+          dataValidade: isoOrNull(n.dataValidade),
+          dataRecebimento: isoOrNull(n.dataRecebimento),
+        })),
 
       transportador: transportador.trim() || null,
       placaCavalo: placaCavalo.trim().toUpperCase() || null,
@@ -392,35 +598,67 @@ export function RncWizard({
       setStep(2)
       return
     }
+    // Etapa 3 = Disposição & defeito (vem antes de Material & transporte).
     if (step === 2 && step2Valid) {
       setStep(3)
       return
     }
-    if (step === 3 && step3Valid) {
-      // Produto e ao menos um lote são obrigatórios; demais campos do
-      // step 3 (qts, NF, transporte) permanecem opcionais.
+    if (step === 3 && disposicaoValid) {
       setStep(4)
+      setSubStep3(1)
       return
     }
-    if (step === 4 && stepFinalValid) {
-      setSaving(true)
-      try {
-        const persisted = await persistRnc()
-        if (persisted) {
-          toast.success(
-            savedRnc ? 'Alterações salvas' : 'Rascunho do RNC salvo',
-            { description: `Nº ${persisted.numero}` },
-          )
-          setStep(5)
+    // Etapa 4 = Material & transporte, com sub-etapas.
+    if (step === 4) {
+      // Avança pelas sub-etapas; só grava e vai para Fotos a partir da última.
+      if (subStep3 === 1 && materialValid) {
+        // Notas fiscais são obrigatórias: ao entrar na sub-etapa, já abre
+        // uma linha em branco para preencher (evita o estado vazio).
+        if (notasFiscais.length === 0) {
+          setNotasFiscais([
+            {
+              numero: '',
+              dataFabricacao: '',
+              dataValidade: '',
+              dataRecebimento: '',
+            },
+          ])
         }
-      } catch (err) {
-        const message =
-          err instanceof ApiError ? err.message : 'Falha ao salvar.'
-        setError(message)
-        toast.error('Não foi possível salvar', { description: message })
-      } finally {
-        setSaving(false)
+        setSubStep3(2)
+        return
       }
+      if (subStep3 === 2 && notasValid) {
+        setSubStep3(3)
+        return
+      }
+      if (subStep3 === 3 && stepFinalValid) {
+        // Trava síncrona: o estado `saving` só desabilita o botão após o
+        // re-render, então dois cliques muito rápidos poderiam disparar dois
+        // POSTs e criar duas RNCs (com números diferentes) para o mesmo
+        // rascunho. O ref bloqueia já na segunda chamada.
+        if (salvandoRef.current) return
+        salvandoRef.current = true
+        setSaving(true)
+        try {
+          const persisted = await persistRnc()
+          if (persisted) {
+            toast.success(
+              savedRnc ? 'Alterações salvas' : 'Rascunho do RNC salvo',
+              { description: `Nº ${persisted.numero}` },
+            )
+            setStep(5)
+          }
+        } catch (err) {
+          const message =
+            err instanceof ApiError ? err.message : 'Falha ao salvar.'
+          setError(message)
+          toast.error('Não foi possível salvar', { description: message })
+        } finally {
+          salvandoRef.current = false
+          setSaving(false)
+        }
+      }
+      return
     }
   }
 
@@ -428,8 +666,15 @@ export function RncWizard({
     setError(null)
     if (step === 2) setStep(1)
     else if (step === 3) setStep(2)
-    else if (step === 4) setStep(3)
-    else if (step === 5) setStep(4)
+    else if (step === 4) {
+      // Material & transporte: volta pelas sub-etapas e, na primeira,
+      // retorna para Disposição & defeito.
+      if (subStep3 > 1) setSubStep3((subStep3 - 1) as 1 | 2)
+      else setStep(3)
+    } else if (step === 5) {
+      setStep(4)
+      setSubStep3(3)
+    }
   }
 
   const handleConcluir = () => {
@@ -459,9 +704,9 @@ export function RncWizard({
           <ChevronRight className="h-3 w-3 text-neutral-400" />
           <StepBadge active={step === 2} done={step > 2} index={2} label="Fornecedor & histórico" />
           <ChevronRight className="h-3 w-3 text-neutral-400" />
-          <StepBadge active={step === 3} done={step > 3} index={3} label="Material & transporte" />
+          <StepBadge active={step === 3} done={step > 3} index={3} label="Disposição & defeito" />
           <ChevronRight className="h-3 w-3 text-neutral-400" />
-          <StepBadge active={step === 4} done={step > 4} index={4} label="Disposição & defeito" />
+          <StepBadge active={step === 4} done={step > 4} index={4} label="Material & transporte" />
           <ChevronRight className="h-3 w-3 text-neutral-400" />
           <StepBadge active={step === 5} done={false} index={5} label="Fotos" />
         </div>
@@ -490,20 +735,38 @@ export function RncWizard({
                   </option>
                 ))}
               </select>
+              {!editing && !!filialId && filialId === filialPadraoId && (
+                <span className="text-xs text-neutral-500">
+                  Filial padrão do seu cadastro — altere se necessário.
+                </span>
+              )}
             </Field>
             <Field label="Data da identificação *" className="sm:col-span-5">
               <Input
                 type="date"
                 value={data}
+                max={todayISO()}
                 onChange={(e) => setData(e.target.value)}
                 required
               />
+              {dataFutura && (
+                <span className="text-xs text-red-600">
+                  A data de identificação não pode ser futura.
+                </span>
+              )}
             </Field>
             <Field label="Tipo da não conformidade *" className="sm:col-span-12">
               <select
                 className={cn(selectClass)}
                 value={tipoId}
-                onChange={(e) => setTipoId(e.target.value)}
+                onChange={(e) => {
+                  const novoTipoId = e.target.value
+                  setTipoId(novoTipoId)
+                  // Preenche a severidade com a padrão do tipo escolhido
+                  // (cadastro de Tipos de NC). Pode ser alterada na etapa 4.
+                  const tipo = tipos.find((t) => t.id === novoTipoId)
+                  setSeveridadeId(tipo?.severidade?.id ?? '')
+                }}
                 required
               >
                 <option value="" disabled>
@@ -637,8 +900,30 @@ export function RncWizard({
           </section>
         )}
 
-        {step === 3 && (
+        {step === 4 && (
           <section className="flex flex-col gap-4">
+            {/* Mini-stepper das sub-etapas de Material & transporte */}
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <SubStepBadge
+                active={subStep3 === 1}
+                done={subStep3 > 1}
+                label="Material & lote"
+              />
+              <ChevronRight className="h-3 w-3 text-neutral-300" />
+              <SubStepBadge
+                active={subStep3 === 2}
+                done={subStep3 > 2}
+                label="Notas fiscais & datas"
+              />
+              <ChevronRight className="h-3 w-3 text-neutral-300" />
+              <SubStepBadge
+                active={subStep3 === 3}
+                done={false}
+                label="Transporte"
+              />
+            </div>
+
+            {subStep3 === 1 && (
             <Section title="Material & lote">
               <Field label="Produto" required>
                 <ProdutoCombobox
@@ -675,52 +960,69 @@ export function RncWizard({
                 ) : (
                   <div className="flex flex-col gap-1.5">
                     {lotes.map((l, idx) => {
+                      // Repete um lote informado em uma linha anterior?
+                      // Comparação sem distinção de maiúsculas/minúsculas.
+                      const numeroNorm = l.numero.trim().toUpperCase()
                       const numeroDup =
-                        l.numero.trim() !== '' &&
-                        lotes.findIndex(
-                          (x, i) => i !== idx && x.numero.trim() === l.numero.trim(),
-                        ) !== -1
+                        numeroNorm !== '' &&
+                        lotes.some(
+                          (x, i) =>
+                            i < idx &&
+                            x.numero.trim().toUpperCase() === numeroNorm,
+                        )
+                      const qtdInvalida = loteQtdInvalida(l.quantidade)
                       return (
-                        <div
-                          key={idx}
-                          className="grid grid-cols-12 items-center gap-2"
-                        >
-                          <Input
-                            className={`col-span-7 ${numeroDup ? 'border-red-400' : ''}`}
-                            value={l.numero}
-                            onChange={(e) =>
-                              updateLoteRow(idx, { numero: e.target.value })
-                            }
-                            placeholder="Nº do lote (ex.: L2024A123)"
-                            maxLength={80}
-                            disabled={saving}
-                          />
-                          <Input
-                            className="col-span-4"
-                            type="number"
-                            inputMode="decimal"
-                            step="any"
-                            min={0}
-                            value={l.quantidade}
-                            onChange={(e) =>
-                              updateLoteRow(idx, { quantidade: e.target.value })
-                            }
-                            placeholder={
-                              produto
-                                ? `Qtd. (${produto.unidadeMedida})`
-                                : 'Qtd.'
-                            }
-                            disabled={saving}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeLoteRow(idx)}
-                            disabled={saving}
-                            aria-label={`Remover lote ${idx + 1}`}
-                            className="col-span-1 inline-flex h-9 items-center justify-center rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900 disabled:opacity-50"
-                          >
-                            ×
-                          </button>
+                        <div key={idx} className="flex flex-col gap-1">
+                          <div className="grid grid-cols-12 items-center gap-2">
+                            <Input
+                              className={`col-span-7 ${numeroDup ? 'border-red-400' : ''}`}
+                              value={l.numero}
+                              onChange={(e) =>
+                                updateLoteRow(idx, {
+                                  numero: e.target.value.toUpperCase(),
+                                })
+                              }
+                              placeholder="Nº do lote (ex.: L2024A123)"
+                              maxLength={80}
+                              disabled={saving}
+                            />
+                            <Input
+                              className={`col-span-4 ${qtdInvalida ? 'border-red-400' : ''}`}
+                              type="text"
+                              inputMode="decimal"
+                              value={l.quantidade}
+                              onChange={(e) =>
+                                updateLoteRow(idx, {
+                                  quantidade: sanitizarDecimal(e.target.value),
+                                })
+                              }
+                              placeholder={
+                                produto
+                                  ? `Qtd. (${produto.unidadeMedida})`
+                                  : 'Qtd.'
+                              }
+                              disabled={saving}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => removeLoteRow(idx)}
+                              disabled={saving}
+                              aria-label={`Remover lote ${idx + 1}`}
+                              className="col-span-1 inline-flex h-9 items-center justify-center rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900 disabled:opacity-50"
+                            >
+                              ×
+                            </button>
+                          </div>
+                          {numeroDup && (
+                            <span className="text-xs text-red-600">
+                              Este lote já foi informado nesta RNC.
+                            </span>
+                          )}
+                          {qtdInvalida && (
+                            <span className="text-xs text-red-600">
+                              A quantidade do lote deve ser maior que zero.
+                            </span>
+                          )}
                         </div>
                       )
                     })}
@@ -750,69 +1052,215 @@ export function RncWizard({
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
                 <Field
                   label={`Qtd. com defeito (total)${produto ? ` — ${produto.unidadeMedida}` : ''}`}
+                  required
                   className="sm:col-span-6"
                 >
                   <Input
-                    type="number"
+                    type="text"
                     inputMode="decimal"
-                    step="any"
-                    min={0}
                     value={quantidadeDefeito}
-                    onChange={(e) => setQuantidadeDefeito(e.target.value)}
+                    onChange={(e) =>
+                      setQuantidadeDefeito(sanitizarDecimal(e.target.value))
+                    }
                     placeholder="0"
+                    className={qtdDefeitoInvalida ? 'border-red-400' : ''}
                   />
+                  {qtdDefeitoZero && (
+                    <span className="text-xs text-red-600">
+                      A quantidade com defeito deve ser maior que zero.
+                    </span>
+                  )}
+                  {qtdDefeitoExcede && (
+                    <span className="text-xs text-red-600">
+                      Não pode ser maior que o total dos lotes (
+                      {totalLote.toLocaleString('pt-BR')}
+                      {produto ? ` ${produto.unidadeMedida}` : ''}).
+                    </span>
+                  )}
                 </Field>
                 <Field
                   label="Tempo de parada (minutos)"
                   className="sm:col-span-6"
                 >
                   <Input
-                    type="number"
+                    type="text"
                     inputMode="numeric"
-                    step={1}
-                    min={0}
                     value={tempoParadaMinutos}
-                    onChange={(e) => setTempoParadaMinutos(e.target.value)}
+                    onChange={(e) =>
+                      setTempoParadaMinutos(sanitizarInteiro(e.target.value))
+                    }
                     placeholder="0"
                   />
                 </Field>
               </div>
             </Section>
+            )}
 
-            <Section title="Nota fiscal & datas">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-12">
-                <Field label="Nº da NF" className="sm:col-span-3">
-                  <Input
-                    value={numeroNf}
-                    onChange={(e) => setNumeroNf(e.target.value)}
-                    placeholder="123456"
-                    maxLength={40}
-                  />
-                </Field>
-                <Field label="Data de fabricação" className="sm:col-span-3">
-                  <Input
-                    type="date"
-                    value={dataFabricacao}
-                    onChange={(e) => setDataFabricacao(e.target.value)}
-                  />
-                </Field>
-                <Field label="Data de validade" className="sm:col-span-3">
-                  <Input
-                    type="date"
-                    value={dataValidade}
-                    onChange={(e) => setDataValidade(e.target.value)}
-                  />
-                </Field>
-                <Field label="Data de recebimento" className="sm:col-span-3">
-                  <Input
-                    type="date"
-                    value={dataRecebimento}
-                    onChange={(e) => setDataRecebimento(e.target.value)}
-                  />
-                </Field>
+            {subStep3 === 2 && (
+            <Section title="Notas fiscais & datas *">
+              <div className="flex flex-col gap-2">
+                <span className="text-xs text-neutral-500">
+                  Informe ao menos uma nota fiscal. Cada nota tem suas
+                  próprias datas de fabricação, validade e recebimento.
+                </span>
+
+                {notasFiscais.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    É obrigatório informar ao menos uma nota fiscal. Clique em
+                    "Adicionar nota fiscal".
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {notasFiscais.map((n, idx) => {
+                      const numeroNorm = n.numero.trim().toUpperCase()
+                      const numeroDup =
+                        numeroNorm !== '' &&
+                        notasFiscais.some(
+                          (x, i) =>
+                            i < idx &&
+                            x.numero.trim().toUpperCase() === numeroNorm,
+                        )
+                      const semNumero = notaSemNumero(n)
+                      const validadeInvalida = validadeAntesFab(n)
+                      const recebInvalida = recebAntesFab(n)
+                      const fabFutura = fabricacaoFutura(n)
+                      return (
+                        <div
+                          key={idx}
+                          className="flex flex-col gap-1.5 rounded-md border border-neutral-200 bg-neutral-50/40 p-2.5"
+                        >
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-12">
+                            <Field
+                              label="Nº da NF *"
+                              className="sm:col-span-3"
+                            >
+                              <Input
+                                value={n.numero}
+                                onChange={(e) =>
+                                  updateNotaRow(idx, { numero: e.target.value })
+                                }
+                                placeholder="123456"
+                                maxLength={40}
+                                disabled={saving}
+                                className={
+                                  numeroDup || semNumero ? 'border-red-400' : ''
+                                }
+                              />
+                            </Field>
+                            <Field
+                              label="Data de fabricação"
+                              className="sm:col-span-3"
+                            >
+                              <Input
+                                type="date"
+                                value={n.dataFabricacao}
+                                max={todayISO()}
+                                onChange={(e) =>
+                                  updateNotaRow(idx, {
+                                    dataFabricacao: e.target.value,
+                                  })
+                                }
+                                disabled={saving}
+                                className={fabFutura ? 'border-red-400' : ''}
+                              />
+                            </Field>
+                            <Field
+                              label="Data de validade"
+                              className="sm:col-span-3"
+                            >
+                              <Input
+                                type="date"
+                                value={n.dataValidade}
+                                min={n.dataFabricacao || undefined}
+                                onChange={(e) =>
+                                  updateNotaRow(idx, {
+                                    dataValidade: e.target.value,
+                                  })
+                                }
+                                disabled={saving}
+                                className={validadeInvalida ? 'border-red-400' : ''}
+                              />
+                            </Field>
+                            <div className="flex items-end gap-2 sm:col-span-3">
+                              <Field
+                                label="Data de recebimento"
+                                className="flex-1"
+                              >
+                                <Input
+                                  type="date"
+                                  value={n.dataRecebimento}
+                                  min={n.dataFabricacao || undefined}
+                                  onChange={(e) =>
+                                    updateNotaRow(idx, {
+                                      dataRecebimento: e.target.value,
+                                    })
+                                  }
+                                  disabled={saving}
+                                  className={recebInvalida ? 'border-red-400' : ''}
+                                />
+                              </Field>
+                              <button
+                                type="button"
+                                onClick={() => removeNotaRow(idx)}
+                                disabled={saving}
+                                aria-label={`Remover nota fiscal ${idx + 1}`}
+                                className="mb-px inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50 hover:text-neutral-900 disabled:opacity-50"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          </div>
+                          {numeroDup && (
+                            <span className="text-xs text-red-600">
+                              Esta nota fiscal já foi informada nesta RNC.
+                            </span>
+                          )}
+                          {semNumero && (
+                            <span className="text-xs text-red-600">
+                              Informe o número da nota fiscal (ou remova a
+                              linha).
+                            </span>
+                          )}
+                          {validadeInvalida && (
+                            <span className="text-xs text-red-600">
+                              A data de validade não pode ser anterior à data de
+                              fabricação.
+                            </span>
+                          )}
+                          {recebInvalida && (
+                            <span className="text-xs text-red-600">
+                              A data de recebimento não pode ser anterior à data
+                              de fabricação.
+                            </span>
+                          )}
+                          {fabFutura && (
+                            <span className="text-xs text-red-600">
+                              A data de fabricação não pode ser futura (no máximo
+                              a data atual).
+                            </span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addNotaRow}
+                    disabled={saving || notasFiscais.length >= 50}
+                  >
+                    + Adicionar nota fiscal
+                  </Button>
+                </div>
               </div>
             </Section>
+            )}
 
+            {subStep3 === 3 && (
             <Section title="Transporte">
               <Field label="Transportador">
                 <Input
@@ -860,19 +1308,47 @@ export function RncWizard({
                 </Field>
               </div>
             </Section>
+            )}
           </section>
         )}
 
-        {step === 4 && (
+        {step === 3 && (
           <section className="flex flex-col gap-4">
+            <Section title="Origem da não conformidade">
+              <Field label="Origem" required>
+                <select
+                  className={cn(selectClass)}
+                  value={origemId}
+                  onChange={(e) => setOrigemId(e.target.value)}
+                  required
+                >
+                  <option value="" disabled>
+                    Selecione a origem
+                  </option>
+                  {origens.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.codigo} — {o.nome}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-neutral-500">
+                  Onde a não conformidade teve origem. Informe-a primeiro — os
+                  demais campos desta etapa derivam dela.
+                </span>
+              </Field>
+            </Section>
+
             <Section title="Disposição do material">
-              <Field label="Disposição">
+              <Field label="Disposição" required>
                 <select
                   className={cn(selectClass)}
                   value={disposicaoId}
                   onChange={(e) => setDisposicaoId(e.target.value)}
+                  required
                 >
-                  <option value="">(Sem disposição definida)</option>
+                  <option value="" disabled>
+                    Selecione a disposição
+                  </option>
                   {disposicoes.map((d) => (
                     <option key={d.id} value={d.id}>
                       {d.codigo} — {d.descricao}
@@ -886,35 +1362,31 @@ export function RncWizard({
               </Field>
             </Section>
 
-            <Section title="Origem, severidade e descrição do defeito">
+            <Section title="Severidade e descrição do defeito">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Origem da não conformidade">
-                  <select
-                    className={cn(selectClass)}
-                    value={origemId}
-                    onChange={(e) => setOrigemId(e.target.value)}
-                  >
-                    <option value="">(Sem origem definida)</option>
-                    {origens.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.codigo} — {o.nome}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label="Severidade">
+                <Field label="Severidade" required>
                   <select
                     className={cn(selectClass)}
                     value={severidadeId}
                     onChange={(e) => setSeveridadeId(e.target.value)}
+                    required
                   >
-                    <option value="">(Sem severidade definida)</option>
+                    <option value="" disabled>
+                      Selecione a severidade
+                    </option>
                     {severidades.map((s) => (
                       <option key={s.id} value={s.id}>
                         Nível {s.nivel} — {s.codigo} — {s.nome}
                       </option>
                     ))}
                   </select>
+                  {tipoSelecionado?.severidade &&
+                    severidadeId === tipoSelecionado.severidade.id && (
+                      <span className="text-xs text-neutral-500">
+                        Severidade padrão do tipo de não conformidade —
+                        altere se necessário.
+                      </span>
+                    )}
                   {tipoSelecionado?.severidade && !severidadeId && (
                     <span className="text-xs text-neutral-500">
                       Severidade típica do tipo:{' '}
@@ -932,15 +1404,57 @@ export function RncWizard({
                   )}
                 </Field>
               </div>
-              <Field label="Descrição do defeito / problema identificado">
+              <Field
+                label="Descrição do defeito / problema identificado"
+                required
+              >
                 <textarea
                   value={descricaoDefeito}
-                  onChange={(e) => setDescricaoDefeito(e.target.value)}
+                  onChange={(e) => {
+                    setDescricaoDefeito(e.target.value)
+                    setDescricaoAntesCorrecao(null)
+                  }}
+                  required
                   rows={5}
                   maxLength={4000}
+                  disabled={corrigindoTexto}
                   placeholder="Descreva o que foi identificado, contexto, evidências observadas, etc."
-                  className="flex w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+                  className="flex w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-neutral-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900 disabled:cursor-wait disabled:opacity-60"
                 />
+                <div className="flex items-center justify-between gap-2">
+                  {descricaoAntesCorrecao !== null ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDescricaoDefeito(descricaoAntesCorrecao)
+                        setDescricaoAntesCorrecao(null)
+                      }}
+                      className="text-xs text-neutral-700 underline underline-offset-2 hover:text-neutral-900"
+                    >
+                      Desfazer correção
+                    </button>
+                  ) : (
+                    <span className="text-xs text-neutral-500">
+                      Corrige acentuação, concordância e erros de digitação.
+                    </span>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCorrigirDescricao}
+                    disabled={
+                      corrigindoTexto || saving || !descricaoDefeito.trim()
+                    }
+                  >
+                    {corrigindoTexto ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-4 w-4" />
+                    )}
+                    Corrigir texto com IA
+                  </Button>
+                </div>
               </Field>
             </Section>
           </section>
@@ -966,7 +1480,10 @@ export function RncWizard({
         )}
 
         <div className="flex items-center justify-between gap-2 pt-2">
-          <div className="text-xs text-neutral-500">Etapa {step} de 5</div>
+          <div className="text-xs text-neutral-500">
+            Etapa {step} de 5
+            {step === 3 && <> · parte {subStep3} de 3</>}
+          </div>
           <div className="flex gap-2">
             {step > 1 && (
               <Button variant="outline" onClick={goBack} disabled={saving}>
@@ -979,7 +1496,7 @@ export function RncWizard({
                 Cancelar
               </Button>
             )}
-            {step < 4 && (
+            {(step < 4 || (step === 4 && subStep3 < 3)) && (
               <Button
                 onClick={goNext}
                 disabled={
@@ -988,15 +1505,15 @@ export function RncWizard({
                     : step === 2
                       ? !step2Valid
                       : step === 3
-                        ? !step3Valid
-                        : false
+                        ? !disposicaoValid
+                        : !subStep3Valid
                 }
               >
                 Próxima etapa
                 <ChevronRight className="h-4 w-4" />
               </Button>
             )}
-            {step === 4 && (
+            {step === 4 && subStep3 === 3 && (
               <Button onClick={goNext} disabled={!stepFinalValid || saving}>
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                 {savedRnc ? 'Salvar e ir para fotos' : 'Salvar rascunho e adicionar fotos'}
@@ -1050,6 +1567,32 @@ function StepBadge({
       >
         {done ? <Check className="h-2.5 w-2.5" /> : index}
       </span>
+      {label}
+    </span>
+  )
+}
+
+function SubStepBadge({
+  active,
+  done,
+  label,
+}: {
+  active: boolean
+  done: boolean
+  label: string
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-medium',
+        active
+          ? 'border-neutral-900 bg-neutral-900 text-white'
+          : done
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+            : 'border-neutral-200 bg-white text-neutral-500',
+      )}
+    >
+      {done && <Check className="h-2.5 w-2.5" />}
       {label}
     </span>
   )

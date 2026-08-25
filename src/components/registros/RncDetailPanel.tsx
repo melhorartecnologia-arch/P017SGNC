@@ -1,8 +1,41 @@
 import * as React from 'react'
-import { X, Pencil } from 'lucide-react'
+import {
+  X,
+  Pencil,
+  Check,
+  Loader2,
+  Send,
+  BellRing,
+  ArrowUpCircle,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  MailWarning,
+  ClipboardList,
+  AlertTriangle,
+  GitBranch,
+  ShieldCheck,
+} from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import type { Rnc, RncStatus } from '@/lib/api/rnc'
+import { ApiError } from '@/lib/api/client'
+import {
+  rncApi,
+  resumoAssinaturas,
+  pendenciasParaAssinatura,
+  CIENCIA_RNC_LABEL,
+  CONTINGENCIA_RNC_LABEL,
+  CAUSA_RAIZ_LABEL,
+  EFICACIA_LABEL,
+  ACAO_CONTINGENCIA_LABEL,
+  type AcaoContingencia,
+  type Rnc,
+  type RncStatus,
+} from '@/lib/api/rnc'
+import { podeAnalisarRecusa } from '@/lib/api/auth'
+import { useAuth } from '@/lib/auth/AuthContext'
+import { IshikawaDiagrama } from '@/components/ciencia/IshikawaDiagrama'
 import { RncFotosSection } from './RncFotosSection'
 
 const STATUS_LABELS: Record<RncStatus, string> = {
@@ -43,10 +76,105 @@ type Props = {
   rnc: Rnc | null
   onClose: () => void
   onEdit?: (rnc: Rnc) => void
+  /** Propaga a RNC atualizada (ex.: após registrar assinatura). */
+  onUpdated?: (rnc: Rnc) => void
 }
 
-export function RncDetailPanel({ rnc, onClose, onEdit }: Props) {
+export function RncDetailPanel({ rnc, onClose, onEdit, onUpdated }: Props) {
   const open = !!rnc
+  const [assinandoId, setAssinandoId] = React.useState<string | null>(null)
+  const [enviando, setEnviando] = React.useState(false)
+  const [lembrando, setLembrando] = React.useState(false)
+  const [escalonando, setEscalonando] = React.useState(false)
+  const pendencias = rnc ? pendenciasParaAssinatura(rnc) : []
+  // "Enviada" = saiu de rascunho (cobre RNCs enviadas antes do campo
+  // assinaturaEnviadaEm existir).
+  const jaEnviada = !!rnc && rnc.status !== 'DRAFT'
+  const temPendentesAssinatura =
+    !!rnc && rnc.aprovadores.some((a) => !a.assinadoEm && !a.escalonadoEm)
+
+  const handleEnviarLembrete = async () => {
+    if (!rnc) return
+    setLembrando(true)
+    try {
+      const { rnc: atualizado, enviados } = await rncApi.enviarLembrete(rnc.id)
+      onUpdated?.(atualizado)
+      if (enviados > 0) {
+        toast.success('Lembrete enviado', {
+          description: `${enviados} aprovador(es) pendente(s) notificado(s).`,
+        })
+      } else {
+        toast.warning('Nenhum lembrete enviado', {
+          description: 'Verifique se há aprovadores pendentes com e-mail.',
+        })
+      }
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao enviar lembrete.'
+      toast.error('Não foi possível enviar o lembrete', { description: message })
+    } finally {
+      setLembrando(false)
+    }
+  }
+
+  const handleEscalonar = async () => {
+    if (!rnc) return
+    setEscalonando(true)
+    try {
+      const { rnc: atualizado, novos } = await rncApi.escalonar(rnc.id)
+      onUpdated?.(atualizado)
+      toast.success('Escalonado para o nível acima', {
+        description: `${novos} aprovador(es) do nível superior notificado(s).`,
+      })
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao escalonar.'
+      toast.error('Não foi possível escalonar', { description: message })
+    } finally {
+      setEscalonando(false)
+    }
+  }
+
+  const handleEnviarAssinatura = async () => {
+    if (!rnc) return
+    setEnviando(true)
+    try {
+      const { rnc: atualizado, enviados, falhas } =
+        await rncApi.enviarParaAssinatura(rnc.id)
+      onUpdated?.(atualizado)
+      if (falhas.length === 0) {
+        toast.success('RNC enviada para assinatura', {
+          description: `${enviados.length} e-mail(s) enviado(s) aos aprovadores.`,
+        })
+      } else {
+        toast.warning('Enviada com pendências', {
+          description: `${enviados.length} enviado(s), ${falhas.length} falha(s).`,
+        })
+      }
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao enviar para assinatura.'
+      toast.error('Não foi possível enviar', { description: message })
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  const toggleAssinatura = async (aprovadorId: string, assinado: boolean) => {
+    if (!rnc) return
+    setAssinandoId(aprovadorId)
+    try {
+      const atualizado = await rncApi.setAssinatura(rnc.id, aprovadorId, assinado)
+      onUpdated?.(atualizado)
+      toast.success(assinado ? 'Assinatura registrada' : 'Assinatura cancelada')
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao atualizar a assinatura.'
+      toast.error('Não foi possível atualizar', { description: message })
+    } finally {
+      setAssinandoId(null)
+    }
+  }
 
   React.useEffect(() => {
     if (!open) return
@@ -68,9 +196,10 @@ export function RncDetailPanel({ rnc, onClose, onEdit }: Props) {
 
   return (
     <>
+      {/* Clicar fora não fecha — evita descartar o que está sendo visto/feito.
+          Use o botão Fechar ou a tecla Esc. */}
       <div
         aria-hidden
-        onClick={onClose}
         className={cn(
           'fixed inset-0 z-40 bg-neutral-950/30 backdrop-blur-[2px] transition-opacity duration-300',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',
@@ -115,6 +244,62 @@ export function RncDetailPanel({ rnc, onClose, onEdit }: Props) {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 gap-1.5"
+                  onClick={handleEnviarAssinatura}
+                  disabled={enviando || pendencias.length > 0}
+                  title={
+                    pendencias.length > 0
+                      ? `Pendências antes de enviar: ${pendencias.join(', ')}`
+                      : 'Enviar e-mail de assinatura aos aprovadores'
+                  }
+                >
+                  {enviando ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Send className="h-3.5 w-3.5" />
+                  )}
+                  Enviar para assinatura
+                </Button>
+                {jaEnviada && temPendentesAssinatura && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    onClick={handleEnviarLembrete}
+                    disabled={lembrando}
+                    title="Enviar lembrete aos aprovadores pendentes"
+                  >
+                    {lembrando ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <BellRing className="h-3.5 w-3.5" />
+                    )}
+                    Enviar lembrete
+                  </Button>
+                )}
+                {jaEnviada && temPendentesAssinatura && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    onClick={handleEscalonar}
+                    disabled={escalonando}
+                    title="Escalonar agora para o nível acima dos aprovadores pendentes"
+                  >
+                    {escalonando ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ArrowUpCircle className="h-3.5 w-3.5" />
+                    )}
+                    Escalonar agora
+                  </Button>
+                )}
                 {onEdit && (
                   <Button
                     type="button"
@@ -298,35 +483,59 @@ export function RncDetailPanel({ rnc, onClose, onEdit }: Props) {
                 </Row>
               </Section>
 
-              <Section title="Nota fiscal & datas">
-                <Row label="Nº da NF">
-                  {rnc.numeroNf ? (
-                    <span className="font-mono text-[13px]">{rnc.numeroNf}</span>
-                  ) : (
+              <Section
+                title={
+                  rnc.notasFiscais.length > 1
+                    ? 'Notas fiscais & datas'
+                    : 'Nota fiscal & datas'
+                }
+              >
+                {rnc.notasFiscais.length === 0 ? (
+                  <Row label="Nota fiscal">
                     <em className="text-neutral-400">—</em>
-                  )}
-                </Row>
-                <Row label="Fabricação">
-                  {rnc.dataFabricacao ? (
-                    formatDataBR(rnc.dataFabricacao)
-                  ) : (
-                    <em className="text-neutral-400">—</em>
-                  )}
-                </Row>
-                <Row label="Validade">
-                  {rnc.dataValidade ? (
-                    formatDataBR(rnc.dataValidade)
-                  ) : (
-                    <em className="text-neutral-400">—</em>
-                  )}
-                </Row>
-                <Row label="Recebimento">
-                  {rnc.dataRecebimento ? (
-                    formatDataBR(rnc.dataRecebimento)
-                  ) : (
-                    <em className="text-neutral-400">—</em>
-                  )}
-                </Row>
+                  </Row>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {rnc.notasFiscais.map((nf) => (
+                      <div
+                        key={nf.id}
+                        className="rounded-md border border-neutral-200 bg-neutral-50/50 p-2"
+                      >
+                        <div className="mb-1 text-[13px] font-medium text-neutral-900">
+                          NF{' '}
+                          {nf.numero ? (
+                            <span className="font-mono">{nf.numero}</span>
+                          ) : (
+                            <em className="font-normal text-neutral-400">
+                              sem número
+                            </em>
+                          )}
+                        </div>
+                        <Row label="Fabricação">
+                          {nf.dataFabricacao ? (
+                            formatDataBR(nf.dataFabricacao)
+                          ) : (
+                            <em className="text-neutral-400">—</em>
+                          )}
+                        </Row>
+                        <Row label="Validade">
+                          {nf.dataValidade ? (
+                            formatDataBR(nf.dataValidade)
+                          ) : (
+                            <em className="text-neutral-400">—</em>
+                          )}
+                        </Row>
+                        <Row label="Recebimento">
+                          {nf.dataRecebimento ? (
+                            formatDataBR(nf.dataRecebimento)
+                          ) : (
+                            <em className="text-neutral-400">—</em>
+                          )}
+                        </Row>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Section>
 
               <Section title="Transporte">
@@ -381,6 +590,156 @@ export function RncDetailPanel({ rnc, onClose, onEdit }: Props) {
                   </Row>
                 )}
               </Section>
+
+              <Section
+                title={`Matriz de aprovação · ${resumoAssinaturas(rnc).label}`}
+              >
+                {rnc.assinaturasConcluidasEm && (
+                  <div className="mb-2 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs text-emerald-800">
+                    Todas as assinaturas concluídas em{' '}
+                    {formatDataHoraBR(rnc.assinaturasConcluidasEm)} — e-mail de
+                    conclusão enviado aos envolvidos.
+                  </div>
+                )}
+                {rnc.aprovadores.length === 0 ? (
+                  <Row label="Aprovadores">
+                    <em className="text-neutral-400">
+                      Nenhum aprovador cadastrado para a filial/turno desta
+                      RNC.
+                    </em>
+                  </Row>
+                ) : (
+                  <div className="flex flex-col gap-1.5">
+                    {rnc.aprovadores.map((a) => {
+                      const assinado = !!a.assinadoEm
+                      const superado = !!a.escalonadoEm && !assinado
+                      const ocupado = assinandoId === a.id
+                      return (
+                        <div
+                          key={a.id}
+                          className="flex items-center justify-between gap-2 rounded-md border border-neutral-200 px-2.5 py-1.5"
+                        >
+                          <div className="flex min-w-0 flex-col">
+                            <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-500">
+                              {a.areaNome}
+                              {a.nivel != null && a.nivel > 1 && (
+                                <span className="rounded bg-neutral-100 px-1 py-px text-[9px] text-neutral-600">
+                                  Nível {a.nivel}
+                                </span>
+                              )}
+                              {a.viaEscalonamento && (
+                                <span className="rounded bg-amber-100 px-1 py-px text-[9px] font-semibold text-amber-700">
+                                  Escalonado
+                                </span>
+                              )}
+                            </span>
+                            <span className="truncate text-sm text-neutral-900">
+                              <span className="font-medium">{a.nome}</span>
+                              {a.cargo && (
+                                <span className="text-neutral-500">
+                                  {' '}
+                                  · {a.cargo}
+                                </span>
+                              )}
+                            </span>
+                            {assinado && (
+                              <span className="text-[11px] text-emerald-700">
+                                Assinado em {formatDataHoraBR(a.assinadoEm)}
+                              </span>
+                            )}
+                            {superado && (
+                              <span className="text-[11px] text-neutral-500">
+                                Superado pelo escalonamento — não pode mais
+                                assinar
+                              </span>
+                            )}
+                            {!assinado && !superado && a.lembreteEnviadoEm && (
+                              <span className="text-[11px] text-amber-700">
+                                Lembrete enviado em{' '}
+                                {formatDataHoraBR(a.lembreteEnviadoEm)}
+                              </span>
+                            )}
+                            {assinado &&
+                              (a.assinaturaIp ||
+                                a.assinaturaNavegador ||
+                                a.assinaturaLatitude != null) && (
+                                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-neutral-500">
+                                  {a.assinaturaIp && (
+                                    <span>IP: {a.assinaturaIp}</span>
+                                  )}
+                                  {a.assinaturaNavegador && (
+                                    <span>{a.assinaturaNavegador}</span>
+                                  )}
+                                  {a.assinaturaSo && <span>{a.assinaturaSo}</span>}
+                                  {a.assinaturaDispositivo && (
+                                    <span>{a.assinaturaDispositivo}</span>
+                                  )}
+                                  {a.assinaturaLatitude != null &&
+                                    a.assinaturaLongitude != null && (
+                                      <a
+                                        href={`https://www.google.com/maps?q=${a.assinaturaLatitude},${a.assinaturaLongitude}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-sky-600 underline-offset-2 hover:underline"
+                                      >
+                                        Local ({a.assinaturaLatitude.toFixed(5)},{' '}
+                                        {a.assinaturaLongitude.toFixed(5)})
+                                      </a>
+                                    )}
+                                </div>
+                              )}
+                          </div>
+                          {superado ? (
+                            <span
+                              className="inline-flex shrink-0 items-center rounded-full border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-500"
+                              title="Escalonado ao nível superior — não pode mais assinar"
+                            >
+                              Superado
+                            </span>
+                          ) : (
+                            <Button
+                              variant={assinado ? 'outline' : 'default'}
+                              size="sm"
+                              className="shrink-0"
+                              disabled={ocupado}
+                              onClick={() => toggleAssinatura(a.id, !assinado)}
+                            >
+                              {ocupado ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : assinado ? (
+                                <Check className="h-3.5 w-3.5 text-emerald-600" />
+                              ) : null}
+                              {assinado ? 'Assinado' : 'Registrar assinatura'}
+                            </Button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </Section>
+
+              <Section title="Ciência do fornecedor">
+                <CienciaFornecedorBloco rnc={rnc} onUpdated={onUpdated} />
+              </Section>
+
+              {rnc.contingenciaStatus && (
+                <Section title="Ações de contingência">
+                  <ContingenciaBloco rnc={rnc} onUpdated={onUpdated} />
+                </Section>
+              )}
+
+              {rnc.causaRaizStatus && (
+                <Section title="Análise de causa — Ishikawa e 5W2H">
+                  <CausaRaizBloco rnc={rnc} onUpdated={onUpdated} />
+                </Section>
+              )}
+
+              {rnc.eficaciaStatus && (
+                <Section title="Verificação de eficácia">
+                  <EficaciaBloco rnc={rnc} onUpdated={onUpdated} />
+                </Section>
+              )}
 
               <Section title="Origem & severidade">
                 <Row label="Origem da NC">
@@ -441,6 +800,989 @@ export function RncDetailPanel({ rnc, onClose, onEdit }: Props) {
         )}
       </aside>
     </>
+  )
+}
+
+/** Prazo já vencido? Fica fora do render para não depender do relógio. */
+function prazoVencido(prazo: string | null | undefined): boolean {
+  if (!prazo) return false
+  const ms = new Date(prazo).getTime()
+  return !Number.isNaN(ms) && ms <= Date.now()
+}
+
+/**
+ * Prazo de ação é DATA PURA (chega como AAAA-MM-DDT00:00:00Z). Formatar
+ * pelo fuso local mostraria o dia anterior.
+ */
+function formatDataPuraBR(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const [ano, mes, dia] = iso.slice(0, 10).split('-')
+  return dia && mes && ano ? `${dia}/${mes}/${ano}` : ''
+}
+
+/** Selo de situação de uma ação do plano. */
+function SeloAcao({ status }: { status: AcaoContingencia['status'] }) {
+  const cor =
+    status === 'APROVADA'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : status === 'RECUSADA'
+        ? 'border-red-200 bg-red-50 text-red-700'
+        : 'border-amber-200 bg-amber-50 text-amber-700'
+  return (
+    <span
+      className={cn(
+        'inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium',
+        cor,
+      )}
+    >
+      {ACAO_CONTINGENCIA_LABEL[status]}
+    </span>
+  )
+}
+
+/**
+ * Uma linha do plano com a decisão do aprovador. A recusa abre o campo de
+ * parecer, que é o texto devolvido ao fornecedor para corrigir a ação.
+ */
+function AcaoLinha({
+  rncId,
+  acao,
+  podeDecidir,
+  onUpdated,
+}: {
+  rncId: string
+  acao: AcaoContingencia
+  podeDecidir: boolean
+  onUpdated?: (rnc: Rnc) => void
+}) {
+  const [modo, setModo] = React.useState<'aprovar' | 'recusar' | null>(null)
+  const [parecer, setParecer] = React.useState('')
+  const [salvando, setSalvando] = React.useState(false)
+
+  const decidir = async (aprovada: boolean) => {
+    if (salvando) return
+    if (!aprovada && !parecer.trim()) {
+      toast.error('Informe o parecer que fundamenta a recusa da ação.')
+      return
+    }
+    setSalvando(true)
+    try {
+      const atualizado = await rncApi.analisarAcaoContingencia(rncId, acao.id, {
+        aprovada,
+        parecer: parecer.trim() || null,
+      })
+      onUpdated?.(atualizado)
+      setModo(null)
+      setParecer('')
+      toast.success(
+        aprovada
+          ? `Ação ${acao.ordem} aprovada`
+          : `Ação ${acao.ordem} recusada — o fornecedor será avisado`,
+      )
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao registrar a decisão.'
+      toast.error('Não foi possível registrar', { description: message })
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  const pendente = acao.status === 'PENDENTE'
+
+  return (
+    <div className="flex flex-col gap-2 border-b border-neutral-100 py-2.5 last:border-0">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 w-5 shrink-0 text-xs tabular-nums text-neutral-400">
+          {acao.ordem}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-neutral-900">
+            {acao.descricao}
+          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
+            <span>
+              Responsável:{' '}
+              <span className="text-neutral-700">{acao.responsavel || '—'}</span>
+            </span>
+            <span>
+              Prazo:{' '}
+              <span className="text-neutral-700">
+                {formatDataPuraBR(acao.prazo) || '—'}
+              </span>
+            </span>
+            {acao.analisadaEm && (
+              <span>
+                {acao.status === 'APROVADA' ? 'Aprovada' : 'Recusada'} em{' '}
+                {formatDataHoraBR(acao.analisadaEm)}
+                {acao.analisadaPor ? ` · por ${acao.analisadaPor}` : ''}
+              </span>
+            )}
+          </div>
+          {acao.parecer && (
+            <p
+              className={cn(
+                'whitespace-pre-wrap rounded-md border px-2 py-1 text-xs',
+                acao.status === 'RECUSADA'
+                  ? 'border-red-200 bg-red-50 text-red-800'
+                  : 'border-neutral-200 bg-neutral-50 text-neutral-700',
+              )}
+            >
+              <b>Parecer:</b> {acao.parecer}
+            </p>
+          )}
+        </div>
+        <SeloAcao status={acao.status} />
+      </div>
+
+      {pendente && podeDecidir && (
+        <div className="ml-8 flex flex-col gap-2">
+          {modo === null ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => decidir(true)}
+                disabled={salvando}
+              >
+                {salvando ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                )}
+                Aprovar
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+                onClick={() => setModo('recusar')}
+                disabled={salvando}
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Recusar
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <textarea
+                value={parecer}
+                onChange={(e) => setParecer(e.target.value)}
+                rows={2}
+                maxLength={4000}
+                disabled={salvando}
+                placeholder="Parecer que fundamenta a recusa (obrigatório) — o fornecedor recebe este texto para corrigir a ação."
+                className="flex w-full rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-red-600 hover:bg-red-700"
+                  disabled={salvando || !parecer.trim()}
+                  onClick={() => decidir(false)}
+                >
+                  {salvando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Confirmar recusa
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={salvando}
+                  onClick={() => {
+                    setModo(null)
+                    setParecer('')
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Plano de ações de contingência: o fornecedor cadastra uma ação por
+ * linha e o aprovador marcado aprova ou recusa cada uma delas.
+ */
+function ContingenciaBloco({
+  rnc,
+  onUpdated,
+}: {
+  rnc: Rnc
+  onUpdated?: (rnc: Rnc) => void
+}) {
+  const auth = useAuth()
+  const usuario = auth.status === 'authenticated' ? auth.user : null
+  // Mesma regra da análise da recusa: ADMIN ou aprovador marcado da filial.
+  const podeDecidir = podeAnalisarRecusa(usuario, rnc.filialId)
+
+  const status = rnc.contingenciaStatus
+  if (!status) return null
+
+  const acoes = rnc.acoesContingencia ?? []
+  const emAnalise = status === 'EM_ANALISE'
+  const aprovada = status === 'APROVADA'
+  const emAberto = status === 'PENDENTE' || status === 'AJUSTE_SOLICITADO'
+  const atrasada = emAberto && prazoVencido(rnc.contingenciaPrazoEm)
+  const pendentes = acoes.filter((a) => a.status === 'PENDENTE').length
+
+  const cor = aprovada
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    : atrasada
+      ? 'border-red-200 bg-red-50 text-red-800'
+      : emAnalise
+        ? 'border-sky-200 bg-sky-50 text-sky-800'
+        : 'border-amber-200 bg-amber-50 text-amber-800'
+  const Icone = aprovada
+    ? CheckCircle2
+    : atrasada
+      ? AlertTriangle
+      : emAnalise
+        ? ClipboardList
+        : Clock
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className={cn('flex items-start gap-2 rounded-md border px-2.5 py-2', cor)}>
+        <Icone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="flex flex-col gap-0.5 text-xs">
+          <span className="font-semibold">
+            {atrasada
+              ? `${CONTINGENCIA_RNC_LABEL[status]} — em atraso`
+              : CONTINGENCIA_RNC_LABEL[status]}
+          </span>
+          {emAnalise ? (
+            <span>
+              Plano recebido em {formatDataHoraBR(rnc.contingenciaRespondidaEm)}
+              {rnc.contingenciaRespondidaPor
+                ? ` · por ${rnc.contingenciaRespondidaPor}`
+                : ''}
+              {pendentes > 0
+                ? ` — ${pendentes} ação(ões) aguardando decisão.`
+                : '.'}
+            </span>
+          ) : aprovada ? (
+            <span>
+              Aprovado em {formatDataHoraBR(rnc.contingenciaAnalisadaEm)}
+              {rnc.contingenciaAnalisadaPor
+                ? ` · por ${rnc.contingenciaAnalisadaPor}`
+                : ''}
+            </span>
+          ) : (
+            <span>
+              {status === 'AJUSTE_SOLICITADO'
+                ? 'Devolvido ao fornecedor para correção. '
+                : ''}
+              Prazo até {formatDataHoraBR(rnc.contingenciaPrazoEm)}
+              {atrasada
+                ? ` — ${rnc.contingenciaAlertas} alerta(s) enviado(s) ao fornecedor.`
+                : '.'}
+            </span>
+          )}
+        </div>
+      </div>
+      <Row label="Solicitadas em">
+        {formatDataHoraBR(rnc.contingenciaSolicitadaEm) || '—'}
+      </Row>
+
+      {acoes.length === 0 ? (
+        <div className="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600">
+          <ClipboardList className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          <span>
+            O fornecedor ainda não cadastrou nenhuma ação. A cobrança
+            automática se repete até o plano chegar.
+          </span>
+        </div>
+      ) : (
+        <div className="rounded-md border border-neutral-200 px-3">
+          {acoes.map((a) => (
+            <AcaoLinha
+              key={a.id}
+              rncId={rnc.id}
+              acao={a}
+              podeDecidir={podeDecidir && emAnalise}
+              onUpdated={onUpdated}
+            />
+          ))}
+        </div>
+      )}
+
+      {emAnalise && !podeDecidir && (
+        <div className="rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
+          A aprovação das ações cabe aos aprovadores marcados para receber as
+          respostas do fornecedor nesta filial (ou a um administrador).
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Verificação de eficácia: aprovados o plano e a análise de causa, o
+ * aprovador marcado confirma se o que foi executado resolveu. Só fica
+ * disponível a partir da última data planejada mais o tempo de espera.
+ */
+function EficaciaBloco({
+  rnc,
+  onUpdated,
+}: {
+  rnc: Rnc
+  onUpdated?: (rnc: Rnc) => void
+}) {
+  const auth = useAuth()
+  const usuario = auth.status === 'authenticated' ? auth.user : null
+  const podeDecidir = podeAnalisarRecusa(usuario, rnc.filialId)
+  const [modo, setModo] = React.useState<'nao' | null>(null)
+  const [parecer, setParecer] = React.useState('')
+  const [salvando, setSalvando] = React.useState(false)
+
+  const status = rnc.eficaciaStatus
+  if (!status) return null
+
+  // O agendador vira AGUARDANDO_PRAZO em PENDENTE, mas a tela não precisa
+  // esperar o próximo tique para liberar o botão.
+  const liberada =
+    status === 'PENDENTE' || prazoVencido(rnc.eficaciaLiberadaEm)
+  const aguardando = status === 'AGUARDANDO_PRAZO' && !liberada
+  const verificada = status === 'EFICAZ' || status === 'NAO_EFICAZ'
+  const eficaz = status === 'EFICAZ'
+
+  const registrar = async (foiEficaz: boolean) => {
+    if (salvando) return
+    if (!foiEficaz && !parecer.trim()) {
+      toast.error('Informe o parecer que fundamenta a verificação.')
+      return
+    }
+    setSalvando(true)
+    try {
+      const atualizado = await rncApi.verificarEficacia(rnc.id, {
+        eficaz: foiEficaz,
+        parecer: parecer.trim() || null,
+      })
+      onUpdated?.(atualizado)
+      setModo(null)
+      setParecer('')
+      toast.success(
+        foiEficaz
+          ? 'Plano de ação verificado como eficaz'
+          : 'Plano de ação verificado como não eficaz',
+      )
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao registrar a verificação.'
+      toast.error('Não foi possível registrar', { description: message })
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  const cor = verificada
+    ? eficaz
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+      : 'border-red-200 bg-red-50 text-red-800'
+    : liberada
+      ? 'border-sky-200 bg-sky-50 text-sky-800'
+      : 'border-neutral-200 bg-neutral-50 text-neutral-700'
+  const Icone = verificada ? (eficaz ? ShieldCheck : XCircle) : liberada ? ShieldCheck : Clock
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className={cn('flex items-start gap-2 rounded-md border px-2.5 py-2', cor)}>
+        <Icone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="flex flex-col gap-0.5 text-xs">
+          <span className="font-semibold">
+            {verificada
+              ? EFICACIA_LABEL[status]
+              : liberada
+                ? 'Verificação liberada'
+                : 'Aguardando o prazo de verificação'}
+          </span>
+          {verificada ? (
+            <span>
+              Verificada em {formatDataHoraBR(rnc.eficaciaVerificadaEm)}
+              {rnc.eficaciaVerificadaPor
+                ? ` · por ${rnc.eficaciaVerificadaPor}`
+                : ''}
+            </span>
+          ) : liberada ? (
+            <span>
+              O plano já cumpriu o tempo de espera e pode ser verificado.
+            </span>
+          ) : (
+            <span>
+              Poderá ser registrada a partir de{' '}
+              {formatDataHoraBR(rnc.eficaciaLiberadaEm)}.
+            </span>
+          )}
+        </div>
+      </div>
+
+      <Row label="Última data planejada">
+        {formatDataPuraBR(rnc.eficaciaDataBase) || '—'}
+      </Row>
+      <Row label="Liberada a partir de">
+        {formatDataHoraBR(rnc.eficaciaLiberadaEm) || '—'}
+      </Row>
+      {rnc.eficaciaParecer && (
+        <Row label="Parecer da verificação">
+          <span className="whitespace-pre-wrap">{rnc.eficaciaParecer}</span>
+        </Row>
+      )}
+
+      {!verificada && liberada && podeDecidir && (
+        <div className="mt-1 flex flex-col gap-2 rounded-md border border-neutral-200 bg-neutral-50/60 p-2.5">
+          <span className="text-xs font-medium text-neutral-700">
+            Registrar a verificação de eficácia
+          </span>
+          {modo === null ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => registrar(true)}
+                disabled={salvando}
+              >
+                {salvando ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                )}
+                Eficaz
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+                onClick={() => setModo('nao')}
+                disabled={salvando}
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Não eficaz
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-neutral-600">
+                Registre o que foi verificado e por que as ações não
+                resolveram. O fornecedor recebe este parecer.
+              </p>
+              <textarea
+                value={parecer}
+                onChange={(e) => setParecer(e.target.value)}
+                rows={3}
+                maxLength={4000}
+                disabled={salvando}
+                placeholder="Parecer da verificação (obrigatório para não eficaz)"
+                className="flex w-full rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-red-600 hover:bg-red-700"
+                  disabled={salvando || !parecer.trim()}
+                  onClick={() => registrar(false)}
+                >
+                  {salvando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Confirmar: não eficaz
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={salvando}
+                  onClick={() => {
+                    setModo(null)
+                    setParecer('')
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!verificada && aguardando && (
+        <div className="rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
+          A verificação abre automaticamente na data acima — o tempo de espera
+          é definido em Configurações → Prazos do Fornecedor.
+        </div>
+      )}
+
+      {!verificada && liberada && !podeDecidir && (
+        <div className="rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
+          A verificação de eficácia cabe aos aprovadores marcados para receber
+          as respostas do fornecedor nesta filial (ou a um administrador).
+        </div>
+      )}
+    </div>
+  )
+}
+
+const CAMPOS_5W2H_PAINEL: [keyof Rnc, string][] = [
+  ['causaOQue', 'O quê'],
+  ['causaPorQue', 'Por quê'],
+  ['causaOnde', 'Onde'],
+  ['causaQuando', 'Quando'],
+  ['causaQuem', 'Quem'],
+  ['causaComo', 'Como'],
+  ['causaQuantoCusta', 'Quanto custa'],
+]
+
+/**
+ * Análise de causa enviada pelo fornecedor: o aprovador marcado aprova ou
+ * rejeita o Ishikawa e o 5W2H como um conjunto — rejeitar devolve tudo
+ * para o fornecedor alterar.
+ */
+function CausaRaizBloco({
+  rnc,
+  onUpdated,
+}: {
+  rnc: Rnc
+  onUpdated?: (rnc: Rnc) => void
+}) {
+  const auth = useAuth()
+  const usuario = auth.status === 'authenticated' ? auth.user : null
+  const podeDecidir = podeAnalisarRecusa(usuario, rnc.filialId)
+  const [modo, setModo] = React.useState<'rejeitar' | null>(null)
+  const [parecer, setParecer] = React.useState('')
+  const [salvando, setSalvando] = React.useState(false)
+
+  const status = rnc.causaRaizStatus
+  if (!status) return null
+
+  const emAnalise = status === 'EM_ANALISE'
+  const aprovada = status === 'APROVADA'
+  const rejeitada = status === 'AJUSTE_SOLICITADO'
+  const enviada = status !== 'PENDENTE'
+
+  const decidir = async (aprovar: boolean) => {
+    if (salvando) return
+    if (!aprovar && !parecer.trim()) {
+      toast.error('Informe o parecer que fundamenta a rejeição da análise.')
+      return
+    }
+    setSalvando(true)
+    try {
+      const atualizado = await rncApi.analisarCausaRaiz(rnc.id, {
+        aprovada: aprovar,
+        parecer: parecer.trim() || null,
+      })
+      onUpdated?.(atualizado)
+      setModo(null)
+      setParecer('')
+      toast.success(
+        aprovar
+          ? 'Análise de causa aprovada'
+          : 'Análise rejeitada — o fornecedor foi avisado para ajustar',
+      )
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao registrar a decisão.'
+      toast.error('Não foi possível registrar', { description: message })
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  const cor = aprovada
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    : rejeitada
+      ? 'border-red-200 bg-red-50 text-red-800'
+      : emAnalise
+        ? 'border-sky-200 bg-sky-50 text-sky-800'
+        : 'border-amber-200 bg-amber-50 text-amber-800'
+  const Icone = aprovada
+    ? CheckCircle2
+    : rejeitada
+      ? XCircle
+      : emAnalise
+        ? GitBranch
+        : Clock
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className={cn('flex items-start gap-2 rounded-md border px-2.5 py-2', cor)}>
+        <Icone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="flex flex-col gap-0.5 text-xs">
+          <span className="font-semibold">{CAUSA_RAIZ_LABEL[status]}</span>
+          {emAnalise ? (
+            <span>
+              Enviada em {formatDataHoraBR(rnc.causaRaizEnviadaEm)}
+              {rnc.causaRaizEnviadaPor ? ` · por ${rnc.causaRaizEnviadaPor}` : ''}
+              {rnc.causaRaizEnvios > 1 ? ` — reenvio nº ${rnc.causaRaizEnvios}` : ''}
+            </span>
+          ) : aprovada || rejeitada ? (
+            <span>
+              {aprovada ? 'Aprovada' : 'Rejeitada'} em{' '}
+              {formatDataHoraBR(rnc.causaRaizAnalisadaEm)}
+              {rnc.causaRaizAnalisadaPor
+                ? ` · por ${rnc.causaRaizAnalisadaPor}`
+                : ''}
+            </span>
+          ) : (
+            <span>
+              Solicitada em {formatDataHoraBR(rnc.causaRaizSolicitadaEm)} — o
+              fornecedor ainda está preenchendo.
+            </span>
+          )}
+        </div>
+      </div>
+
+      {rnc.causaRaizParecer && (
+        <Row label="Parecer do aprovador">
+          <span className="whitespace-pre-wrap">{rnc.causaRaizParecer}</span>
+        </Row>
+      )}
+
+      {!enviada && (rnc.causasIshikawa ?? []).length === 0 ? (
+        <div className="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600">
+          <GitBranch className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+          <span>
+            O fornecedor ainda não preencheu o diagrama de Ishikawa nem o 5W2H.
+          </span>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] uppercase tracking-wide text-neutral-400">
+              Diagrama de Ishikawa
+            </span>
+            <IshikawaDiagrama
+              causas={rnc.causasIshikawa ?? []}
+              efeito={rnc.descricaoDefeito ?? 'Não conformidade'}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] uppercase tracking-wide text-neutral-400">
+              5W2H
+            </span>
+            <div className="overflow-hidden rounded-md border border-neutral-200">
+              <table className="w-full text-[13px]">
+                <tbody>
+                  {CAMPOS_5W2H_PAINEL.map(([chave, rotulo]) => (
+                    <tr
+                      key={chave}
+                      className="border-b border-neutral-100 last:border-0"
+                    >
+                      <td className="w-28 bg-neutral-50/60 px-2.5 py-1.5 align-top text-xs font-medium text-neutral-500">
+                        {rotulo}
+                      </td>
+                      <td className="whitespace-pre-wrap px-2.5 py-1.5 text-neutral-900">
+                        {(rnc[chave] as string | null) || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {emAnalise && podeDecidir && (
+        <div className="mt-1 flex flex-col gap-2 rounded-md border border-neutral-200 bg-neutral-50/60 p-2.5">
+          <span className="text-xs font-medium text-neutral-700">
+            Aprovar a análise de causa
+          </span>
+          {modo === null ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => decidir(true)}
+                disabled={salvando}
+              >
+                {salvando ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                )}
+                Aprovar Ishikawa e 5W2H
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-red-200 text-red-700 hover:bg-red-50"
+                onClick={() => setModo('rejeitar')}
+                disabled={salvando}
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Rejeitar
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-neutral-600">
+                A análise volta editável para o fornecedor, que altera o que
+                for necessário e envia de novo.
+              </p>
+              <textarea
+                value={parecer}
+                onChange={(e) => setParecer(e.target.value)}
+                rows={3}
+                maxLength={4000}
+                disabled={salvando}
+                placeholder="Parecer que fundamenta a rejeição (obrigatório) — o fornecedor recebe este texto para corrigir."
+                className="flex w-full rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className="gap-1.5 bg-red-600 hover:bg-red-700"
+                  disabled={salvando || !parecer.trim()}
+                  onClick={() => decidir(false)}
+                >
+                  {salvando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  Confirmar rejeição
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={salvando}
+                  onClick={() => {
+                    setModo(null)
+                    setParecer('')
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {emAnalise && !podeDecidir && (
+        <div className="rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
+          A aprovação da análise de causa cabe aos aprovadores marcados para
+          receber as respostas do fornecedor nesta filial (ou a um
+          administrador).
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Situação da ciência do fornecedor: enviada após todas as assinaturas,
+ * com aceite/recusa do fornecedor ou aceite automático por decurso.
+ */
+function CienciaFornecedorBloco({
+  rnc,
+  onUpdated,
+}: {
+  rnc: Rnc
+  onUpdated?: (rnc: Rnc) => void
+}) {
+  const auth = useAuth()
+  const usuario = auth.status === 'authenticated' ? auth.user : null
+  // Só admins e aprovadores marcados na filial decidem sobre a recusa;
+  // a API aplica a mesma regra ao registrar a análise.
+  const podeDecidir = podeAnalisarRecusa(usuario, rnc.filialId)
+  const [modo, setModo] = React.useState<'acatar' | 'negar' | null>(null)
+  const [parecer, setParecer] = React.useState('')
+  const [decidindo, setDecidindo] = React.useState(false)
+
+  const decidir = async (acatarRecusa: boolean) => {
+    if (decidindo) return
+    if (!acatarRecusa && !parecer.trim()) {
+      toast.error('Informe o parecer que fundamenta a negativa da recusa.')
+      return
+    }
+    setDecidindo(true)
+    try {
+      const atualizado = await rncApi.analisarRecusa(rnc.id, {
+        acatarRecusa,
+        justificativa: parecer.trim() || null,
+      })
+      onUpdated?.(atualizado)
+      setModo(null)
+      setParecer('')
+      toast.success(
+        acatarRecusa
+          ? 'Recusa acatada'
+          : 'Recusa negada — RNC enviada em definitivo ao fornecedor',
+      )
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Falha ao registrar a análise.'
+      toast.error('Não foi possível registrar', { description: message })
+    } finally {
+      setDecidindo(false)
+    }
+  }
+
+  const status = rnc.cienciaStatus
+  if (!status) {
+    return (
+      <div className="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600">
+        <MailWarning className="mt-0.5 h-3.5 w-3.5 shrink-0 text-neutral-400" />
+        <span>
+          Ainda não enviada. O documento segue automaticamente ao contato de
+          e-mail do fornecedor quando todas as assinaturas forem concluídas.
+        </span>
+      </div>
+    )
+  }
+
+  const pendente = status === 'PENDENTE'
+  const recusada = status === 'RECUSADA'
+  const definitiva = status === 'MANTIDA_DEFINITIVA'
+  const Icone = pendente ? Clock : recusada || definitiva ? XCircle : CheckCircle2
+  const cor = pendente
+    ? 'border-amber-200 bg-amber-50 text-amber-800'
+    : recusada
+      ? 'border-orange-200 bg-orange-50 text-orange-800'
+      : definitiva
+        ? 'border-red-200 bg-red-50 text-red-800'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className={cn('flex items-start gap-2 rounded-md border px-2.5 py-2', cor)}>
+        <Icone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="flex flex-col gap-0.5 text-xs">
+          <span className="font-semibold">{CIENCIA_RNC_LABEL[status]}</span>
+          {pendente ? (
+            <span>
+              Prazo até {formatDataHoraBR(rnc.cienciaPrazoEm)} — sem resposta, o
+              aceite é automático.
+            </span>
+          ) : (
+            <span>
+              Registrada em {formatDataHoraBR(rnc.cienciaRespondidaEm)}
+              {rnc.cienciaRespondidaPor ? ` · por ${rnc.cienciaRespondidaPor}` : ''}
+            </span>
+          )}
+          {recusada && (
+            <span>
+              Aguardando a análise do aprovador responsável (acatar ou negar a
+              recusa). O fornecedor não pode recusar novamente.
+            </span>
+          )}
+        </div>
+      </div>
+      <Row label="Enviada para">
+        {rnc.cienciaEmail ?? <em className="text-neutral-400">—</em>}
+      </Row>
+      <Row label="Envio">{formatDataHoraBR(rnc.cienciaEnviadaEm) || '—'}</Row>
+      {rnc.cienciaJustificativa && (
+        <Row label="Justificativa do fornecedor">
+          <span className="whitespace-pre-wrap">{rnc.cienciaJustificativa}</span>
+        </Row>
+      )}
+      {rnc.cienciaAnaliseEm && (
+        <Row label="Análise da recusa">
+          {status === 'RECUSA_ACEITA' ? 'Recusa acatada' : 'Recusa negada'} em{' '}
+          {formatDataHoraBR(rnc.cienciaAnaliseEm)}
+          {rnc.cienciaAnalisePor ? ` · por ${rnc.cienciaAnalisePor}` : ''}
+        </Row>
+      )}
+      {rnc.cienciaAnaliseJustificativa && (
+        <Row label="Parecer da análise">
+          <span className="whitespace-pre-wrap">
+            {rnc.cienciaAnaliseJustificativa}
+          </span>
+        </Row>
+      )}
+
+      {/* Decisão pela plataforma — mesma ação do link enviado por e-mail. */}
+      {recusada && !podeDecidir && (
+        <div className="mt-1 rounded-md border border-neutral-200 bg-neutral-50/60 px-2.5 py-2 text-xs text-neutral-600">
+          A decisão sobre a recusa cabe aos aprovadores marcados para receber
+          as respostas do fornecedor nesta filial (ou a um administrador).
+        </div>
+      )}
+      {recusada && podeDecidir && (
+        <div className="mt-1 flex flex-col gap-2 rounded-md border border-neutral-200 bg-neutral-50/60 p-2.5">
+          <span className="text-xs font-medium text-neutral-700">
+            Analisar a recusa
+          </span>
+          {modo === null && (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                onClick={() => setModo('acatar')}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Acatar a recusa
+              </Button>
+              <Button
+                size="sm"
+                className="gap-1.5 bg-red-600 hover:bg-red-700"
+                onClick={() => setModo('negar')}
+              >
+                <XCircle className="h-3.5 w-3.5" />
+                Negar (tornar definitiva)
+              </Button>
+            </div>
+          )}
+          {modo !== null && (
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-neutral-600">
+                {modo === 'acatar'
+                  ? 'A justificativa do fornecedor será acatada e a ciência encerrada a favor dele.'
+                  : 'A RNC será mantida e enviada em definitivo ao fornecedor, sem possibilidade de nova recusa.'}
+              </p>
+              <textarea
+                value={parecer}
+                onChange={(e) => setParecer(e.target.value)}
+                rows={3}
+                maxLength={4000}
+                disabled={decidindo}
+                placeholder={
+                  modo === 'acatar'
+                    ? 'Parecer (opcional)'
+                    : 'Parecer que fundamenta a negativa (obrigatório)'
+                }
+                className="flex w-full rounded-md border border-neutral-200 bg-white px-2.5 py-1.5 text-xs shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-neutral-900"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  className={cn(
+                    'gap-1.5',
+                    modo === 'acatar'
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-red-600 hover:bg-red-700',
+                  )}
+                  disabled={
+                    decidindo || (modo === 'negar' && !parecer.trim())
+                  }
+                  onClick={() => decidir(modo === 'acatar')}
+                >
+                  {decidindo && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {modo === 'acatar'
+                    ? 'Confirmar: acatar'
+                    : 'Confirmar: negar e tornar definitiva'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={decidindo}
+                  onClick={() => {
+                    setModo(null)
+                    setParecer('')
+                  }}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -25,22 +25,32 @@ type Props = {
 
 type FormState = {
   tipoRelatorioId: string
-  horasResposta: number
+  horas: number
+  minutos: number
   descricao: string
   ativo: boolean
 }
 
 const empty: FormState = {
   tipoRelatorioId: '',
-  horasResposta: 24,
+  horas: 24,
+  minutos: 0,
   descricao: '',
   ativo: true,
 }
 
+// Divide o prazo em horas fracionárias (ex.: 1.5) em horas + minutos.
+function partesDoPrazo(horasResposta: number): { horas: number; minutos: number } {
+  const totalMin = Math.round(horasResposta * 60)
+  return { horas: Math.floor(totalMin / 60), minutos: totalMin % 60 }
+}
+
 function toForm(p: PoliticaResposta): FormState {
+  const { horas, minutos } = partesDoPrazo(p.horasResposta)
   return {
     tipoRelatorioId: p.tipoRelatorioId,
-    horasResposta: p.horasResposta,
+    horas,
+    minutos,
     descricao: p.descricao ?? '',
     ativo: p.ativo,
   }
@@ -81,13 +91,18 @@ export function PoliticaRespostaForm({ initial, onSaved, onCancel }: Props) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSubmitting(true)
     setError(null)
     setFieldErrors({})
+    const horasResposta = form.horas + form.minutos / 60
+    if (horasResposta < 1 / 60) {
+      setFieldErrors({ horasResposta: ['Informe um prazo de no mínimo 1 minuto'] })
+      return
+    }
+    setSubmitting(true)
     try {
       const payload: Partial<PoliticaRespostaInput> = {
         tipoRelatorioId: form.tipoRelatorioId,
-        horasResposta: form.horasResposta,
+        horasResposta,
         descricao: form.descricao || null,
         ativo: form.ativo,
       }
@@ -159,23 +174,42 @@ export function PoliticaRespostaForm({ initial, onSaved, onCancel }: Props) {
           </span>
         </Field>
         <Field
-          label="Horas para assinatura *"
-          error={fieldError('horasResposta')}
+          label="Prazo para assinatura *"
+          error={fieldErrors.horasResposta?.[0]}
           className="sm:col-span-6"
         >
-          <Input
-            type="number"
-            min={1}
-            max={8760}
-            value={form.horasResposta}
-            onChange={(e) =>
-              set('horasResposta', Number(e.target.value) || 1)
-            }
-            required
-          />
+          <div className="flex items-end gap-2">
+            <div className="flex flex-1 flex-col gap-1">
+              <span className="text-[11px] text-neutral-500">Horas</span>
+              <Input
+                type="number"
+                min={0}
+                max={8760}
+                step={1}
+                value={String(form.horas)}
+                onChange={(e) =>
+                  set('horas', Math.max(0, Math.floor(Number(e.target.value) || 0)))
+                }
+              />
+            </div>
+            <div className="flex flex-1 flex-col gap-1">
+              <span className="text-[11px] text-neutral-500">Minutos</span>
+              <Input
+                type="number"
+                min={0}
+                max={59}
+                step={1}
+                value={String(form.minutos)}
+                onChange={(e) => {
+                  const n = Math.floor(Number(e.target.value) || 0)
+                  set('minutos', Math.min(59, Math.max(0, n)))
+                }}
+              />
+            </div>
+          </div>
           <span className="text-xs text-neutral-500">
-            Quantidade de horas contínuas dentro das quais a assinatura precisa
-            acontecer. Ex.: 24 = 1 dia, 72 = 3 dias, 168 = 1 semana.
+            Tempo contínuo dentro do qual a assinatura precisa acontecer. Ex.:
+            24h = 1 dia; 1h30min; 30min. O lembrete é enviado na metade do prazo.
           </span>
         </Field>
         <Field

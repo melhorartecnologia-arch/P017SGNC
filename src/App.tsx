@@ -17,9 +17,19 @@ import { TipoRelatorioPage } from '@/components/cadastros/TipoRelatorioPage'
 import { TurnoTrabalhoPage } from '@/components/cadastros/TurnoTrabalhoPage'
 import { PoliticaRespostaPage } from '@/components/cadastros/PoliticaRespostaPage'
 import { UsuarioPage } from '@/components/cadastros/UsuarioPage'
+import { SmtpConfigPage } from '@/components/configuracoes/SmtpConfigPage'
+import { WorkflowConfigPage } from '@/components/configuracoes/WorkflowConfigPage'
 import { LoginPage } from '@/components/auth/LoginPage'
 import { RncWizard } from '@/components/registros/RncWizard'
 import { RncListPage } from '@/components/registros/RncListPage'
+import { RaqListPage } from '@/components/registros/RaqListPage'
+import { RaqWizard } from '@/components/registros/RaqWizard'
+import { RvtListPage } from '@/components/registros/RvtListPage'
+import { RvtWizard } from '@/components/registros/RvtWizard'
+import { RheListPage } from '@/components/registros/RheListPage'
+import { RheWizard } from '@/components/registros/RheWizard'
+import { WorkflowAssinaturasPage } from '@/components/registros/WorkflowAssinaturasPage'
+import { DashboardPage } from '@/components/dashboard/DashboardPage'
 import { useAuth } from '@/lib/auth/AuthContext'
 
 function App() {
@@ -27,6 +37,9 @@ function App() {
   const [activeKey, setActiveKey] = useState('dashboard')
   const [activeLabel, setActiveLabel] = useState('Painel Principal')
   const [rncWizardOpen, setRncWizardOpen] = useState(false)
+  const [raqWizardOpen, setRaqWizardOpen] = useState(false)
+  const [rvtWizardOpen, setRvtWizardOpen] = useState(false)
+  const [rheWizardOpen, setRheWizardOpen] = useState(false)
 
   if (auth.status === 'loading') {
     return (
@@ -64,6 +77,18 @@ function App() {
       setRncWizardOpen(true)
       return
     }
+    if (key === 'raq') {
+      setRaqWizardOpen(true)
+      return
+    }
+    if (key === 'rvt') {
+      setRvtWizardOpen(true)
+      return
+    }
+    if (key === 'rhe') {
+      setRheWizardOpen(true)
+      return
+    }
     // Demais tipos ainda não têm wizard — caem na tela "Em construção".
     setActiveKey(`registro-${key}`)
     setActiveLabel(`${sigla} — ${label}`)
@@ -84,7 +109,15 @@ function App() {
   const isTurno = activeKey === 'cad-turno'
   const isPoliticaResposta = activeKey === 'cad-politica-resposta'
   const isUsuario = activeKey === 'cad-usuario' && auth.user.role === 'ADMIN'
+  const isSmtpConfig = activeKey === 'cfg-smtp' && auth.user.role === 'ADMIN'
+  const isWorkflowConfig =
+    activeKey === 'cfg-workflow' && auth.user.role === 'ADMIN'
   const isRncList = activeKey === 'rnc-list'
+  const isRaqList = activeKey === 'raq-list'
+  const isRvtList = activeKey === 'rvt-list'
+  const isRheList = activeKey === 'rhe-list'
+  const isWorkflows = activeKey === 'workflows-assinatura'
+  const isDashboard = activeKey === 'dashboard'
 
   let pageTitle = activeLabel
   if (isFilial) pageTitle = 'Cadastro de Filial'
@@ -100,7 +133,12 @@ function App() {
   else if (isTurno) pageTitle = 'Cadastro de Turnos de Trabalho'
   else if (isPoliticaResposta) pageTitle = 'Cadastro de Políticas de Resposta'
   else if (isUsuario) pageTitle = 'Cadastro de Usuários'
+  else if (isSmtpConfig) pageTitle = 'Configurações — Servidor de E-mail (SMTP)'
+  else if (isWorkflowConfig) pageTitle = 'Configurações — Prazos do Fornecedor'
   else if (isRncList) pageTitle = 'Relatórios de Não Conformidade'
+  else if (isRaqList) pageTitle = 'Relatórios de Alerta de Qualidade'
+  else if (isRvtList) pageTitle = 'Relatórios de Visita Técnica'
+  else if (isWorkflows) pageTitle = 'Workflows de Assinatura'
   else if (isCadastro) pageTitle = `Cadastro de ${activeLabel}`
   else if (isRegistro) pageTitle = activeLabel
 
@@ -112,6 +150,9 @@ function App() {
         onCreateRelatorio={handleCreateRelatorio}
       />
       <RncWizard open={rncWizardOpen} onOpenChange={setRncWizardOpen} />
+      <RaqWizard open={raqWizardOpen} onOpenChange={setRaqWizardOpen} />
+      <RvtWizard open={rvtWizardOpen} onOpenChange={setRvtWizardOpen} />
+      <RheWizard open={rheWizardOpen} onOpenChange={setRheWizardOpen} />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar title={pageTitle} />
         <main className="flex flex-1 flex-col overflow-y-auto bg-white">
@@ -141,8 +182,22 @@ function App() {
             <PoliticaRespostaPage />
           ) : isUsuario ? (
             <UsuarioPage />
+          ) : isSmtpConfig ? (
+            <SmtpConfigPage />
+          ) : isWorkflowConfig ? (
+            <WorkflowConfigPage />
           ) : isRncList ? (
             <RncListPage />
+          ) : isRaqList ? (
+            <RaqListPage />
+          ) : isRvtList ? (
+            <RvtListPage />
+          ) : isRheList ? (
+            <RheListPage />
+          ) : isWorkflows ? (
+            <WorkflowAssinaturasPage />
+          ) : isDashboard ? (
+            <DashboardPage />
           ) : (
             <UnderConstruction title={pageTitle} />
           )}

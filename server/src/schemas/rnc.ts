@@ -8,14 +8,6 @@ export const rncStatusEnum = z.enum([
   'CANCELLED',
 ])
 
-const optionalUuid = (msg: string) =>
-  z
-    .string()
-    .uuid(msg)
-    .optional()
-    .nullable()
-    .or(z.literal('').transform(() => null))
-
 const optionalDate = (msg: string) =>
   z
     .union([z.coerce.date({ invalid_type_error: msg }), z.literal('')])
@@ -39,15 +31,92 @@ const optionalString = (max: number) =>
     .nullable()
     .or(z.literal('').transform(() => null))
 
-export const rncCreateSchema = z.object({
+/**
+ * Dia de calendário (YYYY-MM-DD) no fuso de operação da cervejaria
+ * (America/Sao_Paulo). Usado para comparar a data de identificação contra
+ * "hoje" sem depender do fuso em que o servidor está hospedado.
+ */
+function diaOperacao(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d)
+}
+
+/**
+ * A data de identificação não pode ser futura. A comparação usa o relógio
+ * do SERVIDOR — não a data enviada pelo cliente — para que adiantar o
+ * relógio da máquina do usuário não permita registrar uma data futura.
+ */
+function dataIdentificacaoNaoFutura(
+  dataIdentificacao: Date | null | undefined,
+  ctx: z.RefinementCtx,
+) {
+  if (!dataIdentificacao) return
+  if (diaOperacao(dataIdentificacao) > diaOperacao(new Date())) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['dataIdentificacao'],
+      message: 'A data de identificação não pode ser futura.',
+    })
+  }
+}
+
+/**
+ * A quantidade com defeito, quando informada, deve ser maior que zero e
+ * não pode exceder a soma das quantidades dos lotes (quando houver
+ * quantidades informadas nos lotes).
+ */
+function quantidadeDefeitoConsistente(
+  val: {
+    quantidadeDefeito?: number | null
+    lotes?: { quantidade: number | null }[]
+  },
+  ctx: z.RefinementCtx,
+) {
+  const qtd = val.quantidadeDefeito
+  if (qtd == null) return
+  if (qtd <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['quantidadeDefeito'],
+      message: 'A quantidade com defeito deve ser maior que zero.',
+    })
+    return
+  }
+  if (!val.lotes) return
+  const total = val.lotes.reduce((acc, l) => acc + (l.quantidade ?? 0), 0)
+  if (total > 0 && qtd > total) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['quantidadeDefeito'],
+      message:
+        'A quantidade com defeito não pode ser maior que a quantidade total dos lotes.',
+    })
+  }
+}
+
+const rncBaseSchema = z.object({
   filialId: z.string().uuid('Filial inválida'),
   fornecedorId: z.string().uuid('Fornecedor inválido'),
   tipoNaoConformidadeId: z.string().uuid('Tipo de não conformidade inválido'),
   turnoId: z.string().uuid('Turno de trabalho é obrigatório'),
-  disposicaoMaterialId: optionalUuid('Disposição inválida'),
-  origemId: optionalUuid('Origem inválida'),
-  severidadeId: optionalUuid('Severidade inválida'),
-  descricaoDefeito: z.string().trim().max(4000).optional().nullable(),
+  disposicaoMaterialId: z
+    .string({ required_error: 'Disposição do material é obrigatória' })
+    .uuid('Disposição inválida'),
+  origemId: z
+    .string({ required_error: 'Origem da não conformidade é obrigatória' })
+    .uuid('Origem inválida'),
+  severidadeId: z
+    .string({ required_error: 'Severidade é obrigatória' })
+    .uuid('Severidade inválida'),
+  descricaoDefeito: z
+    .string({ required_error: 'Descrição do defeito é obrigatória' })
+    .trim()
+    .min(1, 'Descrição do defeito é obrigatória')
+    .max(4000),
   dataIdentificacao: z.coerce.date({
     invalid_type_error: 'Data de identificação inválida',
   }),
@@ -58,7 +127,14 @@ export const rncCreateSchema = z.object({
   lotes: z
     .array(
       z.object({
-        numero: z.string().trim().min(1, 'Lote vazio').max(80),
+        // Normalizado para maiúsculas: "l123" e "L123" são o mesmo lote.
+        // O refine de duplicidade abaixo roda após esta transformação.
+        numero: z
+          .string()
+          .trim()
+          .min(1, 'Lote vazio')
+          .max(80)
+          .transform((v) => v.toUpperCase()),
         quantidade: z
           .union([
             z.coerce.number({ invalid_type_error: 'Quantidade do lote inválida' }),
@@ -66,7 +142,10 @@ export const rncCreateSchema = z.object({
           ])
           .optional()
           .nullable()
-          .transform((v) => (v === '' || v === undefined ? null : v)),
+          .transform((v) => (v === '' || v === undefined ? null : v))
+          .refine((v) => v === null || v > 0, {
+            message: 'A quantidade do lote deve ser maior que zero',
+          }),
       }),
     )
     .min(1, 'Informe ao menos um lote')
@@ -75,14 +154,65 @@ export const rncCreateSchema = z.object({
       (arr) => new Set(arr.map((l) => l.numero)).size === arr.length,
       { message: 'Não pode haver lotes duplicados' },
     ),
-  quantidadeDefeito: optionalNumber('Quantidade com defeito inválida'),
+  // Obrigatória; o superRefine abaixo garante > 0 e <= total dos lotes.
+  // No update (partial) pode ser omitida, mas não enviada como null.
+  quantidadeDefeito: z.coerce.number({
+    required_error: 'Quantidade com defeito é obrigatória',
+    invalid_type_error: 'Quantidade com defeito inválida',
+  }),
   tempoParadaMinutos: optionalNumber('Tempo de parada inválido'),
 
-  // Nota fiscal & datas
-  numeroNf: optionalString(40),
-  dataFabricacao: optionalDate('Data de fabricação inválida'),
-  dataValidade: optionalDate('Data de validade inválida'),
-  dataRecebimento: optionalDate('Data de recebimento inválida'),
+  // Notas fiscais & datas — uma RNC deve ter ao menos uma nota; cada nota
+  // exige um número e as datas são opcionais.
+  notasFiscais: z
+    .array(
+      z
+        .object({
+          numero: z
+            .string()
+            .trim()
+            .min(1, 'Nº da nota fiscal é obrigatório')
+            .max(40),
+          dataFabricacao: optionalDate('Data de fabricação inválida'),
+          dataValidade: optionalDate('Data de validade inválida'),
+          dataRecebimento: optionalDate('Data de recebimento inválida'),
+        })
+        .superRefine((n, ctx) => {
+          // Validade e recebimento não podem ser anteriores à fabricação.
+          if (n.dataFabricacao) {
+            // Fabricação não pode ser futura (no máximo o dia atual, pelo
+            // relógio do servidor — evita datas adulteradas no cliente).
+            if (diaOperacao(n.dataFabricacao) > diaOperacao(new Date())) {
+              ctx.addIssue({
+                code: 'custom',
+                path: ['dataFabricacao'],
+                message: 'A data de fabricação não pode ser futura (no máximo a data atual)',
+              })
+            }
+            if (n.dataValidade && n.dataValidade < n.dataFabricacao) {
+              ctx.addIssue({
+                code: 'custom',
+                path: ['dataValidade'],
+                message: 'A data de validade não pode ser anterior à data de fabricação',
+              })
+            }
+            if (n.dataRecebimento && n.dataRecebimento < n.dataFabricacao) {
+              ctx.addIssue({
+                code: 'custom',
+                path: ['dataRecebimento'],
+                message: 'A data de recebimento não pode ser anterior à data de fabricação',
+              })
+            }
+          }
+        }),
+    )
+    .min(1, 'Informe ao menos uma nota fiscal')
+    .max(50, 'Máximo de 50 notas fiscais por RNC')
+    .refine(
+      (arr) =>
+        new Set(arr.map((n) => n.numero.toUpperCase())).size === arr.length,
+      { message: 'Não pode haver notas fiscais com o mesmo número' },
+    ),
 
   // Transporte
   transportador: optionalString(160),
@@ -92,13 +222,67 @@ export const rncCreateSchema = z.object({
   cnhMotorista: optionalString(20),
 })
 
-export const rncUpdateSchema = rncCreateSchema.partial()
+export const rncCreateSchema = rncBaseSchema.superRefine((val, ctx) => {
+  dataIdentificacaoNaoFutura(val.dataIdentificacao, ctx)
+  quantidadeDefeitoConsistente(val, ctx)
+})
+
+export const rncUpdateSchema = rncBaseSchema
+  .partial()
+  .superRefine((val, ctx) => {
+    dataIdentificacaoNaoFutura(val.dataIdentificacao, ctx)
+    quantidadeDefeitoConsistente(val, ctx)
+  })
 
 export const rncQuerySchema = z.object({
   fornecedorId: z.string().uuid().optional(),
   tipoNaoConformidadeId: z.string().uuid().optional(),
   filialId: z.string().uuid().optional(),
+  // Filtros adicionais para drill-down do dashboard. Aceitam o sentinel
+  // "__none__" para filtrar registros sem o vínculo (campo nulo).
+  produtoId: z.string().optional(),
+  disposicaoMaterialId: z.string().optional(),
+  origemId: z.string().optional(),
+  severidadeId: z.string().optional(),
   status: rncStatusEnum.optional(),
+  /** Ciência do fornecedor. "__none__" = ainda não enviada. */
+  cienciaStatus: z
+    .enum([
+      'PENDENTE',
+      'ACEITA',
+      'RECUSADA',
+      'ACEITA_POR_DECURSO',
+      'RECUSA_ACEITA',
+      'MANTIDA_DEFINITIVA',
+      '__none__',
+    ])
+    .optional(),
+  /** Ações de contingência. "__none__" = ainda não solicitadas. */
+  contingenciaStatus: z
+    .enum([
+      'PENDENTE',
+      'EM_ANALISE',
+      'APROVADA',
+      'AJUSTE_SOLICITADO',
+      '__none__',
+    ])
+    .optional(),
+  /** Análise de causa. "__none__" = etapa ainda não aberta. */
+  causaRaizStatus: z
+    .enum(['PENDENTE', 'EM_ANALISE', 'APROVADA', 'AJUSTE_SOLICITADO', '__none__'])
+    .optional(),
+  /** Verificação de eficácia. "__none__" = etapa ainda não aberta. */
+  eficaciaStatus: z
+    .enum(['AGUARDANDO_PRAZO', 'PENDENTE', 'EFICAZ', 'NAO_EFICAZ', '__none__'])
+    .optional(),
+  /** Só as RNCs com as ações de contingência fora do prazo. */
+  contingenciaAtrasada: z
+    .union([z.literal('true'), z.literal('false'), z.boolean()])
+    .optional()
+    .transform((v) => v === true || v === 'true'),
+  // Período por data de identificação (drill-down do dashboard).
+  de: z.coerce.date().optional(),
+  ate: z.coerce.date().optional(),
   /** Quantos registros retornar quando usado como lookup ("últimas 3"). */
   limit: z.coerce.number().int().min(1).max(50).optional(),
   page: z.coerce.number().int().min(1).default(1),
